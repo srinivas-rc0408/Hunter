@@ -96,6 +96,31 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
         return []
 
 
+SAME_CAUSE, MAX_TRIES = 3, 5
+
+
+def already_applied(db: DB, job: dict) -> bool:
+    """Sent before (not a dry run), or past that stage: never apply twice."""
+    return job.get("status") in ("applied", "interview", "offer", "rejected") or bool(db.c.execute(
+        "SELECT 1 FROM applications WHERE job_id=? AND outcome='applied' AND dry=0", (job["id"],)).fetchone())
+
+
+def after_failure(db: DB, job: dict, why: str) -> bool:
+    """Count this job's failed tries. 3 with the same cause or 5 in all: take it out of the queue,
+    show the exact error on the dashboard (To review) and on Telegram. True when it gave up."""
+    cause = lambda w: re.sub(r"\d+", "#", w or "")
+    fails = [r[0] for r in db.c.execute("SELECT why FROM applications WHERE job_id=? AND outcome='failed' AND dry=0",
+                                        (job["id"],))]
+    same = sum(cause(w) == cause(why) for w in fails)
+    if same < SAME_CAUSE and len(fails) < MAX_TRIES:
+        return False
+    db.set_status(job["id"], "needs_you", f"gave up after {len(fails)} tries ({same}× this error): {why}")
+    notify.telegram(f"⛔ <b>Apply failed {len(fails)}×</b>, stopped retrying: {notify._esc(job['title'])} · "
+                    f"{notify._esc(job['company'])}\n<code>{notify._esc(why[:600])}</code>"
+                    + (f"\n{notify.apply_link(job)} yourself, or /skip_{job['id'][:8]}" if job.get("url") else ""))
+    return True
+
+
 def prune_screens(db: DB, days: int = 7) -> int:
     """Delete data/screens files older than `days` (they show your name, email, phone). The screenshot
     of every application really sent is kept. Returns how many files went."""
@@ -130,6 +155,9 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
     try:
         for n, job in enumerate(jobs, 1):
             console.rule(f"[{n}/{len(jobs)}] {job['title']} · {job['company']} · score {job['score']}")
+            if already_applied(db, job):
+                console.print("   already applied: skipped (never twice)")
+                continue
             B.RECORD.clear()
             shots = config.data_dir() / "screens"
             shots.mkdir(exist_ok=True)
@@ -207,6 +235,8 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                     db.set_status(job["id"], "skipped", detail)
                 else:
                     db.event(job["id"], "apply_failed", detail)
+                    if after_failure(db, job, out.why):
+                        console.print("[red]gave up on this job after repeated failures: it's on the dashboard[/]")
             else:
                 db.event(job["id"], "dry_run", out.why[:200])
             done.append((job, out))

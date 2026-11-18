@@ -310,5 +310,50 @@ class Screens(unittest.TestCase):
         self.assertEqual(sorted(str(f.relative_to(d)) for f in d.rglob("*")), ["new.png", "sent.png"])
 
 
+class Retries(unittest.TestCase):
+    def setUp(self):
+        from jobhunter import notify
+        self.sent, self._tg = [], notify.telegram
+        notify.telegram = lambda text: self.sent.append(text) or True
+
+    def tearDown(self):
+        from jobhunter import notify
+        notify.telegram = self._tg
+
+    def _job(self, db, title):
+        j = Job(title, "Retry Co", "Bengaluru", url="https://x.example/r")
+        db.upsert(j)
+        return db.get(j.id)
+
+    def _fail(self, db, job, why):
+        from jobhunter.apply import runner
+        db.add_application(job["id"], "linkedin", "failed", False, False, False, why, [], "", "", None, "", "")
+        return runner.after_failure(db, job, why)
+
+    def test_three_same_errors_then_stop_and_tell_you(self):
+        db = DB()
+        j = self._job(db, "Retry Engineer A")
+        self.assertFalse(self._fail(db, j, "Timeout 30000ms exceeded"))
+        self.assertFalse(self._fail(db, j, "Timeout 30001ms exceeded"))       # same cause, other numbers
+        self.assertTrue(self._fail(db, j, "Timeout 30002ms exceeded"))
+        self.assertEqual(db.get(j["id"])["status"], "needs_you")              # out of the queue, on the dashboard
+        self.assertIn("Timeout 30002ms exceeded", self.sent[-1])              # the exact error on Telegram
+
+    def test_five_different_errors_then_stop(self):
+        db = DB()
+        j = self._job(db, "Retry Engineer B")
+        self.assertEqual([self._fail(db, j, f"error {c}") for c in "abcde"], [False] * 4 + [True])
+
+    def test_never_apply_twice(self):
+        from jobhunter.apply import runner
+        db = DB()
+        j = self._job(db, "Retry Engineer C")
+        self.assertFalse(runner.already_applied(db, j))
+        db.add_application(j["id"], "linkedin", "applied", False, False, True, "", [], "", "", None, "", "")
+        self.assertFalse(runner.already_applied(db, j))                       # a dry run is not an application
+        db.add_application(j["id"], "linkedin", "applied", False, False, False, "", [], "", "", None, "", "")
+        self.assertTrue(runner.already_applied(db, j))
+
+
 if __name__ == "__main__":
     unittest.main()
