@@ -425,6 +425,33 @@ def cmd_secrets(a):
         _console().print("Easiest: `hunt secrets --push` (uses the GitHub CLI). Values aren't printed here on purpose.")
 
 
+def cmd_rescore(a):
+    """Re-score every open job with the current rules (after an update or a profile change)."""
+    from .db import DB, Job
+    from .score import score
+    db = DB()
+    fields = set(Job.__dataclass_fields__)
+    dropped, changed = [], 0
+    for r in db.query(status=["new", "alerted", "queued", "filtered"], limit=100000):
+        j = Job(**{k: r[k] for k in fields if k in r and k not in ("score", "reasons", "flags", "dream", "status")})
+        old_score, old_status = r["score"], r["status"]
+        j = score(j)
+        if j.status == "filtered" and old_status != "filtered":
+            db.c.execute("UPDATE jobs SET status='filtered', score=0, reasons=? WHERE id=?",
+                         (__import__("json").dumps(j.reasons), r["id"]))
+            dropped.append((r["title"], r["company"], j.reasons[0]))
+        else:
+            db.set_score(r["id"], j.score, j.reasons, j.flags, j.dream)
+            if old_status == "filtered" and j.status != "filtered":
+                db.c.execute("UPDATE jobs SET status='new' WHERE id=?", (r["id"],))
+        changed += j.score != old_score
+    db.c.commit()
+    c = _console()
+    for t, co, why in dropped[:40]:
+        c.print(f"[red]✗[/] {t[:60]} · {co} → {why}")
+    c.print(f"re-scored; {changed} scores changed, {len(dropped)} jobs dropped by the new rules")
+
+
 def cmd_llm(a):
     """Show the LLM chain; --test sends one tiny request through every key and model."""
     import time as _t
@@ -799,6 +826,9 @@ def main(argv=None):
     s = sub.add_parser("doctor", help="check setup")
     s.add_argument("--test-alert", action="store_true")
     s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("rescore", help="re-score open jobs with the current rules")
+    s.set_defaults(fn=cmd_rescore)
 
     s = sub.add_parser("llm", help="LLM chain: NVIDIA → Ollama → Gemini → Groq (--test checks every key)")
     s.add_argument("--test", action="store_true", help="send one tiny request per key + one through the chain")

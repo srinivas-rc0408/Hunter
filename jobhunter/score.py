@@ -19,6 +19,10 @@ from . import config
 from .db import Job
 from .util import norm
 
+# "Engineer II", "SDE-3", "Data Scientist III", "Level 4": experienced levels, not fresher roles ("Engineer I" stays).
+LEVEL = re.compile(r"\b(?:engineer|developer|scientist|analyst|sde|swe|programmer|consultant)\s*[-–]?\s*"
+                   r"(?:ii|iii|iv|v|vi|[2-6])\b(?!\s*\d)|\b(?:level|grade)\s*[3-9]\b|\bl[4-9]\b")
+GIG = re.compile(r"\$\s?\d|/\s?hr\b|per hour|\bai training\b|\bfreelance\b")
 TECH_WORDS = ("engineer", "developer", "scientist", "data", "machine learning", "ml", "ai", "software",
               "sde", "analyst", "research", "python", "backend", "full stack", "fullstack", "frontend",
               "devops", "mlops", "cloud", "nlp", "computer vision", "llm", "genai", "intern", "trainee",
@@ -138,6 +142,16 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     is_intern = job.job_type == "internship" or "intern" in title
     if yrs is not None and yrs > max_yrs and not is_intern and not dream:
         return drop(f"asks {yrs}+ years")
+    lvl = LEVEL.search(job.title.lower())
+    if lvl and not is_intern and not dream:
+        return drop(f"level role '{lvl.group(0).strip()}' (needs experience)")
+    if job.kind != "govt" and job.posted_at:
+        try:
+            age_d = (today - dt.date.fromisoformat(str(job.posted_at)[:10])).days
+        except ValueError:
+            age_d = None
+        if age_d is not None and age_d > tg.get("max_posting_age_days", 45):
+            return drop(f"posted {age_d} days ago (stale)")
     mon, yr = monthly_inr(job)
     if mon is not None:
         if is_intern and mon < tg.get("min_stipend_inr_month", 15000):
@@ -195,6 +209,9 @@ def score(job: Job, today: dt.date | None = None) -> Job:
             pts += 3
     if where.startswith("Karnataka"):
         pts += 5
+    if GIG.search(job.title.lower() + " " + (job.description or "")[:600].lower()):
+        pts -= 20
+        reasons.append("⚠ hourly / AI-training gig, not a job with a CTC (−20)")
     if dream:
         pts += 15
         reasons.insert(0, f"★ dream company: {dream} (+15)")

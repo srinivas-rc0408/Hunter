@@ -4,4 +4,4 @@ Works offline-first: scanning and ranking need no LLM; tailoring uses any
 OpenAI-compatible endpoint (local Ollama by default).
 """
 
-__version__ = "1.3.1"
+__version__ = "1.4.0"

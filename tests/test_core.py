@@ -42,6 +42,18 @@ class Scoring(unittest.TestCase):
         self.assertEqual(J("ML Engineer", description="0-1 years experience, freshers welcome").status, "new")
         self.assertEqual(years_required("Experience: 2-5 Yrs"), 2)
 
+    def test_levels_stale_and_gigs(self):
+        import datetime as _dt
+        for t in ("Data Scientist III", "(IND) Software Engineer II", "Security Engineer IV", "SDE-2 Backend"):
+            self.assertEqual(J(t).status, "filtered", t)
+        for t in ("Software Engineer", "Engineer I", "SDE I - Golang", "Forward Deployed Engineer Intern, 2027"):
+            self.assertNotEqual(J(t).status, "filtered", t)
+        old = str(_dt.date.today() - _dt.timedelta(days=400))
+        self.assertEqual(J("ML Engineer", posted_at=old).status, "filtered")
+        self.assertNotEqual(J("ML Engineer", posted_at=str(_dt.date.today())).status, "filtered")
+        gig, real = J("Data Scientist (Remote | $150–$200/hr)", loc="Bengaluru"), J("Data Scientist", loc="Bengaluru")
+        self.assertLess(gig.score, real.score - 15)
+
     def test_stipend_floor(self):
         self.assertEqual(J("AI Intern", pay_min=8000, pay_period="month", job_type="internship").status, "filtered")
         self.assertEqual(J("AI Intern", pay_min=25000, pay_period="month", job_type="internship").status, "new")

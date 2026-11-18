@@ -55,6 +55,7 @@ targets:
                         "telecaller", "voice process", "field executive"]
   exclude_companies: []
   max_years_experience_required: 1   # postings asking 2+ years are dropped
+  max_posting_age_days: 45           # older private postings are dropped (usually filled); govt exempt
 
 # Dream companies get alerts at a lower score and jump the apply queue.
 # Names are matched loosely ("Aditya Birla Capital" counts as Aditya Birla).
