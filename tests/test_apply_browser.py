@@ -146,6 +146,33 @@ class Browser(unittest.TestCase):
         self.assertFalse(c.ok, "a pre-ticked radio was taken as your answer")
         self.assertEqual(c.answer.basis, "none")
 
+    def test_linkedin_plain_text_errors_count(self):
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()                # live: bare <p>, no role/class/id
+        p.set_content('<dialog data-testid="dialog" open><p>Select or upload a resume in DOC, DOCX, or PDF format</p>'
+                      '<p>A resume is required</p><span>This field is required</span><p>Invalid input</p>'
+                      '<p>0 of 20 characters</p></dialog>')
+        self.assertEqual(sorted(B.errors(p, flows.LI_MODAL)),
+                         ["A resume is required", "Invalid input", "This field is required"])
+
+    def test_check_mode_never_presses_next_over_errors(self):
+        from jobhunter.apply import panel as PN
+        p = self.browser.new_page()
+        p.set_content('<main><button aria-label="Easy Apply to this job" onclick="document.querySelector(\'dialog\')'
+                      '.showModal()">Easy Apply</button></main><dialog data-testid="dialog"><p>A resume is required</p>'
+                      '<button aria-label="Continue to next step" onclick="window.nexts=(window.nexts||0)+1">Next</button>'
+                      '</dialog>')
+        acts, msgs = iter(["next", "later"]), []
+        old = flows.checking, PN.hand_over
+        flows.checking = lambda: True
+        PN.hand_over = lambda *a, msg="", **k: (msgs.append(msg), (next(acts), []))[1]
+        try:
+            flows.linkedin(p, self.db, JOB, None, None, dry=False)
+        finally:
+            flows.checking, PN.hand_over = old
+        self.assertIsNone(p.evaluate("window.nexts"), "pressed Next while LinkedIn showed an error")
+        self.assertTrue(all("A resume is required" in m for m in msgs), msgs)
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

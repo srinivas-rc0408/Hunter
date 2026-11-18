@@ -137,9 +137,14 @@ ERRORS_JS = r"""
   const root = rootSel ? deepOne(rootSel) : document;      // asked-for window missing: touch nothing
   if (!root) return [];
   const msgs = [];
+  const ERR_TEXT = /^(this field is required|invalid input|.{1,40} is required|please (enter|make|select|provide) .{1,60}|enter a (valid|whole|decimal) .{1,40})\.?$/i;
   deepAll(root, '[aria-invalid="true"], .artdeco-inline-feedback--error, [role="alert"], .error, .field-error, .invalid-feedback, [class*="error-message"]')
     .forEach(e => { const r = e.getBoundingClientRect(); const t = (e.innerText || '').trim();
                     if (r.width > 0 && r.height > 0 && t && t.length < 200 && !/\bsuccess/i.test(t)) msgs.push(t); });
+  // LinkedIn 2026: errors are bare <p>/<span> with no role or class ("A resume is required")
+  deepAll(root, 'p, span, div').forEach(e => { if (e.children.length) return;
+    const t = (e.innerText || '').trim(); const r = e.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0 && ERR_TEXT.test(t)) msgs.push(t); });
   return [...new Set(msgs)].slice(0, 10);
 }
 """

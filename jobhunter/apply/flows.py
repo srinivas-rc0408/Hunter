@@ -353,7 +353,7 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         all_fills.fills += res.fills
         all_fills.blockers += res.blockers
         _report(res)
-        problems = B.verify(page, res, LI_MODAL)
+        problems = B.verify(page, res, LI_MODAL) + ["LinkedIn says: " + e for e in B.errors(page, LI_MODAL)]
         sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
         is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
         if res.missing or problems or res.blockers or (res.non_basic_filled and not APPROVED):
@@ -377,13 +377,9 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
                 why = "clicked Submit but LinkedIn showed no confirmation"
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
             return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
-        clicked = B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL)
-        errs = [] if clicked else ["couldn't find Next"]
-        if clicked:
-            page.wait_for_timeout(1000)
-            errs = B.errors(page, LI_MODAL)
-        if errs:
-            why = "; ".join(errs[:3])
+        # errors are read before each Next (above), not after: the next step may open with its own
+        if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
+            why = "couldn't find Next"
             if dry:
                 return Outcome("filled", "linkedin", why=f"dry run · step {step + 1}: would wait: {why}")
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
@@ -458,6 +454,8 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
         step = [f for f in all_fills.fills if f.field["jh"] in here]
         sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
         is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
+        errs = B.errors(page, LI_MODAL)
+        msg = msg or ("LinkedIn says: " + "; ".join(errs[:3]) if errs else "")
         B.snap(page)
         act, saved = PN.hand_over(page, step, "linkedin", TITLE, root=LI_MODAL, final=is_last, msg=msg)
         saved_all += saved
@@ -471,6 +469,10 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
         if act in ("next", "submit"):
             PN.hide(page)
         if act == "next":
+            errs = B.errors(page, LI_MODAL)
+            if errs:                     # never press Next over an error LinkedIn shows: you fix it first
+                msg = "Fix first. LinkedIn says: " + "; ".join(errs[:3])
+                continue
             if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
                 msg = "I can't find Next: press LinkedIn's own Next button."
             page.wait_for_timeout(1000)

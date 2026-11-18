@@ -17,7 +17,8 @@ ea.addEventListener('click', ev => {
     const f = document.createElement('input'); f.type = 'file'; f.accept = '.pdf,.doc,.docx';
     f.onchange = () => { chosen = f.files[0].name;
       document.getElementById('easyApplyUploadedResumeRef').innerHTML =
-        '<label><input type="radio" name="resume" checked aria-checked="true"> ' + chosen + '</label>'; };
+        '<label><input type="radio" name="resume" checked aria-checked="true"> ' + chosen + '</label>';
+      [...ea.querySelectorAll('p')].filter(p => p.textContent.trim() === 'A resume is required').forEach(p => p.remove()); };
     f.click();
   } else if (b.dataset.viewName === 'continue-unify') {
     if (step === 1) { ea.dataset.tel = ea.querySelector('input[type=tel]').value; ea.innerHTML = document.getElementById('s2').innerHTML; step = 2; }
