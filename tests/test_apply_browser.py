@@ -212,6 +212,25 @@ class Browser(unittest.TestCase):
         self.assertEqual(p.input_value("#n"), "", "guessed a notice period")
         self.assertEqual(res.fills[0].answer.basis, "none")
 
+    def test_easy_apply_click_lost_is_clicked_once_more(self):
+        p = self.browser.new_page()                # live (NURY): first click did nothing, no window in 13 s
+        p.set_content('<main><button aria-label="Easy Apply to this job" onclick="if (window.c = (window.c||0)+1, c > 1)'
+                      ' document.querySelector(\'dialog\').showModal()">Easy Apply</button></main><dialog data-testid='
+                      '"dialog"><button aria-label="Submit application">Submit application</button></dialog>')
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
+        self.assertEqual(p.evaluate("window.c"), 2, o.why)
+        self.assertIn("would", o.why)
+
+    def test_slow_next_is_waited_for(self):
+        p = self.browser.new_page()                # live (NURY): window open, buttons still loading
+        p.set_content('<main><button aria-label="Easy Apply to this job" onclick="document.querySelector(\'dialog\')'
+                      '.showModal(); setTimeout(() => document.querySelector(\'dialog\').innerHTML = \'<button aria-label='
+                      '&quot;Submit application&quot;>Submit application</button>\', 3500)">Easy Apply</button></main>'
+                      '<dialog data-testid="dialog"><p>Loading…</p></dialog>')
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
+        self.assertNotIn("couldn't find Next", o.why)
+        self.assertIn("would", o.why)
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

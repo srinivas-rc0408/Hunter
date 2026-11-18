@@ -331,16 +331,22 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         site = site_of(p2.url)
         console.print(f"   company site → {site}: {p2.url[:80]}")
         return single_page(p2, db, job, resume, cover, site, dry)
-    btn.click()
-    try:
-        page.wait_for_selector(LI_MODAL, timeout=15000)
-    except Exception:
-        return Outcome("needs_you", "linkedin", why="pressed Easy Apply but its window didn't open in 15 s")
+    for wait_ms in (5000, 10000):            # live: the first click is sometimes lost: click once more
+        try:
+            if not page.locator(LI_MODAL).filter(visible=True).count():   # it may have opened just after the first wait
+                btn.click(timeout=5000)
+            page.wait_for_selector(LI_MODAL, timeout=wait_ms)
+            break
+        except Exception:
+            pass
+    else:
+        return Outcome("needs_you", "linkedin", why="pressed Easy Apply twice but its window didn't open")
     all_fills = B.FormResult()
     if checking() and not dry:
         return _linkedin_check(page, db, job, resume, cover, all_fills)
     for step in range(15):
         page.wait_for_timeout(1200)
+        _li_ready(page)
         # untick "follow company" (it's on by default)
         try:
             fc = _in(page, LI_MODAL, "input#follow-company-checkbox")
@@ -391,6 +397,22 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
             return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
     return Outcome("needs_you", "linkedin", why="too many steps")
+
+
+LI_STEP_BTN = re.compile(r"next|continue to next step|review|submit application", re.I)
+
+
+def _li_ready(page, wait_ms: int = 5000) -> bool:
+    """Wait (up to ~5 s) until the Easy Apply step has loaded its Next/Review/Submit button."""
+    for _ in range(wait_ms // 500):
+        try:
+            b = page.locator(LI_MODAL).first.get_by_role("button", name=LI_STEP_BTN)
+            if any(b.nth(i).is_visible() for i in range(b.count())):
+                return True
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+    return False
 
 
 def _li_pages(page) -> str:
@@ -459,6 +481,7 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
     msg = ""
     for _ in range(25):
         page.wait_for_timeout(1200)
+        _li_ready(page)
         if not page.locator(LI_MODAL).count():
             return Outcome("applied" if B.succeeded(page) else "needs_you", "linkedin",
                            why="sent" if B.succeeded(page) else "the Easy Apply window was closed",
