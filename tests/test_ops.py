@@ -48,6 +48,16 @@ class Morning(unittest.TestCase):
         self.assertIn("Morning brief", msg)
         self.assertIn(f"/show_{a.id[:8]}", msg)
         self.assertIn("Govt deadlines", msg)
+        self.assertIn('<a href="https://x.example/j">Apply</a>', msg)      # every job: one tap to apply
+        self.assertIn('<a href="https://iisc/x">Apply</a>', msg)
+
+    def test_alert_and_top_have_apply_links(self):
+        from jobhunter.bot import handle
+        from jobhunter.notify import format_job
+        db = DB(HOME / "data" / "links.db")
+        j = seed(db, "Data Engineer", "Link Co")
+        self.assertIn('<a href="https://x.example/j">Apply</a>', format_job(db.get(j.id)))
+        self.assertIn('<a href="https://x.example/j">Apply</a>', handle("/top", db))
 
 
 class Bot(unittest.TestCase):

@@ -30,6 +30,7 @@ import requests
 
 from . import config
 from .config import env
+from .notify import apply_link
 from .db import DB
 
 STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview", "rejected": "rejected",
@@ -77,7 +78,7 @@ def _e(s) -> str:
 def _line(j: dict) -> str:
     return (f"{'★ ' if j.get('dream') else ''}{'🏛 ' if j.get('kind') == 'govt' else ''}<b>{j['score']}</b> "
             f"{_e(j['title'][:80])} · {_e(j['company'])}" + (f" · ⏰ {j['deadline']}" if j.get("deadline") else "")
-            + f" /show_{j['id'][:8]}")
+            + f" /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
 
 
 def handle(text: str, db: DB | None = None) -> str:

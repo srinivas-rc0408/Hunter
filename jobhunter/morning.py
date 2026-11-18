@@ -18,7 +18,7 @@ import subprocess
 
 from . import config
 from .db import DB
-from .notify import telegram
+from .notify import apply_link, telegram
 from .util import iso
 
 DAILY_GOAL = 10
@@ -121,7 +121,7 @@ def as_telegram(b: dict) -> str:
         L.append(("☁ " if (b["heartbeat"][1] or 99) <= 1.5 else "⚠️ ") + e(b["heartbeat"][0]))
     L.append(f"\n<b>★ New since last brief: {len(b['new'])}</b> (open queue {b['open']})")
     for j in b["new"][:8]:
-        L.append(f"{'★ ' if j['dream'] else ''}<b>{j['score']}</b> {e(j['title'])} · {e(j['company'])} /show_{j['id'][:8]}")
+        L.append(f"{'★ ' if j['dream'] else ''}<b>{j['score']}</b> {e(j['title'])} · {e(j['company'])} /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
     if b["waiting"]:
         L.append(f"\n<b>✋ Waiting for your approval: {len(b['waiting'])}</b> (Review Center: localhost:8765)")
         for j in b["waiting"][:5]:
@@ -133,7 +133,7 @@ def as_telegram(b: dict) -> str:
     if b["govt_soon"]:
         L.append("\n<b>🏛 Govt deadlines (10 days)</b>")
         for d, j in b["govt_soon"][:6]:
-            L.append(f"⏰ {d:%d %b} · {e(j['title'][:70])} · {e(j['company'])} /show_{j['id'][:8]}")
+            L.append(f"⏰ {d:%d %b} · {e(j['title'][:70])} · {e(j['company'])} /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
     if b["interviews"]:
         L.append(f"\n<b>🎤 Interviews in progress: {len(b['interviews'])}</b>: prep with the interview drill")
     if b["gate"]:

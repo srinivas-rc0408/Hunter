@@ -24,6 +24,11 @@ def _esc(s) -> str:
     return html.escape(str(s or ""), quote=False)
 
 
+def apply_link(j: dict) -> str:
+    """One tap from Telegram to the job's apply page ("" when there's no link)."""
+    return f'<a href="{html.escape(j["url"], quote=True)}">Apply</a>' if j.get("url") else ""
+
+
 def format_job(j: dict) -> str:
     star = "★ " if j.get("dream") else ""
     gov = "🏛 " if j.get("kind") == "govt" else ""
@@ -38,7 +43,7 @@ def format_job(j: dict) -> str:
     for r in (j.get("reasons") or [])[:3]:
         lines.append("• " + _esc(clip(r, 110)))
     if j.get("url"):
-        lines.append(f'<a href="{html.escape(j["url"], quote=True)}">Open</a> · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
+        lines.append(f'{apply_link(j)} · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
     return "\n".join(lines)
 
 
@@ -104,7 +109,8 @@ def review_needed(job: dict, why: str, fields: list[dict], shot=None) -> None:
     head = (f"✋ <b>Check needed</b>: {_esc(job['title'])} · {_esc(job['company'])}\n<i>{_esc(clip(why, 200))}</i>\n")
     body = "\n".join(form_lines(fields, 25)) or "No form fields were filled."
     tail = (f"\n\nFix a field: <code>/fix_{jid} 3 your answer</code>\n"
-            f"Send as shown: /approve_{jid} · open on laptop to check: /check_{jid} · /skip_{jid}")
+            f"Send as shown: /approve_{jid} · open on laptop to check: /check_{jid} · /skip_{jid}"
+            + (f"\nOr on your phone: {apply_link(job)}" if job.get("url") else ""))
     telegram(head + body + tail)
     try:
         if shot and str(shot) and __import__("os").path.exists(str(shot)):
