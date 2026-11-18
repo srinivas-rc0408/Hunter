@@ -193,6 +193,25 @@ class Browser(unittest.TestCase):
         self.assertEqual(p.input_value("#once"), "Immediately")
         self.assertFalse(B._type(p, p.locator("#always"), "Immediately"))
 
+    def test_numeric_notice_field_uses_days_or_asks(self):
+        from jobhunter import config
+        from jobhunter.apply import browser as B
+        html = ('<dialog data-testid="dialog" open><label for="n">Notice period?</label>'
+                '<input id="n" type="text" inputmode="numeric"></dialog>')   # live: a number field, type="text"
+        p = self.browser.new_page()
+        p.set_content(html)
+        days = str(config.cfg("profile")["answers"]["notice_period_days"])
+        B.fill_form(p, JOB, None, root=flows.LI_MODAL)
+        self.assertEqual(p.input_value("#n"), days)
+        config.cfg("profile")["answers"].pop("notice_period_days")
+        try:
+            p.set_content(html)
+            res = B.fill_form(p, JOB, None, root=flows.LI_MODAL)
+        finally:
+            config.reload()
+        self.assertEqual(p.input_value("#n"), "", "guessed a notice period")
+        self.assertEqual(res.fills[0].answer.basis, "none")
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

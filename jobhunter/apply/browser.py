@@ -115,10 +115,11 @@ SCAN_JS = r"""
                combo: el.getAttribute('role') === 'combobox' || !!el.getAttribute('aria-autocomplete') ||
                       /select__input|autocomplete|typeahead/i.test(el.className || ''),
                maxlength: el.maxLength > 0 ? el.maxLength : null};
-    if (!f.maxlength && el.getAttribute('aria-describedby')) {
-      const m = el.getAttribute('aria-describedby').split(/\s+/).map(i => txt(byId(el, i))).join(' ').match(/\d+\s*(?:of|\/)\s*(\d+)\s*char/i);
-      if (m) f.maxlength = +m[1];
-    }
+    const help = (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).map(i => txt(byId(el, i))).join(' ');
+    if (!f.maxlength) { const m = help.match(/\d+\s*(?:of|\/)\s*(\d+)\s*char/i); if (m) f.maxlength = +m[1]; }
+    // LinkedIn number questions are type="text": tell them by inputmode, a "numeric" id, or the helper text
+    if (type === 'text' && (/numeric|decimal/.test(el.inputMode) || /numeric/i.test(el.id + ' ' + el.name) ||
+                            /whole number|decimal number|enter a number/i.test(help))) f.type = 'number';
     if (type === 'select') { f.options = [...el.options].map(o => ({text: o.text.trim(), value: o.value}));
                              f.value = el.selectedIndex > 0 ? el.options[el.selectedIndex].text.trim() : null; }
     else if (type === 'checkbox') f.value = el.checked;
