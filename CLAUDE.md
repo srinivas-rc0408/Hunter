@@ -1,5 +1,7 @@
 # JobHunter repo
 
+**Start here: `docs/CLAUDE_CODE_BRIEF.md`** (state, rules, and the ordered task list).
+
 Personal job-hunting system for Srinivas R C. Python 3.10+, CLI `hunt` (jobhunter/cli.py).
 
 - Run tests: `cd tests && python -m unittest discover` (Playwright Chromium needed for test_apply_browser).
