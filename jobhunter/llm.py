@@ -30,6 +30,35 @@ import requests
 
 from .config import env
 
+
+# ── memory of what worked (data/llm_state.json): the model that answered last goes first ──
+def _state_file():
+    from .config import data_dir
+    return data_dir() / "llm_state.json"
+
+
+def _state() -> dict:
+    import json
+    try:
+        return json.loads(_state_file().read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _remember(prov: str, model: str, ok: bool) -> None:
+    import json
+    st = _state()
+    row = st.setdefault(prov, {})
+    if ok:
+        row.update(good=model, at=time.time())
+    else:
+        slow = row.setdefault("slow", {})
+        slow[model] = time.time()
+    try:
+        _state_file().write_text(json.dumps(st, indent=1))
+    except OSError:
+        pass
+
 PRESETS = {
     "nvidia": ("https://integrate.api.nvidia.com/v1", "deepseek-ai/deepseek-v4-flash"),
     "ollama": ("http://localhost:11434/v1", "qwen3:4b"),
@@ -165,6 +194,15 @@ def _resolve(prov: str) -> dict | None:
         return None
     first = pick_model(prov, model, ids)
     order = [first] + [m for m in ranked(prov, ids) if m != first][:FALLBACK_MODELS + 2]
+    pinned_model = bool(env(MODEL_ENV.get(prov, ""), None))
+    st = _state().get(prov, {})
+    week = time.time() - 7 * 86400
+    good = st.get("good")
+    if not pinned_model:
+        slow = {m for m, t in (st.get("slow") or {}).items() if t > time.time() - 6 * 3600 and m != good}
+        order = [m for m in order if m not in slow] + [m for m in order if m in slow]   # timed out lately → last
+        if good in ids and st.get("at", 0) > week:
+            order = [good] + [m for m in order if m != good]                             # answered lately → first
     return {"prov": prov, "base": base, "models": order, "ids": ids}
 
 
@@ -272,6 +310,8 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                 if code == 200 and text:
                     _TURN[prov] = _TURN.get(prov, 0) + 1
                     LAST.update(prov=prov, model=model, key=mask(k))
+                    if prov != "ollama":
+                        _remember(prov, model, True)
                     return text
                 if code in (401, 403) and k:
                     _DEAD.add(k)                        # bad / revoked key: skip it from now on
@@ -279,6 +319,8 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                 if code == 429 and k:
                     _REST[k] = time.time() + 60         # rate-limited: rest this key, try the next
                     continue
+                if code == 408 and prov != "ollama":
+                    _remember(prov, model, False)       # queued/overloaded: try it last for 6 h
                 if code in (404, 410):
                     _GONE.add(model)                    # listed but retired (410 Gone): never again this run
                 next_model = True                       # 404/410 model gone, 5xx, timeout, empty reply

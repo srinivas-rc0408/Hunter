@@ -454,11 +454,13 @@ def cmd_llm(a):
             t0 = _t.time()
             c.print(f"[dim]… {prov} key {llm.mask(k)} ({model}), up to 30 s[/]")
             code, text = llm._post(p, model, k, "Reply with exactly: OK", "Say OK.", 0, 2000, timeout=30)
-            if code in (404, 410):                 # retired model: find the first live one for this key
+            if code in (404, 408, 410):            # retired or overloaded: find the first model that answers
                 for alt in p["models"][1:]:
                     c2, t2 = llm._post(p, alt, k, "Reply with exactly: OK", "Say OK.", 0, 2000, timeout=30)
-                    c.print(f"  [dim]{model} retired (HTTP {code}); {alt}: {'works' if c2 == 200 and t2 else c2}[/]")
+                    c.print(f"  [dim]{model}: {'timed out' if code == 408 else 'retired'}; {alt}: "
+                            f"{'works' if c2 == 200 and t2 else c2}[/]")
                     if c2 == 200 and t2:
+                        llm._remember(prov, alt, True)
                         code, text, model = c2, t2, alt
                         break
             dt = _t.time() - t0

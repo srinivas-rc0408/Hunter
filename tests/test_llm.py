@@ -69,6 +69,7 @@ class Chain(unittest.TestCase):
         for k in ("NVIDIA_API_KEY", "NVIDIA_API_KEYS", "NVIDIA_API_KEY_2", "NVIDIA_API_KEY_3", "NVIDIA_MODEL",
                   "GEMINI_API_KEY", "GROQ_API_KEY"):
             os.environ.pop(k, None)
+        llm._state_file().unlink(missing_ok=True)
         llm._PICKED.clear(); llm._DEAD.clear(); llm._REST.clear(); llm._TURN.clear(); llm.LAST.clear(); llm._GONE.clear(); Fake.retire_ds = False
         self.saved = dict(llm.PRESETS)
         llm.PRESETS["nvidia"] = (self.base, "deepseek-ai/deepseek-v4-flash")
@@ -131,6 +132,14 @@ class Chain(unittest.TestCase):
                          ["deepseek-ai/deepseek-v4-flash", "qwen/qwen3-next-80b-a3b-instruct"])
         Fake.log.clear()
         self.llm.chat("s", "again")
+        self.assertEqual([m for _, m, _ in Fake.log], ["qwen/qwen3-next-80b-a3b-instruct"])
+
+    def test_model_that_answered_goes_first_next_run(self):
+        os.environ["NVIDIA_API_KEY"] = "good"
+        Fake.retire_ds = True
+        self.llm.chat("s", "u")                                   # deepseek 410 → qwen answers
+        self.llm._PICKED.clear(); self.llm._GONE.clear(); Fake.log.clear()
+        self.llm.chat("s", "again")                               # new run: qwen tried first
         self.assertEqual([m for _, m, _ in Fake.log], ["qwen/qwen3-next-80b-a3b-instruct"])
 
     def test_unclosed_think_is_no_answer(self):
