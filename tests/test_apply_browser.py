@@ -183,6 +183,16 @@ class Browser(unittest.TestCase):
         self.assertEqual(p.evaluate("window.nexts"), 1, o.why)
         self.assertIn("3/5", o.why)
 
+    def test_typing_reads_back_and_retries_once(self):
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()                # live: React ate keys mid-typing → "Ipommpediate"
+        p.set_content('<input id="once"><input id="always"><script>let n = 0;'
+                      'once.oninput = () => { if (n++ === 2) once.value += "mm"; };'
+                      'always.oninput = () => { if (!always.value.endsWith("x")) always.value += "x"; };</script>')
+        self.assertTrue(B._type(p, p.locator("#once"), "Immediately"))
+        self.assertEqual(p.input_value("#once"), "Immediately")
+        self.assertFalse(B._type(p, p.locator("#always"), "Immediately"))
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

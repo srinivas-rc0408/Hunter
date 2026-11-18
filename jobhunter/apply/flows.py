@@ -353,7 +353,7 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         all_fills.fills += res.fills
         all_fills.blockers += res.blockers
         _report(res)
-        problems = B.verify(page, res, LI_MODAL) + ["LinkedIn says: " + e for e in B.errors(page, LI_MODAL)]
+        problems = B.verify(page, res, LI_MODAL)          # includes errors the page shows
         sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
         is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
         if res.missing or problems or res.blockers or (res.non_basic_filled and not APPROVED):

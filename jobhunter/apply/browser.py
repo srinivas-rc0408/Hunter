@@ -326,11 +326,16 @@ def succeeded(page) -> bool:
     return any(w in t for w in SUCCESS_WORDS)
 
 
-def _type(page, loc, value: str) -> None:
+def _type(page, loc, value: str, read_back: bool = True) -> bool:
+    """Clear, type, read back; one retry if the field doesn't hold exactly `value`. False if it still doesn't."""
     lo, hi = config.cfg("search").get("apply", {}).get("typing_delay_ms", [30, 90])
-    loc.click()
-    loc.fill("")
-    loc.press_sequentially(str(value), delay=random.randint(lo, hi))
+    for _ in range(2):
+        loc.click()
+        loc.fill("")
+        loc.press_sequentially(str(value), delay=random.randint(lo, hi))
+        if not read_back or loc.input_value().strip() == str(value).strip():
+            return True
+    return False
 
 
 # Every field the bot touches for the current job, for the Review Center record.
@@ -491,7 +496,7 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
         return
     loc = page.locator(sel)
     if f.get("combo"):
-        _type(page, loc, value)
+        _type(page, loc, value, read_back=False)      # the site rewrites it to the picked option
         human_pause(0.7, 1.2)
         opt = page.locator('[role="option"], .select__option, li[id*="option"], .basic-typeahead__selectable').first
         if opt.count():
@@ -502,8 +507,9 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
     elif t == "textarea" and f["tag"] != "textarea":     # contenteditable
         loc.click()
         loc.press_sequentially(value, delay=20)
-    else:
-        _type(page, loc, value)
+    elif not _type(page, loc, value):
+        fill.why = f"typed {value!r} twice but the field shows {loc.input_value()[:30]!r}"
+        return
     fill.ok, fill.chosen = True, value
 
 
