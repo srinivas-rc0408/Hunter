@@ -290,5 +290,25 @@ class Outputs(unittest.TestCase):
         self.assertIn("AI Engineer", f.read_text())
 
 
+class Screens(unittest.TestCase):
+    def test_old_screens_go_but_sent_applications_stay(self):
+        import os
+        import time
+        from jobhunter.apply import runner
+        d = config.data_dir() / "screens"
+        (d / "dryrun-1").mkdir(parents=True, exist_ok=True)
+        old = time.time() - 8 * 86400
+        files = {n: d / n for n in ("sent.png", "dry.png", "page.html", "dryrun-1/01.png", "new.png")}
+        for f in files.values():
+            f.write_text("x")
+            if f.name != "new.png":
+                os.utime(f, (old, old))
+        db = DB()
+        db.add_application("j1", "linkedin", "applied", False, False, False, "", [], str(files["sent.png"]), "", None, "", "")
+        db.add_application("j2", "linkedin", "applied", False, False, True, "", [], str(files["dry.png"]), "", None, "", "")
+        runner.prune_screens(db)
+        self.assertEqual(sorted(str(f.relative_to(d)) for f in d.rglob("*")), ["new.png", "sent.png"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -96,6 +96,20 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
         return []
 
 
+def prune_screens(db: DB, days: int = 7) -> int:
+    """Delete data/screens files older than `days` (they show your name, email, phone). The screenshot
+    of every application really sent is kept. Returns how many files went."""
+    keep = {r[0] for r in db.c.execute("SELECT screenshot FROM applications WHERE outcome='applied' AND dry=0")}
+    root, cutoff, n = config.data_dir() / "screens", time.time() - days * 86400, 0
+    for f in sorted(root.rglob("*"), reverse=True):          # files before their folders
+        if f.is_file() and str(f) not in keep and f.stat().st_mtime < cutoff:
+            f.unlink()
+            n += 1
+        elif f.is_dir() and not any(f.iterdir()):
+            f.rmdir()
+    return n
+
+
 def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
     db = DB()
     flows.APPROVED, flows.SUBMIT_NOW = approve, submit_now
@@ -207,6 +221,7 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                 except Exception:
                     pass
     finally:
+        prune_screens(db)
         flows.APPROVED = flows.SUBMIT_NOW = False
         for closer in (ctx.close, pw.stop):
             try:
