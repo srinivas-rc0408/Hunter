@@ -1,0 +1,21 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn-style Easy Apply</title>
+<style>.hidden{display:none}</style></head><body>
+<button class="jobs-apply-button" aria-label="Easy Apply to AI Engineer at Foo" onclick="document.getElementById('m').classList.remove('hidden')">Easy Apply</button>
+<div id="m" role="dialog" class="jobs-easy-apply-modal hidden"><form onsubmit="return false">
+  <div id="s1">
+    <div class="fb-dash-form-element"><label for="e1">Email address</label><select id="e1" required><option>Select an option</option><option>asha@example.com</option></select></div>
+    <div class="fb-dash-form-element"><label for="p1">Mobile phone number</label><input id="p1" required></div>
+    <button type="button" aria-label="Continue to next step" onclick="s1.classList.add('hidden');s2.classList.remove('hidden')">Next</button>
+  </div>
+  <div id="s2" class="hidden">
+    <fieldset data-test-form-builder-radio-button-form-component="true"><legend><span>Are you legally authorized to work in India?</span></legend>
+      <input type="radio" id="a1" name="auth" value="Yes" required><label for="a1">Yes</label>
+      <input type="radio" id="a2" name="auth" value="No"><label for="a2">No</label></fieldset>
+    <div class="fb-dash-form-element"><label for="n1">Notice period (days)</label><input id="n1" type="number" required></div>
+    <button type="button" aria-label="Review your application" onclick="s2.classList.add('hidden');s3.classList.remove('hidden')">Review</button>
+  </div>
+  <div id="s3" class="hidden">
+    <input type="checkbox" id="follow-company-checkbox" checked><label for="follow-company-checkbox">Follow Foo</label>
+    <button type="button" aria-label="Submit application" onclick="document.getElementById('m').innerHTML='<h3>Your application was sent to Foo</h3>'">Submit application</button>
+  </div>
+</form></div></body></html>

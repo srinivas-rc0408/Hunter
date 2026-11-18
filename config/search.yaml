@@ -1,0 +1,97 @@
+# What to scan, how often, and how picky to be.
+
+country: India
+default_location: "Bengaluru, Karnataka, India"
+
+# Each query runs on every enabled board for each location. Keep queries tight:
+# boards cap results per search, and broad queries bury good roles.
+queries:
+  - {term: "machine learning engineer", job_type: fulltime}
+  - {term: "AI engineer", job_type: fulltime}
+  - {term: "generative AI engineer", job_type: fulltime}
+  - {term: "data scientist fresher", job_type: fulltime}
+  - {term: "software engineer fresher", job_type: fulltime}
+  - {term: "graduate engineer trainee", job_type: fulltime}
+  - {term: "machine learning intern", job_type: internship}
+  - {term: "AI intern", job_type: internship}
+  - {term: "data science intern", job_type: internship}
+  - {term: "software engineer intern", job_type: internship}
+  - {term: "python developer intern", job_type: internship}
+  - {term: "Aditya Birla", job_type: null}      # dream company sweep
+  - {term: "Birlasoft", job_type: null}         # dream company sweep
+
+# Karnataka only (your rule). "Remote" results are kept only if remote-in-India.
+locations:
+  - "Bengaluru, Karnataka, India"
+  - "Mysuru, Karnataka, India"
+  - "Mangaluru, Karnataka, India"
+  - "Hubballi, Karnataka, India"
+  - "Karnataka, India"
+
+# Accepted location words (lower-case). A job must match one, or be remote-India.
+karnataka_places: [karnataka, bengaluru, bangalore, "bengaluru urban", "bengaluru rural",
+  whitefield, "electronic city", koramangala, "hsr layout", marathahalli, "outer ring road",
+  hebbal, yelahanka, "manyata", "bellandur", "sarjapur", jayanagar, "jp nagar", indiranagar,
+  "rajajinagar", "peenya", "devanahalli", mysuru, mysore, mangaluru, mangalore, udupi, manipal,
+  hubballi, hubli, dharwad, belagavi, belgaum, kalaburagi, gulbarga, shivamogga, shimoga,
+  tumakuru, tumkur, davanagere, ballari, bellary, hassan, mandya, chikkamagaluru, karwar,
+  bidar, raichur, vijayapura, bijapur, bagalkot, chitradurga, kolar, ramanagara, hosur]
+# hosur is Tamil Nadu but on Bengaluru's border; delete it if you want strict Karnataka.
+
+boards:
+  linkedin:  {enabled: true,  results: 40, fetch_description: true}   # logged-out guest search; never touches your account
+  indeed:    {enabled: true,  results: 40}
+  naukri:    {enabled: true,  results: 40}
+  glassdoor: {enabled: false, results: 20}   # blocks most cloud IPs; enable on laptop if you like
+  google:    {enabled: true,  results: 20}
+
+hours_old: 48         # normal scans look back 2 days; dedupe stops repeats
+proxies: []           # optional: ["user:pass@host:port"] if LinkedIn starts returning 429
+pause_between_queries_sec: 3
+
+# Light scans (GitHub Actions every 30 min) use a subset so each run is quick
+# and LinkedIn doesn't rate-limit the runner. Full scans run every 3 hours.
+light_scan:
+  boards: [linkedin, naukri]
+  locations: ["Bengaluru, Karnataka, India"]
+  max_queries: 8
+
+company_boards:
+  enabled: true       # Greenhouse / Lever / Ashby / Workday boards from config/companies.yaml
+  india_only: true    # then the Karnataka/remote filter applies
+
+govt:
+  enabled: true
+
+scoring:
+  alert_threshold: 60        # Telegram alert at or above this score
+  dream_alert_threshold: 35  # dream companies alert lower
+  govt_alert: eligible_or_check   # alert govt notices that are eligible or need a check
+  digest_top_n: 20
+
+apply:
+  # basic_auto:   fill everything; auto-submit ONLY when every field is a fact
+  #               you gave (private.yaml / profile.yaml / answers.yaml).
+  # review_first: fill + record everything, submit NOTHING until you press
+  #               "Approve & Submit" in the Review Center (http://localhost:8765).
+  mode: basic_auto
+  # When a form needs you: "queue" records it for the Review Center and moves on
+  # to the next job (fast); "wait" keeps the browser open until you finish it.
+  on_needs_you: queue
+  # Resume to upload: "tailored" = one-page PDF per job (hunter-resume ATS + truth
+  # check); "own" = config/resume.pdf exactly as you made it.
+  resume: tailored
+  sites_allowed_auto: [greenhouse, lever, ashby, linkedin, naukri, generic]
+  never_auto_submit_on: [workday, indeed, govt]   # account creation / captcha / fees
+  max_auto_submits_per_day: 25                    # all sites together
+  max_per_site_per_day: {linkedin: 20, naukri: 25}
+  min_score_for_auto: 45
+  pause_range_sec: [35, 90]                       # human-like gap between applications
+  typing_delay_ms: [30, 90]
+  browser_profile_dir: data/browser-profile       # log in to LinkedIn/Naukri here once
+  headless: false
+  wait_for_you_sec: 600                           # how long a paused form waits for your click
+
+schedule:
+  light_minutes: 60
+  full_minutes: 240

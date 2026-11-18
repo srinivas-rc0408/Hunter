@@ -1,0 +1,91 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  TEST FIXTURE (fictional person) used by the test suite. Your personal facts. NEVER committed (see .gitignore).
+#  Merged over config/profile.yaml at runtime. The cloud radar gets it from
+#  the PRIVATE_YAML GitHub secret (see README → Cloud radar).
+#  Every value here was given by you or copied from your resume PDF.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Asha K R
+first_name: Asha
+last_name: K R
+preferred_name: Asha
+email: asha@example.com
+alt_email: you.alt@example.com
+phone: "+91 90000 00001"
+phone_digits: "9000000001"
+country_code: "+91"
+
+father_name: Ramesh K
+mother_name: Lakshmi
+
+gender: null
+date_of_birth: 2004-07-21
+nationality: Indian
+marital_status: null                 # not given; forms asking it wait for you
+religion: null                       # never auto-answered
+
+location:
+  city: Bengaluru
+  state: Karnataka
+  country: India
+  district: Bengaluru Urban
+  pincode: "560001"                  # where you live now (Bengaluru)
+  alt_pincode: "560002"              # your other Bengaluru-area address
+  address: null                      # street address not given; forms asking it wait for you
+  permanent:
+    district: Mysuru
+    district_aliases: [Mysuru, Mysore]
+    state: Karnataka
+    pincode: "560003"
+  home_district: Mysuru
+  kalyana_karnataka_371j: false
+
+# Govt-only. Never typed into a private company's form.
+category: SC
+category_state: Karnataka
+caste_certificate: true              # you have it. Confirm it's the CENTRAL format for central posts
+sc_subgroup: null                    # Karnataka 6-6-5 internal quota: A, B or C (see docs/private/GOVT_GUIDE.md)
+pwd: false
+ex_serviceman: false
+
+languages:
+  - {name: Kannada, read: true, write: true, speak: true, studied_upto: "Class 12"}
+  - {name: English, read: true, write: true, speak: true}
+  - {name: Hindi,   read: true, write: true, speak: true}
+  - {name: Telugu,  read: false, write: false, speak: true}
+
+education:
+  - level: bachelors
+    institution: REVA University, Bengaluru
+    degree: B.Tech
+    branch: Artificial Intelligence and Machine Learning
+    start: 2023
+    end: 2027
+    cgpa: 8.0
+    cgpa_scale: 10
+    percent_equivalent: null         # get REVA's official conversion; null = never typed
+    backlogs: 0
+    final_year: true
+  - level: class12
+    degree: PUC (PCMB)
+    stream: PCMB
+    board: Department of Pre-University Education, Karnataka
+    institution: MES College of Arts, Science and Commerce, Bengaluru
+    year: 2023
+    percent: 83
+  - level: class10
+    degree: ICSE (Class X)
+    board: CISCE (ICSE)
+    institution: Mount Senoria School, Bengaluru
+    year: 2021
+    percent: 89
+
+exams:
+  gate:
+    - {year: 2027, paper: DA, status: registered, exam_window: "2027-02-06..2027-02-21",
+       score: null, rank: null, valid_until: 2030-03-31}
+
+answers:
+  expected_ctc_lpa: null                # what you ask for (you: "at least 6+ or 8+ LPA")
+  expected_stipend_month: null      # internships (decided for you: Bengaluru AI/ML median band)
+
+unconfirmed: [education.1.year]

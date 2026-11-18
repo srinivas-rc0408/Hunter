@@ -1,0 +1,55 @@
+# Company career boards read directly (public ATS APIs built for job seekers).
+# These usually list roles hours before they reach LinkedIn/Naukri.
+# Add a company: find its job-board URL —
+#   job-boards.greenhouse.io/<token> → {type: greenhouse, token: <token>}
+#   jobs.lever.co/<token>            → {type: lever, token: <token>}
+#   jobs.ashbyhq.com/<token>         → {type: ashby, token: <token>}
+# then run `hunt boards verify`.
+# `checked` = verified live on that date.
+
+boards:
+  # India-heavy (verified 2026-11-17)
+  - {company: CRED,        type: lever,      token: cred,        checked: 2026-11-17}
+  - {company: Meesho,      type: lever,      token: meesho,      checked: 2026-11-17}
+  - {company: Zeta,        type: lever,      token: zeta,        checked: 2026-11-17}
+  - {company: Rubrik,      type: greenhouse, token: rubrik,      checked: 2026-11-17}
+  - {company: Glean,       type: greenhouse, token: gleanwork,   checked: 2026-11-17}
+  - {company: HackerRank,  type: greenhouse, token: hackerrank,  checked: 2026-11-17}
+  - {company: Sarvam AI,   type: ashby,      token: sarvam,      checked: 2026-11-17}
+  # Global companies with India offices (verified 2026-10-15 by hunter-skill)
+  - {company: Databricks,  type: greenhouse, token: databricks,  checked: 2026-10-15}
+  - {company: Stripe,      type: greenhouse, token: stripe,      checked: 2026-10-15}
+  - {company: Coinbase,    type: greenhouse, token: coinbase,    checked: 2026-10-15}
+  - {company: Cloudflare,  type: greenhouse, token: cloudflare,  checked: 2026-10-15}
+  - {company: MongoDB,     type: greenhouse, token: mongodb,     checked: 2026-10-15}
+  - {company: Twilio,      type: greenhouse, token: twilio,      checked: 2026-10-15}
+  - {company: Datadog,     type: greenhouse, token: datadog,     checked: 2026-10-15}
+  - {company: GitLab,      type: greenhouse, token: gitlab,      checked: 2026-10-15}
+  - {company: Samsara,     type: greenhouse, token: samsara,     checked: 2026-10-15}
+  - {company: Anthropic,   type: greenhouse, token: anthropic,   checked: 2026-10-15}
+  - {company: OpenAI,      type: ashby,      token: openai,      checked: 2026-10-15}
+  - {company: Perplexity,  type: ashby,      token: perplexity,  checked: 2026-10-15}
+  - {company: NVIDIA,      type: workday,    host: nvidia.wd5.myworkdayjobs.com, tenant: nvidia, site: NVIDIAExternalCareerSite, checked: 2026-10-15}
+
+# Companies with no public feed: covered through LinkedIn/Naukri/Google scans,
+# plus a reminder link in the dashboard.
+manual:
+  - {company: Google,    careers: "https://www.google.com/about/careers/applications/jobs/results?location=India"}
+  - {company: Microsoft, careers: "https://jobs.careers.microsoft.com/global/en/search?lc=India"}
+  - {company: Amazon,    careers: "https://www.amazon.jobs/en/locations/bangalore-india"}
+  - {company: Flipkart,  careers: "https://www.flipkartcareers.com/#!/joblist"}
+  - {company: Atlassian, careers: "https://www.atlassian.com/company/careers/all-jobs?location=India"}
+
+# Career pages with no public API: watched for new job links (diffed each scan).
+# Dream companies live here too, so a new Birla posting reaches you fast even
+# before LinkedIn indexes it.
+watch:
+  - {company: Aditya Birla Group, url: "https://careers.adityabirla.com/job-search", dream: true,
+     include: [engineer, developer, data, analytics, "machine learning", "ai", scientist, intern,
+               trainee, graduate, software, digital, technology, it],
+     exclude: [sales, marketing, finance, hr, "human resources", plant, mechanical, chemical]}
+  - {company: Aditya Birla Group, url: "https://careers.adityabirla.com/leadership-programs", dream: true,
+     include: [program, programme, graduate, trainee, leadership, apply]}
+  - {company: Birlasoft, url: "https://jobs.birlasoft.com/", dream: true,
+     include: [engineer, developer, data, "machine learning", "ai", scientist, intern, trainee,
+               graduate, software, analyst, python]}

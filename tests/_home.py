@@ -1,0 +1,38 @@
+"""Isolated JOBHUNTER_HOME per test run: a copy of config/, the real skills/, an empty data/."""
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def make_home() -> Path:
+    home = Path(tempfile.mkdtemp(prefix="jh-test-"))
+    shutil.copytree(ROOT / "config", home / "config", ignore=shutil.ignore_patterns("private.yaml", "resume.pdf"))
+    shutil.copy(ROOT / "tests" / "fixtures" / "private.test.yaml", home / "config" / "private.yaml")
+    os.symlink(ROOT / "skills", home / "skills")
+    (home / "data").mkdir()
+    os.environ["JOBHUNTER_HOME"] = str(home)
+    for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SMTP_USER", "SMTP_PASS"):
+        os.environ.pop(k, None)
+    os.environ["LLM_PROVIDER"] = "none"
+    from jobhunter import config
+    config.reload()
+    import yaml
+    sp = home / "config" / "search.yaml"
+    d = yaml.safe_load(sp.read_text())
+    d["apply"]["typing_delay_ms"] = [0, 1]        # fast tests
+    sp.write_text(yaml.safe_dump(d))
+    config.reload()
+    from jobhunter.apply import browser
+    browser.human_pause = lambda a=0, b=0: None
+    return home
+
+
+def write_pdf(path: Path) -> Path:
+    from reportlab.pdfgen import canvas
+    c = canvas.Canvas(str(path))
+    c.drawString(72, 760, "Test resume")
+    c.save()
+    return path

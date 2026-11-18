@@ -1,0 +1,15 @@
+[Unit]
+Description=JobHunter Review Center (http://localhost:8765)
+After=network.target
+
+[Service]
+WorkingDirectory=%h/jobhunter
+ExecStart=%h/jobhunter/.venv/bin/hunt review
+Restart=on-failure
+RestartSec=5
+# the Approve button opens a visible browser window on your desktop
+Environment=DISPLAY=:0
+PassEnvironment=WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+data/*
+!data/.gitkeep
+hunter/
+*.egg-info/
+.pytest_cache/
+config/private.yaml
+config/resume.pdf
+config/advantages.yaml
+docs/private/

@@ -1,0 +1,122 @@
+# Government job radar: official sources, relevance rules, eligibility rules,
+# and the known calendar. Facts below were checked on 2026-11-17 against the
+# sources listed; anything marked `expected` is a forecast from the last cycle.
+#
+# Govt applications can't be auto-submitted (OTP, fee payment, document upload,
+# eKYC). The radar finds them early, checks eligibility, and reminds you before
+# deadlines. You apply on the official portal.
+
+respect_robots_txt: true    # sites that disallow bots are skipped and shown as "check manually"
+
+sources:
+  # ── Central: best salary + career for CS/AI&ML in Bengaluru ──
+  - {id: isro,   name: ISRO Careers,                   url: "https://www.isro.gov.in/Careers.html",           kind: central, base: "https://www.isro.gov.in/"}
+  - {id: nic,    name: NIC Recruitment,                url: "https://recruitment.nic.in/",                    kind: central}
+  - {id: drdo_rac, name: DRDO RAC,                     url: "https://rac.gov.in/",                            kind: central}
+  - {id: drdo,   name: DRDO Careers,                   url: "https://www.drdo.gov.in/drdo/careers",           kind: central}
+  - {id: cdac,   name: C-DAC Careers,                  url: "https://careers.cdac.in/",                       kind: central}
+  - {id: cdot,   name: C-DOT Careers,                  url: "https://www.cdot.in/cdotweb/web/career.php",     kind: central}
+  - {id: iisc,   name: IISc Careers,                   url: "https://iisc.ac.in/careers/",                    kind: central}
+  - {id: nal,    name: CSIR-NAL Recruitment,           url: "https://www.nal.res.in/en/recruitment",          kind: central}
+  - {id: ada,    name: Aeronautical Development Agency, url: "https://www.ada.gov.in/",                       kind: central}
+  - {id: gate,   name: GATE 2027 (IIT Madras),         url: "https://gate2027.iitm.ac.in/",                   kind: exam}
+  # ── PSUs (Bengaluru HQ / big Bengaluru units) ──
+  - {id: bel,    name: BEL Job Notifications,          url: "https://bel-india.in/job-notifications/",        kind: psu}
+  - {id: hal,    name: HAL Careers,                    url: "https://hal-india.co.in/career",                 kind: psu}
+  - {id: beml,   name: BEML Careers,                   url: "https://www.bemlindia.in/careers/",              kind: psu}
+  # ── Banks (IT officer posts) ──
+  - {id: ibps,   name: IBPS,                           url: "https://www.ibps.in/",                           kind: bank}
+  - {id: sbi,    name: SBI Careers,                    url: "https://sbi.co.in/web/careers",                  kind: bank}
+  # ── Karnataka state ──
+  - {id: kea,    name: KEA Recruitment,                url: "https://cetonline.karnataka.gov.in/kea/",        kind: state}
+  - {id: kpsc,   name: KPSC,                           url: "https://kpsc.kar.nic.in/",                       kind: state}   # robots.txt disallows bots → manual reminder
+  - {id: kptcl,  name: KPTCL,                          url: "https://kptcl.karnataka.gov.in/",                kind: state}
+  - {id: keonics, name: KEONICS (Karnataka electronics/IT PSU), url: "https://www.keonics.in/",          kind: state}
+  # ── Aggregators (fallback only; always confirm on the official site) ──
+  - {id: agg_karnataka, name: "Aggregator: Karnataka govt jobs", url: "https://govtserviceinfo.com/state/karnataka/", kind: aggregator}
+
+relevance:
+  # A notice is "relevant" if its text matches any of these (case-insensitive)…
+  include: [recruitment, notification, advertisement, advt, vacancy, vacancies, "apply online",
+            "ನೇಮಕಾತಿ", "ಅಧಿಸೂಚನೆ", scientist, engineer, "computer science", "information technology",
+            "artificial intelligence", "machine learning", "data science", programmer, software,
+            "project engineer", "project associate", "trainee engineer", "probationary engineer",
+            "it officer", "systems officer", "assistant programmer"]
+  # …and none of these
+  exclude: ["answer key", "admit card", "hall ticket", "result", "merit list", "provisional list",
+            "selection list", "interview schedule", "cut off", "cut-off", "tender", "corrigendum to tender",
+            "rti", "photo gallery", "annual report", "press release"]
+  # Bonus: notices that match these are TECH and ranked first
+  tech: ["computer science", "cse", "information technology", "artificial intelligence", "machine learning",
+         "data science", "software", "scientist", "programmer", "it officer", "systems", "cyber", "ai "]
+
+# Your eligibility is checked against these known recruiters. Values come from
+# the most recent official notification; the radar re-reads each new PDF and
+# flags anything that differs.
+rules:
+  - match: "isro|icrb|scientist/engineer.?sc"
+    name: "ISRO Scientist/Engineer 'SC' (Computer Science)"
+    pay: "Pay Level 10 (₹56,100 basic)"
+    min_cgpa: 6.84
+    min_percent: 65
+    age_max: 28
+    branches_listed: [computer science]
+    branch_risk: "2026 ICRB notices listed 'Computer Science Engineering'; AI&ML is not named. Confirm before paying a fee, or email ICRB to ask"
+    routes: ["GATE score (ICRB:02 style, July)", "ISRO CBT + interview (ICRB:03 style, August)"]
+    final_year_ok: check
+    source: "ISRO ICRB advts 02(EMC-CEPO):2026 dated 28 Jul 2026 and 03(EMC):2026 dated 27 Aug 2026"
+  - match: "nic|national informatics|scientist.?'?b'?"
+    name: "NIC Scientist-B"
+    pay: "Pay Level 10 (₹56,100 basic)"
+    gate_required: true
+    gate_papers: [CS, DA, EC]
+    gate_years_valid: 3
+    age_max: 35                       # UR; SC +5 = 40
+    branches_listed: [computer science, information technology, electronics, data science,
+                      artificial intelligence, cyber security, software systems, informatics]
+    degree_in_hand: true              # final-year students ineligible unless results are out
+    selection: "GATE score + interview"
+    note: "2026 cycle listed 'Artificial Intelligence' and 'Data Science', so AI&ML should qualify, but confirm in the 2027/2028 notice. The notice comes ~1 week after GATE results (March), before your 2027 results, so plan on the 2028 cycle with your GATE DA 2027 score."
+    source: "NIC advt NIC/SCB/2026/1 (short advt 5 Feb 2026; 243 posts)"
+  - match: "scientific.?/?technical assistant|sta-?a"
+    name: "NIC Scientific/Technical Assistant-A"
+    pay: "Pay Level 6 (₹35,400 basic), Group B"
+    gate_required: true
+    gate_papers: [CS, DA, EC]
+    branches_listed: [electronics, computer science, computer and networking security, software system,
+                      information technology, informatics]
+    branch_risk: "2026 notice did NOT list AI/ML and said no equivalent qualification is entertained"
+    age_max: 30                       # UR; SC 35
+    fee_sc: 0
+    source: "NIC advt NIC/STA/2026/2 (1–30 Sep 2026; 376 posts, 50 via GATE DA)"
+  - match: "drdo|rac|scientist.?b"
+    name: "DRDO Scientist-B (via RAC)"
+    pay: "Pay Level 10"
+    gate_required: true
+    min_percent: 60
+    source: "DRDO RAC Scientist-B notifications (GATE based)"
+  - match: "bel|bharat electronics"
+    name: "BEL Probationary / Trainee / Project Engineer"
+    note: "BEL runs its own CBT for Probationary Engineer; Trainee/Project Engineer posts are contract roles at Bengaluru units"
+  - match: "kea|kpsc|karnataka|keonics|kptcl|bescom|kpcl"
+    name: "Karnataka state posts"
+    age_limits_state: {GM: 35, "2A": 38, "2B": 38, "3A": 38, "3B": 38, SC: 40, ST: 40, "Cat-1": 40}
+    temporary_relaxation_years: 5     # cabinet decision Jan 2026, direct recruitment, till 31 Dec 2027
+    temporary_relaxation_until: 2027-12-31
+    kannada_test_exempt_if: "studied Kannada as a language in SSLC (you did, through Class 12)"
+    note: "SC reservation for Karnataka is 17% of state posts (internal sub-classification applies; read the post-wise vacancy table). Use your Karnataka-issued caste certificate in the state format. Central posts need the central-format certificate."
+    source: "Deccan Herald 23 Jan 2026 (cabinet: +5 years, all categories, till 31 Dec 2027); Karnataka Civil Services (General Recruitment) Rules base limits"
+
+# Known dates (official) and expected windows (forecast from the last cycle).
+calendar:
+  - {date: 2026-11-30, event: "GATE 2027 application correction window closes", status: reported}
+  - {date: 2027-01-04, event: "GATE 2027 exam-city intimation", status: official}
+  - {date: 2027-02-06, event: "GATE 2027 exams begin (6,7,13,14,20,21 Feb)", status: official}
+  - {date: 2027-03-19, event: "GATE 2027 result", status: official}
+  - {date: 2027-03-25, event: "NIC Scientist-B notification (likely before your degree results; use GATE DA 2027 in the 2028 cycle)", status: expected}
+  - {date: 2027-07-01, event: "IBPS SO (IT Officer) notification window opens: degree in hand needed by the closing date", status: expected}
+  - {date: 2027-12-31, event: "Karnataka's temporary +5-year age relaxation ends", status: official}
+  - {date: 2027-07-25, event: "ISRO ICRB GATE-route Scientist/Engineer SC advt (2026: 28 Jul)", status: expected}
+  - {date: 2027-08-25, event: "ISRO ICRB CBT-route Scientist/Engineer SC advt (2026: 27 Aug)", status: expected}
+  - {date: 2027-08-25, event: "GATE 2028 registration opens (2027 cycle opened 27 Aug–2 Sep 2026)", status: expected}
+

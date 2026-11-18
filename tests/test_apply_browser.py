@@ -1,0 +1,101 @@
+"""Real Chromium against local copies of the form shapes the bot meets.
+
+basic_ats.html       Greenhouse-style page, every required field a basic fact → AUTO-SUBMIT
+needs_you.html       expected CTC + essay + per-skill years → fills, WAITS for you
+linkedin_modal.html  3-step Easy Apply modal (select, radio, number, follow-company) → AUTO-SUBMIT
+"""
+import unittest
+from pathlib import Path
+
+from _home import ROOT, make_home, write_pdf
+
+HOME = make_home()
+
+from jobhunter.apply import flows  # noqa: E402
+from jobhunter.db import DB  # noqa: E402
+
+FX = ROOT / "tests" / "fixtures" / "forms"
+JOB = {"id": "test1234", "title": "ML Intern", "company": "Acme", "score": 80, "dream": False, "url": ""}
+
+
+class Browser(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from playwright.sync_api import sync_playwright
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+        cls.resume = write_pdf(HOME / "config" / "resume.pdf")
+        cls.db = DB()
+        cls.waited = []
+        flows.wait_for_you = lambda page, res, site, root=None: (cls.waited.append(site), (False, 0))[1]
+        flows._report = lambda res: None
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def page(self, name):
+        p = self.browser.new_page()
+        p.goto((FX / f"{name}.html").as_uri())
+        return p
+
+    def test_basic_form_auto_submits(self):
+        p = self.page("basic_ats")
+        o = flows.single_page(p, self.db, JOB, self.resume, None, "greenhouse", dry=False)
+        self.assertEqual((o.status, o.auto), ("applied", True), o.why)
+        self.assertIn("thank you", p.inner_text("body").lower())
+
+    def test_basic_form_fills_correctly(self):
+        p = self.page("basic_ats")
+        o = flows.single_page(p, self.db, JOB, self.resume, None, "greenhouse", dry=True)
+        self.assertIn("AUTO-SUBMIT", o.why)
+        v = lambda sel: p.input_value(sel)
+        self.assertEqual(v("#first_name"), "Asha")
+        self.assertEqual(v("#dob"), "21/07/2004")
+        self.assertEqual(v("#fn"), "Ramesh K")
+        self.assertEqual(v("#mn"), "Lakshmi")
+        self.assertEqual(p.locator("#deg").evaluate("e => e.options[e.selectedIndex].text"), "B.E./B.Tech")
+        self.assertTrue(p.is_checked("input[name=reloc][value=y]"))
+        self.assertTrue(p.is_checked("input[name=bk][value=n]"))       # backlogs 0 → "No"
+        self.assertTrue(p.is_checked("#gdpr"))
+        self.assertFalse(p.is_checked("#news"))                          # marketing left unticked
+        self.assertEqual(v("#why"), "")                                  # optional essay left empty
+        self.assertEqual(p.locator("#resume").evaluate("e => e.files[0].name"), "resume.pdf")
+
+    def test_non_basic_form_waits(self):
+        before = len(self.waited)
+        p = self.page("needs_you")
+        o = flows.single_page(p, self.db, JOB, self.resume, None, "greenhouse", dry=False)
+        self.assertEqual(o.status, "needs_you")
+        self.assertEqual(len(self.waited), before + 1)
+        self.assertNotIn("received", p.inner_text("body").lower())     # never submitted
+        self.assertEqual(p.input_value("#name"), "Asha K R")         # but filled what it could
+        for m in ("Expected CTC", "Why do you want", "Kubernetes"):
+            self.assertTrue(any(m in x for x in o.missing), o.missing)
+
+    def test_linkedin_easy_apply_multistep(self):
+        p = self.page("linkedin_modal")
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=False)
+        self.assertEqual((o.status, o.auto), ("applied", True), o.why)
+        self.assertIn("application was sent", p.inner_text("body").lower())
+
+    def test_fill_only_mode_never_submits(self):
+        from jobhunter import config
+        config.cfg("search")["apply"]["mode"] = "fill_only"
+        try:
+            p = self.page("basic_ats")
+            o = flows.single_page(p, self.db, JOB, self.resume, None, "greenhouse", dry=False)
+            self.assertEqual(o.status, "needs_you")
+            self.assertNotIn("thank you", p.inner_text("body").lower())
+        finally:
+            config.reload()
+
+    def test_workday_never_auto(self):
+        from jobhunter.apply.browser import FormResult
+        ok, why = flows.gate(self.db, "workday", JOB, FormResult(), [])
+        self.assertFalse(ok)
+
+
+if __name__ == "__main__":
+    unittest.main()

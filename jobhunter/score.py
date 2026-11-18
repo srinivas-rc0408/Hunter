@@ -1,0 +1,218 @@
+"""Fit scoring for private jobs: hard filters first, then a 0–100 score with reasons.
+
+Hard filters (job is marked 'filtered', never alerted):
+  • outside Karnataka (unless remote-in-India)
+  • excluded title words (senior, lead, sales, …) or an excluded company
+  • asks for more years of experience than you have (max_years_experience_required)
+  • pay listed and below your floor (stipend ₹15k/month, CTC ₹4.5 LPA)
+  • not a tech role
+
+Score = title fit 35 + skills 25 + early-career 12 + freshness 10 + pay 8 + place 5
+        + dream company bonus 15 (capped at 100).
+"""
+from __future__ import annotations
+
+import datetime as dt
+import re
+
+from . import config
+from .db import Job
+from .util import norm
+
+TECH_WORDS = ("engineer", "developer", "scientist", "data", "machine learning", "ml", "ai", "software",
+              "sde", "analyst", "research", "python", "backend", "full stack", "fullstack", "frontend",
+              "devops", "mlops", "cloud", "nlp", "computer vision", "llm", "genai", "intern", "trainee",
+              "programmer", "automation", "qa", "sdet", "platform", "technology", "it ")
+EARLY = ("intern", "internship", "fresher", "freshers", "graduate", "entry level", "entry-level", "trainee",
+         "new grad", "campus", "2026 batch", "2027 batch", "0-1 year", "0 - 1 year", "0-2 years", "junior",
+         "associate", "apprentice", "early career")
+ROLE_SYNONYMS = {
+    "ai/ml engineer": ["ai ml", "aiml", "ai engineer", "ml engineer", "machine learning engineer"],
+    "machine learning engineer": ["machine learning", "ml engineer", "ml ops", "mlops"],
+    "ai engineer": ["ai engineer", "artificial intelligence", "generative ai", "genai", "llm", "applied ai"],
+    "data scientist": ["data scientist", "data science", "applied scientist"],
+    "software engineer": ["software engineer", "software developer", "swe", "backend", "full stack", "python developer"],
+    "sde": ["sde", "software development engineer"],
+    "mlops engineer": ["mlops", "ml ops", "ml platform"],
+    "research engineer": ["research engineer", "research intern", "research associate"],
+    "data analyst": ["data analyst", "analytics"],
+}
+
+
+def _profile():
+    return config.cfg("profile")
+
+
+def is_dream(company: str, prof: dict | None = None) -> str | None:
+    prof = prof or _profile()
+    c = norm(company)
+    aliases = prof.get("dream_aliases", {}) or {}
+    for d in prof.get("dream_companies", []) or []:
+        names = [norm(d)] + [norm(a) for a in aliases.get(d, [])]
+        if any(n and (n == c or re.search(rf"\b{re.escape(n)}\b", c)) for n in names):
+            return d
+    return None
+
+
+def place_ok(job: Job, places: list[str]) -> tuple[bool, str]:
+    loc = (job.location or "").lower()
+    desc_head = (job.description or "")[:600].lower()
+    if any(p in loc for p in places):
+        return True, "Karnataka"
+    remote = job.is_remote or "remote" in loc or "work from home" in loc
+    rest = re.sub(r"remote|work from home|wfh|anywhere|hybrid|[^a-z]", "", loc)
+    if remote and ("india" in loc or not rest):
+        return True, "remote (India)"
+    if loc.strip() in ("", "india", "in") and any(p in desc_head for p in places):
+        return True, "Karnataka (from description)"
+    return False, job.location or "unknown"
+
+
+def years_required(text: str) -> int | None:
+    t = (text or "").lower()
+    pats = [r"(\d{1,2})\s*\+\s*(?:years|yrs)", r"(\d{1,2})\s*(?:-|to|–)\s*\d{1,2}\s*(?:years|yrs)",
+            r"(?:minimum|min\.?|at least)\s*(?:of\s*)?(\d{1,2})\s*(?:years|yrs)",
+            r"experience\s*[:\-]?\s*(\d{1,2})\s*(?:-|to|–)\s*\d{1,2}", r"(\d{1,2})\s*(?:years|yrs)\s*(?:of)?\s*(?:relevant|professional|industry|work)?\s*experience"]
+    vals = []
+    for p in pats:
+        vals += [int(m) for m in re.findall(p, t[:4000])]
+    vals = [v for v in vals if v < 25]
+    return min(vals) if vals else None
+
+
+def monthly_inr(job: Job) -> tuple[float | None, float | None]:
+    """(monthly, yearly) INR from listed pay, or (None, None)."""
+    lo = job.pay_min or job.pay_max
+    if not lo:
+        return None, None
+    cur = (job.currency or "INR").upper()
+    fx = {"INR": 1, "USD": 84, "EUR": 90, "GBP": 105}.get(cur, 1)
+    lo *= fx
+    per = (job.pay_period or "").lower()
+    if per == "hour":
+        return lo * 160, lo * 160 * 12
+    if per == "month":
+        return lo, lo * 12
+    if per == "week":
+        return lo * 4.3, lo * 52
+    if per == "day":
+        return lo * 22, lo * 22 * 12
+    if lo < 200000:                     # yearly figures under 2L are almost always monthly stipends
+        return lo, lo * 12
+    return lo / 12, lo
+
+
+def score(job: Job, today: dt.date | None = None) -> Job:
+    prof = _profile()
+    s = config.cfg("search")
+    tg = prof.get("targets", {})
+    today = today or dt.date.today()
+    title = norm(job.title)
+    text = (job.title + "\n" + (job.description or "")).lower()
+    reasons: list[str] = []
+    flags: list[str] = []
+    job.status = "new"
+
+    dream = is_dream(job.company, prof)
+    job.dream = bool(dream)
+
+    def drop(why: str) -> Job:
+        job.status, job.score = "filtered", 0
+        job.reasons = [f"filtered: {why}"]
+        return job
+
+    # ── hard filters ───────────────────────────────────────────────────────
+    ok, where = place_ok(job, [p.lower() for p in s.get("karnataka_places", ["karnataka", "bengaluru", "bangalore"])])
+    if tg.get("karnataka_only", True) and not ok:
+        return drop(f"location {where}")
+    padded = f" {job.title.lower()} "
+    for w in tg.get("exclude_title_words", []):
+        if w.lower() in padded and not (dream and w.lower() in ("lead", "manager")):
+            return drop(f"title has '{w.strip()}'")
+    if any(norm(c) == norm(job.company) for c in tg.get("exclude_companies", [])):
+        return drop("excluded company")
+    if not any(re.search(rf"\b{re.escape(w.strip())}\b", title) for w in TECH_WORDS):
+        return drop("not a tech role")
+    yrs = years_required(job.description or "")
+    max_yrs = tg.get("max_years_experience_required", 1)
+    is_intern = job.job_type == "internship" or "intern" in title
+    if yrs is not None and yrs > max_yrs and not is_intern and not dream:
+        return drop(f"asks {yrs}+ years")
+    mon, yr = monthly_inr(job)
+    if mon is not None:
+        if is_intern and mon < tg.get("min_stipend_inr_month", 15000):
+            return drop(f"stipend ₹{mon:,.0f}/month < floor")
+        if not is_intern and yr and yr < tg.get("min_ctc_inr_year", 450000) and yr > 30000:
+            return drop(f"CTC ₹{yr / 1e5:.1f} LPA < floor")
+
+    # ── score ──────────────────────────────────────────────────────────────
+    pts = 0
+    roles = [r.lower() for r in tg.get("roles", [])]
+    best = 0
+    for i, r in enumerate(roles):
+        syns = ROLE_SYNONYMS.get(r, [r]) + [r]
+        if any(norm(x) in title for x in syns):
+            best = max(best, 35 - min(i, 6) * 3)
+    if best:
+        reasons.append(f"title fits target roles (+{best})")
+    elif any(w in title for w in ("engineer", "developer", "scientist", "analyst")):
+        best = 14
+        reasons.append("tech title, not a top target (+14)")
+    pts += best
+
+    skills = [x for grp in prof.get("skills", {}).values() for x in (grp or [])]
+    hits = [sk for sk in skills if re.search(rf"(?<![a-z]){re.escape(sk.lower())}(?![a-z])", text)]
+    sk_pts = min(25, len(hits) * 4)
+    if hits:
+        reasons.append(f"skills match: {', '.join(hits[:7])} (+{sk_pts})")
+    pts += sk_pts
+
+    early = [w for w in EARLY if w in text]
+    if early or is_intern or yrs == 0:
+        pts += 12
+        reasons.append(f"early-career ({(early or ['intern'])[0]}) (+12)")
+
+    posted = None
+    try:
+        posted = dt.date.fromisoformat(str(job.posted_at)[:10]) if job.posted_at else None
+    except ValueError:
+        pass
+    if posted:
+        age = (today - posted).days
+        f = 10 if age <= 1 else 7 if age <= 3 else 4 if age <= 7 else 0
+        pts += f
+        if f:
+            reasons.append(f"posted {age}d ago (+{f})")
+    else:
+        pts += 5
+
+    if mon is not None:
+        good = tg.get("good_stipend_inr_month", 30000) if is_intern else tg.get("good_ctc_inr_year", 800000) / 12
+        if mon >= good:
+            pts += 8
+            reasons.append(f"pay ₹{mon:,.0f}/month ≥ your good mark (+8)")
+        else:
+            pts += 3
+    if where.startswith("Karnataka"):
+        pts += 5
+    if dream:
+        pts += 15
+        reasons.insert(0, f"★ dream company: {dream} (+15)")
+        flags.append("dream")
+    if yrs is not None and yrs > 0 and not is_intern:
+        flags.append(f"asks {yrs} yr")
+        if yrs > max_yrs:
+            pts -= 15
+            reasons.append(f"⚠ asks {yrs}+ years: kept only because it's a dream company (−15)")
+    if job.emails:
+        flags.append("email-apply")
+    if any(w in text for w in ("bond", "service agreement", "security deposit")):
+        flags.append("bond?")
+        reasons.append("⚠ mentions bond/service agreement")
+    if any(w in text for w in ("registration fee", "pay to apply", "training fee", "refundable deposit")):
+        flags.append("scam?")
+        reasons.append("⚠ asks money: likely scam")
+        pts -= 40
+    job.score = max(0, min(100, pts))
+    job.reasons, job.flags = reasons, flags
+    return job

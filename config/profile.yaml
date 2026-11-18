@@ -1,0 +1,111 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  YOUR PROFILE: the single source of truth.
+#  Every form answer, resume and cover letter is built ONLY from this file and
+#  config/resume.yaml. Nothing is ever invented.
+#
+#  AUTO-SUBMIT RULE: a form is submitted for you only when EVERY field on it
+#  is answered from a fact in this file (or an answer you typed yourself once,
+#  saved in data/answers.yaml). Anything else, such as an essay, an
+#  AI-drafted answer, an unknown question or expected CTC left null, makes the
+#  bot fill what it can and wait for you to click Submit.
+#
+#  Fields marked `null` are never guessed. The bot stops and asks.
+# ─────────────────────────────────────────────────────────────────────────────
+
+#  Personal facts (name, phone, DOB, parents, category, marks, addresses) live
+#  in config/private.yaml, which is never committed and is merged over this file.
+#  This file is safe for a public repo.
+
+links:
+  linkedin: https://www.linkedin.com/in/srinivas-r-c-169406294   # your resume PDF links /in/srinivas-r-c: make sure that opens YOUR profile
+  github: https://github.com/srinivas-rc0408
+  portfolio: https://srinivas-rc.is-a.dev
+  leetcode: null
+  kaggle: null
+
+experience_years: 0                  # internships don't count as full-time years on forms
+internships:
+  - {org: "IIT Ropar, VLED Lab", role: AI Engineer Intern, start: 2026-08, end: 2026-10, mode: Remote}
+
+# ── What you want ───────────────────────────────────────────────────────────
+targets:
+  roles:                             # priority order: drives title scoring
+    - AI/ML Engineer
+    - Machine Learning Engineer
+    - AI Engineer
+    - Data Scientist
+    - Software Engineer
+    - SDE
+    - MLOps Engineer
+    - Research Engineer
+    - Data Analyst
+  job_types: [internship, fulltime]  # internship now, full-time for 2027
+  karnataka_only: true               # your rule: Karnataka locations only
+  remote_ok: true                    # remote-India roles can be done from Karnataka
+  # Stipend floor (decided for you): Bengaluru AI/ML interns usually get
+  # ₹20k–₹50k/month. Below ₹15k is mostly unpaid "certificate" internships,
+  # so those are dropped. Unlisted stipends are kept, since most posts hide pay.
+  min_stipend_inr_month: 15000
+  good_stipend_inr_month: 30000      # ranked higher at or above this
+  min_ctc_inr_year: 600000           # your floor: 6 LPA (govt posts exempt)
+  good_ctc_inr_year: 800000          # your target: 8+ LPA ranks higher
+  earliest_start: 2026-11-17         # available from this week
+  exclude_title_words: [senior, "sr.", "sr ", staff, principal, lead, manager, director, head,
+                        architect, "vp", "10+", "5+ years", "sales", "marketing", "bpo",
+                        "telecaller", "voice process", "field executive"]
+  exclude_companies: []
+  max_years_experience_required: 1   # postings asking 2+ years are dropped
+
+# Dream companies get alerts at a lower score and jump the apply queue.
+# Names are matched loosely ("Aditya Birla Capital" counts as Aditya Birla).
+dream_companies:
+  - Aditya Birla Group               # Aditya Birla Capital, Hindalco, Grasim, UltraTech, ABFRL, ABG D&A
+  - Birlasoft                        # CK Birla Group IT company, Bengaluru office
+  # Add more of yours below. Suggestions for your profile with Bengaluru teams:
+  # NVIDIA, Google, Microsoft, Sarvam AI, Amazon, Atlassian, ISRO, DRDO CAIR
+dream_aliases:
+  Aditya Birla Group: [aditya birla, abg, hindalco, grasim, ultratech, "aditya birla capital",
+                       "aditya birla fashion", abfrl, "birla carbon", "novelis"]
+  Birlasoft: [birlasoft, "birla soft"]
+
+skills:                              # copied from your resume PDF (Technical Skills section)
+  languages: [Python, Java, C, C++, JavaScript, TypeScript, SQL, Bash]
+  ml: [Deep Learning, NLP, Computer Vision, Agentic AI, LLMs, RAG, LangGraph, Prompt Engineering,
+       Hybrid Retrieval, FAISS, BM25, Vector Search, Ollama, Google Gemini API, Hugging Face,
+       scikit-learn, TensorFlow, pandas, NumPy]
+  backend: [FastAPI, Node.js, Express, REST APIs, PostgreSQL, MongoDB, SQLite]
+  cloud: [Supabase, Firebase, Render, Vercel, Neon]
+  frontend: [React, Next.js, Vite, Tailwind CSS, Three.js, Streamlit]
+  tools: [Git, GitHub, GitHub Actions, CI/CD, Docker, Linux, Jupyter]
+  core_cs: [Data Structures and Algorithms, OOP, DBMS, Operating Systems, Computer Networks]
+
+# Reusable answers: facts you have given. These count as "basic" for auto-submit.
+answers:
+  notice_period: "Immediate (available now)"
+  notice_period_days: "0"
+  current_ctc: "0"
+  current_ctc_text: "Not applicable (student)"
+  # expected CTC / stipend numbers are in private.yaml (expected_ctc_lpa, expected_stipend_month)
+  willing_to_relocate: "Yes"         # within Karnataka (non-Karnataka jobs never reach a form)
+  work_from_office: "Yes"
+  hybrid_ok: "Yes"
+  open_to_shifts: null
+  sponsorship_required: "No"
+  authorized_to_work_in_india: "Yes"
+  how_did_you_hear: "LinkedIn"
+  previously_employed_here: "No"
+  have_laptop: "Yes"
+  graduation_year: "2027"
+  backlogs: "0"
+  total_experience_years: "0"
+  available_for_internship_months: "6"     # decided for you: standard 6-month internship; change if REVA allows less/more
+  earliest_joining: "Immediately"
+  bond_ok: null                      # service agreements: always your call
+
+voluntary:                           # never auto-answered unless you fill these
+  disability: null
+  diversity_category: null           # caste/category on PRIVATE forms stays with you
+
+# Values guessed rather than given. Fields using them are filled but never
+# auto-submitted until you confirm and delete the line here.
+unconfirmed: []

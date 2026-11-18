@@ -1,0 +1,130 @@
+# Cloud job radar: runs on GitHub's servers, so it works with your laptop off
+# and without Claude. Public repo = unlimited free minutes.
+#
+# Privacy (this repo is public):
+#   • Your personal facts come from the PRIVATE_YAML_B64 secret, never from git.
+#   • Every personal value is masked in the logs (::add-mask::).
+#   • The job database is saved ENCRYPTED (AES-256, key = STATE_KEY secret) on the
+#     radar-state branch. Without STATE_KEY the run stops rather than save plaintext.
+#   • No dashboards or artifacts are uploaded (artifacts of public repos are downloadable).
+# Set the secrets once with:  hunt secrets --push   (or by hand: README → Cloud radar)
+name: radar
+
+on:
+  schedule:
+    - cron: "7,37 * * * *"        # light scan every 30 min
+    - cron: "52 */3 * * *"        # full scan every 3 hours
+    - cron: "45 14 * * *"         # daily digest 20:15 IST
+  workflow_dispatch:
+    inputs:
+      mode: {description: "light | full | digest", default: "full"}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: radar
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      DIGEST_TO: ${{ secrets.DIGEST_TO }}
+      STATE_KEY: ${{ secrets.STATE_KEY }}
+      PRIVATE_YAML_B64: ${{ secrets.PRIVATE_YAML_B64 }}
+      LLM_PROVIDER: none
+      TZ: Asia/Kolkata
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets
+        run: |
+          if [ -z "$STATE_KEY" ] || [ -z "$PRIVATE_YAML_B64" ]; then
+            echo "::error::Set STATE_KEY and PRIVATE_YAML_B64 secrets first (run 'hunt secrets --push' on your laptop)."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-radar.txt
+
+      - name: Install
+        run: pip install -r requirements-radar.txt
+
+      - name: Private config (masked)
+        run: |
+          echo "$PRIVATE_YAML_B64" | base64 -d > config/private.yaml
+          python - <<'PY'
+          import yaml
+          def walk(v):
+              if isinstance(v, dict):
+                  for x in v.values(): yield from walk(x)
+              elif isinstance(v, list):
+                  for x in v: yield from walk(x)
+              elif v is not None and len(str(v)) >= 4:
+                  yield str(v)
+          d = yaml.safe_load(open("config/private.yaml")) or {}
+          for k in ("phone", "phone_digits", "email", "alt_email", "father_name", "mother_name", "date_of_birth",
+                    "category", "location"):
+              for s in walk(d.get(k)):
+                  print(f"::add-mask::{s}")
+          PY
+
+      - name: Restore state (encrypted)
+        run: |
+          if git fetch -q origin radar-state 2>/dev/null && git show origin/radar-state:jobs.db.enc > /tmp/state.enc 2>/dev/null; then
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:STATE_KEY -in /tmp/state.enc -out data/jobs.db
+            echo "state restored"
+          else
+            echo "first run: no state yet"
+          fi
+
+      - name: Pick mode
+        id: mode
+        run: |
+          M="${{ github.event.inputs.mode }}"
+          if [ -z "$M" ]; then
+            case "${{ github.event.schedule }}" in
+              "45 14 * * *") M=digest ;;
+              "52 */3 * * *") M=full ;;
+              *) M=light ;;
+            esac
+          fi
+          echo "mode=$M" >> "$GITHUB_OUTPUT"; echo "mode: $M"
+
+      - name: Scan
+        if: steps.mode.outputs.mode != 'digest'
+        run: |
+          if [ "${{ steps.mode.outputs.mode }}" = "light" ]; then
+            python -m jobhunter.cli scan --light
+          else
+            python -m jobhunter.cli scan
+          fi
+
+      - name: Digest
+        if: steps.mode.outputs.mode == 'digest'
+        run: python -m jobhunter.cli digest
+
+      - name: Save state (encrypted)
+        if: always()
+        run: |
+          [ -f data/jobs.db ] || exit 0
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:STATE_KEY -in data/jobs.db -out /tmp/jobs.db.enc
+          rm -f config/private.yaml data/jobs.db
+          git config user.name "jobhunter-radar"; git config user.email "radar@users.noreply.github.com"
+          git checkout -q --orphan radar-tmp
+          git rm -rfq --cached . >/dev/null
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp /tmp/jobs.db.enc jobs.db.enc
+          printf "Encrypted JobHunter state (AES-256). Unreadable without the STATE_KEY secret.\n" > README.md
+          git add jobs.db.enc README.md
+          git commit -qm "radar state $(date -u +%FT%TZ)"
+          git push -qf origin HEAD:radar-state

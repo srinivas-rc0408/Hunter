@@ -1,0 +1,100 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  MASTER RESUME: copied word for word from Srinivas_RC_Resume.pdf (17 Nov 2026).
+#  The truth source for every tailored resume. Tailoring only SELECTS,
+#  REORDERS and REWORDS these bullets; hunter-resume's truth check (ats.py
+#  trace) rejects any number or skill that isn't here or in facts:.
+#  Contact details come from config/private.yaml.
+# ─────────────────────────────────────────────────────────────────────────────
+
+headline: AI/ML Engineer
+summary: ""          # your PDF has none, so none is invented. Add one line here if you want one.
+
+experience:
+  - company: VLED Lab, IIT Ropar
+    title: AI Engineer Intern
+    location: Remote
+    start: Aug 2026
+    end: Oct 2026
+    project: Ajrasakha
+    stack: [React, TypeScript, Node.js, Express, MongoDB Atlas Vector Search, Sarvam AI, Ollama]
+    tags: [llm, rag, multilingual, backend, fullstack, open-source]
+    bullets:
+      - "Contributing to Ajrasakha, an open-source assistant that answers farmers' questions in local languages."
+      - "Working on a 3-tier retrieval pipeline that serves expert-verified answers first, then the Package of Practices database, and calls local LLMs (DeepSeek-R1, Qwen3) through Ollama only as a fallback."
+      - "Committing code to a live public repository after selection through a competitive evaluation."
+
+projects:
+  - name: "AEGIS: Air-Gapped Agentic AI Workbench"
+    context: Smart India Hackathon 2026
+    date: Sep 2026
+    link: https://github.com/srinivas-rc0408/aegis
+    stack: [Python, LangGraph, Ollama, Qwen2.5, FAISS, BM25, Docker, Streamlit]
+    tags: [agents, llm, rag, on-prem, safety, python, docker, hackathon]
+    bullets:
+      - "Built an offline agentic AI assistant for Mangalore Refinery (MRPL) operators that answers questions from plant SOPs with no cloud calls or API keys, running a 7B model on a 4 GB laptop GPU."
+      - "Structured the agent as a 7-node LangGraph state machine (Plan, Vision, RAG, Calc, Safety Check, Reflect, Answer) with hybrid FAISS + BM25 retrieval and reciprocal-rank fusion to match exact SOP IDs."
+      - "Kept safety verdicts out of the LLM: limits are checked in deterministic code, critical findings need a named supervisor sign-off, and every step is recorded in a SHA-256 hash-chained audit log."
+      - "Sandboxed calculations in Docker and shipped one-click installers for Windows, Linux, and macOS."
+  - name: Codebase-Wide Version Migration and Refactoring Agent
+    context: Major Project, CAIML, REVA University
+    date: Aug 2026 – Present
+    link: https://github.com/srinivas-rc0408/Code-Base-Version-Migration-and-Refactoring-agent
+    stack: [Python, LLM Agents, AST, Static Analysis, Docker]
+    tags: [agents, llm, developer-tools, python, static-analysis, docker, research]
+    bullets:
+      - "Building an autonomous LLM agent that upgrades whole codebases across breaking library versions."
+      - "Mapping each codebase with AST-based static analysis and a dependency graph, then running a plan, edit, test, and self-correct loop inside a Docker sandbox."
+      - "Producing a patch and audit log for each change, plus a benchmark report and a research paper."
+  - name: "ArchAgent: AI Architectural Design Platform"
+    date: Apr 2026 – Jun 2026
+    link: https://github.com/srinivas-rc0408/archagent
+    stack: [React, TypeScript, Google Gemini, Hugging Face FLUX, Three.js, Supabase, jsPDF]
+    tags: [llm, genai, prompt-engineering, frontend, fullstack, computer-vision]
+    bullets:
+      - "Built a platform that turns a plain-language building brief into 3D panoramic renders and an itemised INR cost estimate in under 60 seconds."
+      - "Chained 4 Google Gemini prompt stages and paired them with Hugging Face FLUX image generation and an interactive Three.js 3D viewer."
+      - "Reduced hallucinated cost estimates by grounding the LLM with few-shot INR price examples, and added Supabase authentication and 1-click PDF reports."
+  - name: "AquaSentinel: Underwater Inspection Robot Platform"
+    date: Sep 2026
+    link: https://github.com/srinivas-rc0408/aquasentinel
+    live: https://aqua-wheat.vercel.app
+    stack: [React 19, TypeScript, Vite, Node.js, Express, PostgreSQL (Neon), Computer Vision]
+    tags: [fullstack, computer-vision, robotics, iot, documentation, backend]
+    bullets:
+      - "Created a live mission-control dashboard with 5 core features: sensor telemetry, robot health monitoring, waypoint route planning, AI image defect detection, and PDF inspection reports."
+      - "Wrote a 13-document engineering suite (PRD, API contract, database schema, 40+ tickets, security spec, CI workflow) and corrected a physics error in the legacy specs: GPS does not work underwater."
+  - name: "Geo Measure: Geospatial File Measurement API"
+    date: Oct 2026
+    link: https://github.com/srinivas-rc0408/geospatial-measurement-api
+    live: https://geo-measure.onrender.com
+    stack: [Python, FastAPI, React, PostgreSQL (Neon), Alembic, Docker, Render]
+    tags: [backend, api, python, fastapi, geospatial, docker, sql, testing]
+    bullets:
+      - "Developed a REST API that accepts Shapefile (.zip) and KML uploads, extracts each feature's geometry, CRS, and properties, and returns the area of polygons and the length of lines."
+      - "Reprojected each feature to its local UTM zone before measuring and cross-checked it against a geodesic calculation, flagging gaps above 0.5%; naive Web Mercator overstates area by 5.8% near Bengaluru."
+      - "Deployed the frontend and API as a single Docker image on Render, with measurement history stored in PostgreSQL and managed through Alembic migrations."
+
+leadership:
+  - org: Yantra IoT Club, REVA University
+    title: Core Member and Head of Media
+    start: 2024
+    end: 2025
+    bullets:
+      - "Led media and outreach for 2 robotics events, ROBONEMESIS (microcontroller training) and a Follow Bot Competition, which drew 17K+ combined views on social media."
+      - "Coordinated workshops and career panels with Amazon and Google professionals for 100+ students."
+
+achievements:
+  - "3rd Place, IoT Hackathon, REVA University (2025): placed 3rd and competed in several more, building working prototypes in teams under tight deadlines."
+
+certifications:            # strongest first; the one-page resume shows the top 4
+  - "Deep Learning (12-week, proctored), IIT Ropar / NPTEL (2026)"
+  - "Artificial Intelligence: Foundations and Algorithms, IIT Delhi / NPTEL (2026)"
+  - "Software Engineering Fundamentals, Microsoft (2025)"
+  - "LLM-Driven AI Engineering Bootcamp, REVA University (2025)"
+  - "Innovation and Technology Bootcamp, REVA NEST Incubation Centre (2025)"
+  - "Prompt Engineering, Infosys Springboard (2025)"
+  - "Machine Learning, Rinex, NSDC / Skill India, Grade A+ (2024)"
+
+# Facts you confirm later (numbers, tools, scale) that a rewrite may use.
+# hunter-resume asks you about gaps one at a time and writes answers here.
+facts: []
