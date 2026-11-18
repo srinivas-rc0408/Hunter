@@ -106,10 +106,12 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
     soon.sort(key=lambda x: x[0])
     applied_today = db.applied_today()
     hb = cloud_heartbeat() if heartbeat else ("", None)
+    from .apply.questions import pending
+    qs = pending()
     return {"date": today.isoformat(), "since": since, "new": new, "open": open_q, "waiting": waiting,
             "govt_soon": soon, "applied_today": applied_today, "goal": DAILY_GOAL,
             "interviews": db.query(status=["interview"], limit=20), "heartbeat": hb,
-            "gate": gate_countdown(today), "next_event": next_event(today)}
+            "gate": gate_countdown(today), "next_event": next_event(today), "questions": qs}
 
 
 def as_telegram(b: dict) -> str:
@@ -124,6 +126,10 @@ def as_telegram(b: dict) -> str:
         L.append(f"\n<b>✋ Waiting for your approval: {len(b['waiting'])}</b> (Review Center: localhost:8765)")
         for j in b["waiting"][:5]:
             L.append(f"• {e(j['title'])} · {e(j['company'])}")
+    if b.get("questions"):
+        q = b["questions"]
+        L.append(f"\n<b>❓ {len(q)} question(s) only you can answer</b> (unblocks "
+                 f"{len({j for r in q for j in r.get('jobs', [])})} job(s)): /questions")
     if b["govt_soon"]:
         L.append("\n<b>🏛 Govt deadlines (10 days)</b>")
         for d, j in b["govt_soon"][:6]:

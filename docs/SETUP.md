@@ -36,9 +36,12 @@ then apply this update.
 cd ~/jobhunter
 git status                          # shows pyproject.toml / scripts/install.sh if not committed
 git add -A; and git commit -m "Local setup fixes (pypdf, fish PATH)"
-git am -3 ~/Downloads/jobhunter-update-2026-11-18.patch
+git am -3 ~/Downloads/jobhunter-update-2026-11-18.patch          # update 1: morning brief, bot, backups
+git am -3 ~/Downloads/jobhunter-update-2-company-search.patch    # update 2: company search, questions
+git add tests/hunter; and git commit -m "Track hunter-skill tests"   # they were hidden by a .gitignore bug
 ```
-✅ Check: `git log --oneline | head -3` shows "JobHunter update: morning brief, Telegram bot…".
+✅ Check: `git log --oneline | head -4` shows "Track hunter-skill tests", "Company search…" and "JobHunter update: morning brief…".
+`git status` should say "nothing to commit, working tree clean".
 
 If `git am` stops on a conflict (only possible in `pyproject.toml` / `requirements.txt`, where you
 and the patch both added `pypdf`): open the file, keep **one** `pypdf>=4` line, then
@@ -204,6 +207,44 @@ hunt backup
 
 ---
 
+## Company search (any time)
+
+**Terminal:**
+```fish
+hunt company birla          # type part of a name
+```
+1. Pick from the suggestions (your watchlist, the 129-company directory, companies already in
+   your tracker, Wikidata, or "exactly as typed").
+2. It finds the company's careers page and hiring platform by itself: Greenhouse, Lever, Ashby,
+   Workday, SmartRecruiters, Workable, Recruitee, Keka, Darwinbox, Zoho Recruit, SuccessFactors,
+   Aditya Birla's site, or schema.org job data. JavaScript-only pages are rendered in Chromium.
+3. You get every listing: posted date (🔥 = today), role, location (KA = Karnataka), type, where it
+   was found (company site / LinkedIn / Naukri / Indeed / your tracker), fit score, your status.
+4. Then type `apply 1,3` · `preview 2` · `track 1-4` · `show 3` · `open 3` · `watch` · `links` · `all` · `q`.
+
+**Review Center → Companies tab:** the same thing with a search box that suggests as you type.
+Tick listings → **Apply to ticked**, **Preview ticked** or **Add ticked to queue**. **★ Watch company** adds it to every scan.
+**Referrals & research** opens LinkedIn searches for REVA alumni at that company (your best referral
+source), recruiters, AmbitionBox reviews and fresher salaries, and Glassdoor interview questions.
+
+**Telegram:** `/company sarvam` (top listings with links), `/watch sarvam`.
+
+Your dream companies are read straight from their own sites, not just job boards:
+Aditya Birla Group (careers.adityabirla.com → PeopleStrong apply links, with each job's closing date)
+and Birlasoft (SuccessFactors).
+
+## Questions (the bot never guesses)
+
+When a form asks something that isn't in your files, the bot doesn't guess: it saves a **question**.
+Answer it once, with a true fact, in any of three places:
+- `hunt questions` (terminal, walks you through each one)
+- Review Center → **Questions** tab
+- Telegram: `/questions`, then `/answer 2 Yes`
+
+Each answer is saved to `data/answers.yaml` and used on every future form. Jobs that were waiting only
+on that answer go back into the apply queue automatically. The morning brief tells you how many
+questions are open. Never asked: captchas, OTPs, essays, and voluntary diversity questions.
+
 ## Daily routine (25–35 min)
 
 **07:30 Telegram morning brief.** Read it on your phone. `/skip_<id>` anything you don't want.
@@ -213,7 +254,8 @@ hunt backup
 hunt morning              # same brief + cloud health
 hunt apply --top 10       # target: 10 applications a day
 ```
-Then clear **To review** in the Review Center (Approve & Submit, or Skip).
+Then clear **Questions** (one answer can unblock several jobs) and **To review** (Approve & Submit, or Skip)
+in the Review Center.
 
 **Govt:** `hunt govt`, open each notice marked `eligible`/`check` and read the official PDF's
 eligibility clause, especially branch wording (AI&ML is not always listed). Apply on the portal
@@ -271,6 +313,9 @@ Without Claude Code:
 | Chromium won't start after an Arch update | `hunt update` (reinstalls Playwright's Chromium) |
 | Cover letters are generic | No LLM reachable: `hunt doctor` → set `GEMINI_API_KEY` or start Ollama |
 | Disk full | `rm -rf data/screens/*` (screenshots) and `data/logs/*`. The jobs database is small |
+| Company search finds no platform | Run `hunt company "<name>" --refresh`. If it still says none, the company only posts on job boards, and those results are still shown. Add its careers URL to `config/company_directory.yaml` (`careers:`) and search again |
+| Aditya Birla shows 0 listings | Chromium is needed for that site: `python -m playwright install chromium` (laptop). The cloud installs it for full scans |
+| A question has the wrong answer saved | Edit or delete that line in `data/answers.yaml` |
 | New laptop / disk died | see "Disaster recovery" |
 
 ## Disaster recovery (new laptop)
@@ -287,6 +332,7 @@ hunt doctor
 ## Command cheat sheet
 ```
 hunt morning [--send]            today's brief          hunt apply --top 10          apply (best first)
+hunt company <name>              search a company       hunt questions               answer what forms asked
 hunt list --min 55               open jobs              hunt apply <id> --approve    finish a reviewed form
 hunt show <id>                   one job + keyword gap  hunt apply --dry-run         preview, never submit
 hunt govt / calendar / advantages                       hunt tailor <id>             tailored resume + ATS
@@ -294,5 +340,6 @@ hunt mark <id> applied|interview|offer|rejected|skipped hunt cover <id>         
 hunt review                      Review Center          hunt sync                    pull cloud results
 hunt doctor [--test-alert]       health check           hunt update                  pull + reinstall
 hunt backup / restore <file>     encrypted backups      hunt secrets --push          update GitHub secrets
-Telegram: /brief /top /govt /review /stats /scan /show_<id> /skip_<id> /queue_<id> /applied_<id> /interview_<id>
+Telegram: /brief /top /govt /review /questions /answer <n> <text> /company <name> /watch <name> /stats /scan
+          /show_<id> /skip_<id> /queue_<id> /applied_<id> /interview_<id>
 ```

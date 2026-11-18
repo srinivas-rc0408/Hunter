@@ -4,8 +4,9 @@ A personal job-hunting system for an Indian final-year AI/ML engineer, built by
 Srinivas R C. It finds every relevant job within the hour it's posted, ranks it,
 tailors a one-page resume with an ATS truth check, fills the application in your own
 logged-in browser, and keeps a reviewable record of every field it submitted.
-It covers private tech jobs (LinkedIn, Naukri, Indeed, Google Jobs, Greenhouse/
-Lever/Ashby/Workday boards, watched career pages) and Indian government jobs
+It covers private tech jobs (LinkedIn, Naukri, Indeed, Google Jobs, and companies' own platforms:
+Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee, Keka, Darwinbox,
+Zoho Recruit, SuccessFactors, plus schema.org job data on any careers page) and Indian government jobs
 (ISRO, NIC, DRDO, BEL, IISc, C-DAC, banks, KPSC, KEA…), with reservation-aware
 eligibility checks.
 
@@ -36,6 +37,7 @@ apply bot runs on your laptop. Claude Code is optional (`/jobhunter` plus the 11
 | **Dream companies** | Aditya Birla Group (all businesses) and Birlasoft: +15 score, lower alert bar, front of the apply queue, career pages watched directly. |
 | **Basic-only auto-submit** | Submits only if *every* field is a fact you gave (`config/private.yaml`, `config/profile.yaml`, or an answer you typed once). An essay, an unknown question, a captcha or a missing value means the form is **recorded and queued for your review** instead. |
 | **Review before submit** | Every attempt is saved field by field, with its source, a screenshot, the resume and the cover letter, in the Review Center. **Approve & Submit** sends it. |
+| **Asks, never guesses** | An unknown required field becomes a *question* (terminal, Review Center or Telegram). Your answer is saved and reused, and jobs waiting on it re-queue. |
 | **It learns** | Answers you type in a paused form go to `data/answers.yaml` and count as facts next time. |
 | **No invented facts** | Tailored resumes pass hunter-resume's truth check (`ats.py compare`: no new numbers or skills), and cover letters pass hunter-cover's verifier. Anything that fails is discarded. |
 | **Category stays private** | Your reservation category is used only for govt eligibility. It's never typed into a private company's form. |
@@ -118,6 +120,8 @@ it *would* send in the Review Center.
 | `hunt mark <id> <status>` | applied, interview, offer, rejected, skipped… |
 | `hunt answers` / `hunt classify "<label>"` | learned answers / how a label gets answered |
 | `hunt sync` / `hunt secrets [--push]` | pull encrypted cloud results / set GitHub secrets |
+| `hunt company <name>` | type a company → pick → every listing (date, place, type, source, link) → apply / track / watch / referral links |
+| `hunt questions` | answer what forms asked that isn't in your files (asked once, never guessed) |
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
 | `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |

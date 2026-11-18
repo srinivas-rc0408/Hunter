@@ -1,0 +1,374 @@
+# Company directory used by company search suggestions (`hunt company`, Review Center → Companies).
+# name + domain is enough: the careers page and hiring platform are discovered live and cached.
+# Add any company you care about. Domains here are public info, safe to commit.
+companies:
+- name: Aditya Birla Group
+  domain: adityabirla.com
+  aliases:
+  - ABG
+  - Aditya Birla Capital
+  - Hindalco
+  - Grasim
+  - UltraTech
+  careers: https://careers.adityabirla.com/job-search
+  note: ★ dream company
+- name: Birlasoft
+  domain: birlasoft.com
+  aliases:
+  - Birla Soft
+  careers: https://jobs.birlasoft.com/
+  note: ★ dream company
+- name: Infosys
+  domain: infosys.com
+- name: Wipro
+  domain: wipro.com
+- name: Tata Consultancy Services
+  domain: tcs.com
+  aliases:
+  - TCS
+- name: HCLTech
+  domain: hcltech.com
+  aliases:
+  - HCL Technologies
+- name: Tech Mahindra
+  domain: techmahindra.com
+- name: LTIMindtree
+  domain: ltimindtree.com
+  aliases:
+  - Mindtree
+  - LTI
+- name: L&T Technology Services
+  domain: ltts.com
+  aliases:
+  - LTTS
+- name: Accenture
+  domain: accenture.com
+- name: Capgemini
+  domain: capgemini.com
+- name: Cognizant
+  domain: cognizant.com
+- name: Mphasis
+  domain: mphasis.com
+- name: Persistent Systems
+  domain: persistent.com
+- name: Hexaware
+  domain: hexaware.com
+- name: Tata Elxsi
+  domain: tataelxsi.com
+- name: Thoughtworks
+  domain: thoughtworks.com
+- name: IBM
+  domain: ibm.com
+- name: Microsoft
+  domain: microsoft.com
+  careers: https://jobs.careers.microsoft.com/
+- name: Google
+  domain: google.com
+  aliases:
+  - Alphabet
+  careers: https://www.google.com/about/careers/applications/jobs/results/?location=Bengaluru
+- name: Amazon
+  domain: amazon.com
+  aliases:
+  - AWS
+  - Amazon Web Services
+  careers: https://www.amazon.jobs/en/locations/bangalore-india
+- name: Flipkart
+  domain: flipkart.com
+- name: Myntra
+  domain: myntra.com
+- name: Swiggy
+  domain: swiggy.com
+- name: Zomato
+  domain: zomato.com
+  aliases:
+  - Eternal
+  - Blinkit
+- name: Zepto
+  domain: zeptonow.com
+- name: Meesho
+  domain: meesho.com
+- name: PhonePe
+  domain: phonepe.com
+- name: Paytm
+  domain: paytm.com
+  aliases:
+  - One97
+- name: Razorpay
+  domain: razorpay.com
+- name: CRED
+  domain: cred.club
+- name: Zerodha
+  domain: zerodha.com
+- name: Groww
+  domain: groww.in
+- name: Juspay
+  domain: juspay.in
+- name: Zeta
+  domain: zeta.tech
+- name: Ola
+  domain: olacabs.com
+  aliases:
+  - ANI Technologies
+- name: Ola Electric
+  domain: olaelectric.com
+- name: Krutrim
+  domain: olakrutrim.com
+  aliases:
+  - Ola Krutrim
+- name: Sarvam AI
+  domain: sarvam.ai
+  aliases:
+  - Sarvam
+- name: Ather Energy
+  domain: atherenergy.com
+  aliases:
+  - Ather
+- name: Rapido
+  domain: rapido.bike
+- name: ShareChat
+  domain: sharechat.com
+  aliases:
+  - Moj
+  - Mohalla Tech
+- name: Dream11
+  domain: dream11.com
+  aliases:
+  - Dream Sports
+- name: Udaan
+  domain: udaan.com
+- name: BigBasket
+  domain: bigbasket.com
+- name: Licious
+  domain: licious.in
+- name: Nykaa
+  domain: nykaa.com
+- name: Lenskart
+  domain: lenskart.com
+- name: Unacademy
+  domain: unacademy.com
+- name: upGrad
+  domain: upgrad.com
+- name: PhysicsWallah
+  domain: pw.live
+  aliases:
+  - PW
+- name: Postman
+  domain: postman.com
+- name: BrowserStack
+  domain: browserstack.com
+- name: Freshworks
+  domain: freshworks.com
+- name: Zoho
+  domain: zoho.com
+  aliases:
+  - Zoho Corporation
+- name: Chargebee
+  domain: chargebee.com
+- name: Darwinbox
+  domain: darwinbox.com
+- name: Whatfix
+  domain: whatfix.com
+- name: MoEngage
+  domain: moengage.com
+- name: CleverTap
+  domain: clevertap.com
+- name: InMobi
+  domain: inmobi.com
+  aliases:
+  - Glance
+- name: Innovaccer
+  domain: innovaccer.com
+- name: Sprinklr
+  domain: sprinklr.com
+- name: Yellow.ai
+  domain: yellow.ai
+- name: Observe.AI
+  domain: observe.ai
+- name: Uniphore
+  domain: uniphore.com
+- name: Haptik
+  domain: haptik.ai
+- name: Gupshup
+  domain: gupshup.io
+- name: Hasura
+  domain: hasura.io
+- name: Fractal Analytics
+  domain: fractal.ai
+  aliases:
+  - Fractal
+- name: Mu Sigma
+  domain: mu-sigma.com
+- name: Tiger Analytics
+  domain: tigeranalytics.com
+- name: LatentView Analytics
+  domain: latentview.com
+  aliases:
+  - LatentView
+- name: Sigmoid
+  domain: sigmoid.com
+- name: ZS Associates
+  domain: zs.com
+  aliases:
+  - ZS
+- name: Atlassian
+  domain: atlassian.com
+- name: Intuit
+  domain: intuit.com
+- name: Adobe
+  domain: adobe.com
+- name: Oracle
+  domain: oracle.com
+- name: SAP Labs India
+  domain: sap.com
+  aliases:
+  - SAP
+- name: Salesforce
+  domain: salesforce.com
+- name: ServiceNow
+  domain: servicenow.com
+- name: LinkedIn
+  domain: linkedin.com
+- name: Uber
+  domain: uber.com
+- name: Walmart Global Tech
+  domain: walmart.com
+  aliases:
+  - Walmart Labs
+- name: Target
+  domain: target.com
+  aliases:
+  - Target India
+- name: Cisco
+  domain: cisco.com
+- name: NVIDIA
+  domain: nvidia.com
+- name: Intel
+  domain: intel.com
+- name: AMD
+  domain: amd.com
+- name: Qualcomm
+  domain: qualcomm.com
+- name: Texas Instruments
+  domain: ti.com
+  aliases:
+  - TI
+- name: Samsung R&D Institute Bangalore
+  domain: samsung.com
+  aliases:
+  - Samsung
+  - SRI-B
+- name: Bosch Global Software Technologies
+  domain: bosch.com
+  aliases:
+  - Bosch
+  - Bosch Group
+  - BGSW
+- name: Siemens
+  domain: siemens.com
+  aliases:
+  - Siemens Healthineers
+- name: Philips
+  domain: philips.com
+- name: GE HealthCare
+  domain: gehealthcare.com
+- name: Honeywell
+  domain: honeywell.com
+- name: Mercedes-Benz R&D India
+  domain: mbrdi.co.in
+  aliases:
+  - MBRDI
+- name: Airbus
+  domain: airbus.com
+- name: Boeing
+  domain: boeing.com
+- name: Synopsys
+  domain: synopsys.com
+- name: Cadence
+  domain: cadence.com
+  aliases:
+  - Cadence Design Systems
+- name: Nutanix
+  domain: nutanix.com
+- name: Rubrik
+  domain: rubrik.com
+- name: Druva
+  domain: druva.com
+- name: Arista Networks
+  domain: arista.com
+  aliases:
+  - Arista
+- name: Juniper Networks
+  domain: juniper.net
+  aliases:
+  - Juniper
+- name: Broadcom
+  domain: broadcom.com
+  aliases:
+  - VMware
+- name: Goldman Sachs
+  domain: goldmansachs.com
+- name: JPMorgan Chase
+  domain: jpmorganchase.com
+  aliases:
+  - JP Morgan
+  - J.P. Morgan
+- name: Morgan Stanley
+  domain: morganstanley.com
+- name: Wells Fargo
+  domain: wellsfargo.com
+- name: American Express
+  domain: americanexpress.com
+  aliases:
+  - Amex
+- name: Visa
+  domain: visa.com
+- name: Mastercard
+  domain: mastercard.com
+- name: HSBC
+  domain: hsbc.com
+- name: Standard Chartered
+  domain: sc.com
+- name: Fidelity Investments
+  domain: fidelity.com
+  aliases:
+  - Fidelity
+- name: Deloitte
+  domain: deloitte.com
+- name: EY
+  domain: ey.com
+  aliases:
+  - Ernst & Young
+- name: KPMG
+  domain: kpmg.com
+- name: PwC
+  domain: pwc.com
+  aliases:
+  - PricewaterhouseCoopers
+- name: Shell
+  domain: shell.com
+- name: Bharat Electronics
+  domain: bel-india.in
+  aliases:
+  - BEL
+  note: 'government / PSU: also tracked by the govt radar'
+- name: Hindustan Aeronautics
+  domain: hal-india.co.in
+  aliases:
+  - HAL
+  note: 'government / PSU: also tracked by the govt radar'
+- name: ISRO
+  domain: isro.gov.in
+  aliases:
+  - Indian Space Research Organisation
+  note: 'government / PSU: also tracked by the govt radar'
+- name: C-DAC
+  domain: cdac.in
+  aliases:
+  - Centre for Development of Advanced Computing
+  note: 'government / PSU: also tracked by the govt radar'
+- name: IISc Bangalore
+  domain: iisc.ac.in
+  aliases:
+  - Indian Institute of Science
+  note: 'government / PSU: also tracked by the govt radar'

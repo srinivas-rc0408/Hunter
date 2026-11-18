@@ -1,0 +1,59 @@
+[
+ {
+  "id": 169698,
+  "title": "Account Manager - Sales",
+  "description": "Location : India, Delhi/ Gurgaon NCRExperience10\u201312 YearsRole OverviewWe are looking for a highly motivated, entrepreneurial, and results-oriented Senior Business Development Manager \u2013 Cloud & AI to drive new business acquisition across Large Enterprise accounts in India.This is primarily a hunter role, focused on identifying, creating, and winning new opportunities in Cloud, Data, AI, GenAI, Managed Services, and Digital Transformation. The ideal candidate should have a strong track record of opening new accounts, building CXO relationships, influencing complex buying decisions, and consisten",
+  "jobLocations": [
+   {
+    "id": 23751,
+    "name": "Gurugram Office",
+    "city": "Gurugram",
+    "state": "HR",
+    "countryCode": "IN",
+    "countryName": "India"
+   }
+  ],
+  "jobType": 2,
+  "publishedOn": "2026-11-11T08:11:59.527Z",
+  "experience": "10",
+  "departmentName": "Sales"
+ },
+ {
+  "id": 169200,
+  "title": "Sr. Software Engineer",
+  "description": "Job SummaryWe are looking for a highly skilled Senior GoLang Developer with 8+ years of relevant experience to design, develop, and maintain scalable backend systems using GoLang. The role involves owning critical services, mentoring engineers, and contributing to system architecture.Key ResponsibilitiesAnalyse requirements and design technical specifications for backend services and APIs, ensuring alignment with business needs.Architect, develop, and maintain robust Go (Golang) applications, particularly RESTful APIs and gRPC-based microservices.Optimize performance using Go concurrency featu",
+  "jobLocations": [
+   {
+    "id": 23751,
+    "name": "Gurugram Office",
+    "city": "Gurugram",
+    "state": "HR",
+    "countryCode": "IN",
+    "countryName": "India"
+   }
+  ],
+  "jobType": 2,
+  "publishedOn": "2026-11-16T08:08:51.043Z",
+  "experience": "8",
+  "departmentName": "Apps"
+ },
+ {
+  "id": 167813,
+  "title": "Legal Intern",
+  "description": "About the role:We are looking for a Legal Intern to join our in-house Legal team and gain hands-on experience in contract review, drafting, negotiation and legal research within an IT services Company. Key ResponsibilitiesReview, vet and redline NDAs, MSAs, SOWs, and other commercial contracts.Assist in reviewing RFPs, tenders, work orders and bid documents.Identify key contractual risks relating to liability, indemnity, IP, confidentiality, data protection, payment terms, termination and SLA.Assist the Legal team in preparing contract summaries, negotiation comments and deviation trackers.Con",
+  "jobLocations": [
+   {
+    "id": 23753,
+    "name": "Nanakramguda Office [HO]",
+    "city": "Hyderabad",
+    "state": "TG",
+    "countryCode": "IN",
+    "countryName": "India"
+   }
+  ],
+  "jobType": 1,
+  "publishedOn": "2026-10-26T06:23:05.377Z",
+  "experience": "0-1",
+  "departmentName": "CS & Legal"
+ }
+]

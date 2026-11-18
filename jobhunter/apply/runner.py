@@ -73,6 +73,12 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
                 url_now = page.url
             except Exception:
                 url_now = job["url"]
+            if out.status in ("needs_you", "filled"):
+                from . import questions
+                nq = questions.add_from_record(job["id"], list(B.RECORD), out.site)
+                if nq:
+                    console.print(f"[yellow]❓ {nq} new question(s) for you[/]: answer once with `hunt questions` "
+                                  "(or Review Center → Questions, or Telegram /questions)")
             db.add_application(job["id"], out.site, out.status, out.auto, approve, dry, out.why, list(B.RECORD),
                                str(B.SNAP_PATH) if B.SNAP_PATH.exists() else "", str(resume or ""), rrep,
                                cover or "", url_now)

@@ -35,7 +35,18 @@ def _pay(p: dict | None):
 
 def scan(errors: list[str], offline: str | None = None) -> list[Job]:
     sc = scout()
-    boards = config.cfg("companies").get("boards", [])
+    boards, extra = [], []
+    for b in config.cfg("companies").get("boards", []) or []:
+        (boards if b.get("type") in ("greenhouse", "lever", "ashby", "workday", "eightfold") else extra).append(b)        # watchlist (company search → "Watch"): scout-type boards join the loop, the rest go to ats_more
+    try:
+        from ..companies import watchlist
+        for w in watchlist():
+            if w.get("type") in ("greenhouse", "lever", "ashby", "workday"):
+                boards.append(w)
+            elif w.get("type") not in ("page", None):
+                extra.append(w)
+    except Exception as exc:
+        errors.append(f"watchlist: {exc}")
     roles = config.cfg("profile").get("targets", {}).get("roles", [])
     india_only = config.cfg("search").get("company_boards", {}).get("india_only", True)
     fetcher = sc.Fetcher(offline=offline, pause=0.6)
@@ -58,4 +69,33 @@ def scan(errors: list[str], offline: str | None = None) -> list[Job]:
                 description=j.get("_text") or "", posted_at=j.get("posted"),
                 job_type="internship" if "intern" in j["title"].lower() else None,
                 is_remote=bool(j.get("remote")), pay_min=mn, pay_max=mx, pay_period=per, currency=cur))
+    out += _scan_more(extra, errors, india_only)
+    return out
+
+
+def _scan_more(boards: list[dict], errors: list[str], india_only: bool) -> list[Job]:
+    if not boards:
+        return []
+    import requests
+
+    from . import ats_more
+    s = requests.Session()
+    s.headers["User-Agent"] = ats_more.UA
+    get = lambda u: s.get(u, timeout=15)
+    post = lambda u, b: s.post(u, json=b, timeout=15)
+    out = []
+    for b in boards:
+        try:
+            rows = ats_more.fetch(b, get, post, b["company"])
+        except Exception as exc:
+            errors.append(f"{b['company']} ({b['type']}): {type(exc).__name__}")
+            continue
+        for r in rows:
+            if india_only and not any(w in (r.get("location") or "").lower() for w in INDIA):
+                continue
+            out.append(Job(title=r["title"], company=b["company"], location=r.get("location") or "",
+                           url=r.get("apply_url") or r["url"], source=r["source"], description=r.get("description") or "",
+                           posted_at=r.get("posted"), job_type=r.get("job_type"), is_remote=bool(r.get("remote")),
+                           pay_min=r.get("pay_min"), pay_max=r.get("pay_max"), currency=r.get("currency"),
+                           pay_period=r.get("pay_period"), deadline=r.get("deadline")))
     return out

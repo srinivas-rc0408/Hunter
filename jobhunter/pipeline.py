@@ -14,7 +14,11 @@ def watch_careers(db: DB, errors: list[str]) -> list[Job]:
     """New links on watched career pages (dream companies without an API)."""
     out = []
     http = Http(pause=1.5)
-    for w in config.cfg("companies").get("watch", []) or []:
+    from .companies import watchlist
+    pages_ = list(config.cfg("companies").get("watch", []) or [])
+    pages_ += [{"company": w["company"], "url": w["url"], "include": [], "exclude": []}
+               for w in watchlist() if w.get("type") == "page" and w.get("url")]
+    for w in pages_:
         for link in pages.watch(db, http, w["url"], w.get("include", []), w.get("exclude", []), errors):
             j = Job(title=link.text[:160], company=w["company"], location="Karnataka (check)", url=link.href,
                     source="careers-page", description=link.context)

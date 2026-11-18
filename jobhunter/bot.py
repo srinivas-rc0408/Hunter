@@ -11,6 +11,10 @@ Commands (also tappable from alerts as /show_<id>, /skip_<id>):
   /skip <id>        hide it          /queue <id>   put it at the front of the apply queue
   /applied <id>     /interview <id>  /rejected <id>  /offer <id>   update status
   /scan             start a scan on the laptop now
+  /company <name>   that company's open listings (Karnataka first) with links
+  /watch <name>     include that company in every scan
+  /questions        what forms asked that isn't in your files
+  /answer <n> <text>  answer question n (saved as your fact; waiting jobs re-queue)
   /help
 Nothing here submits an application: applying stays in `hunt apply` / the Review Center.
 """
@@ -46,13 +50,54 @@ def handle(text: str, db: DB | None = None) -> str:
     """Pure command handler (unit-tested): text in, HTML reply out."""
     db = db or DB()
     t = (text or "").strip()
-    m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t)
+    m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t, re.S)
     if not m:
         return "Send /help for commands."
     cmd, inline_id, arg = m.group(1).lower(), m.group(2), (m.group(3) or "").strip()
     jid = inline_id or (arg.split()[0] if arg else "")
     if cmd in ("start", "help"):
-        return "<b>JobHunter bot</b>\n" + "\n".join(l.strip() for l in __doc__.splitlines()[4:17])
+        return "<b>JobHunter bot</b>\n" + "\n".join(l.strip() for l in __doc__.splitlines()[4:22])
+    if cmd == "questions":
+        from .apply.questions import pending
+        rows = pending()
+        if not rows:
+            return "No open questions. ✅"
+        lines = [f"{i}. {_e(r['label'][:90])} ({len(r['jobs'])} job(s))" +
+                 (f"\n   options: {_e(' | '.join(r['options'][:8]))}" if r.get("options") else "") for i, r in enumerate(rows[:15], 1)]
+        return "<b>❓ Questions</b> (answer with true facts only)\n" + "\n".join(lines) + "\n\nReply: /answer 1 Yes"
+    if cmd == "answer":
+        from .apply.questions import answer
+        n, _, val = arg.partition(" ")
+        if not n.isdigit() or not val.strip():
+            return "Usage: /answer &lt;number&gt; &lt;your answer&gt;"
+        try:
+            res = answer(int(n), val)
+        except (KeyError, ValueError) as exc:
+            return f"✗ {_e(exc)}"
+        return (f"✓ saved: {_e(res['label'][:70])} → <b>{_e(res['value'])}</b>" +
+                (f"\n{len(res['requeued'])} job(s) back in the apply queue" if res["requeued"] else ""))
+    if cmd in ("company", "watch"):
+        if not arg:
+            return f"Usage: /{cmd} &lt;company name&gt;"
+        from . import companies
+        sug = [x for x in companies.suggest(arg) if x["source"] != "as typed"] or companies.suggest(arg)
+        pick = sug[0]
+        info = companies.resolve(pick["name"], pick.get("domain"), pick.get("wikidata"))
+        if cmd == "watch":
+            return (f"✓ watching {_e(info['name'])}: every scan includes it" if companies.watch(info)
+                    else f"{_e(info['name'])}: already watched, or no platform/careers page found")
+        res = companies.listings(info, boards_search=False)
+        rows = sorted(res["listings"], key=lambda r: (not r["karnataka"], not r["fit"], -(r.get("days_ago") is not None),
+                                                      r.get("days_ago") or 999))[:12]
+        plats = ", ".join(b["type"] for b in info.get("boards", [])) or "no public platform"
+        head = (f"<b>{_e(info['name'])}</b> · {plats}\n{res['counts']['total']} listings · "
+                f"{res['counts']['karnataka']} Karnataka/remote · {res['counts']['new_24h']} new in 24 h")
+        lines = [f"{'🔥' if r['hot'] else '•'} {_e(r['title'][:70])} · {_e((r.get('location') or '')[:30])}"
+                 f" · {('%dd' % r['days_ago']) if r.get('days_ago') is not None else '?'}"
+                 f" · <a href=\"{_e(r.get('apply_url') or r['url'])}\">open</a>" for r in rows]
+        others = [x["name"] for x in sug[1:4] if x["source"] != "as typed"]
+        return head + "\n" + "\n".join(lines) + (f"\n\nDid you mean: {_e(', '.join(others))}?" if others else "") + \
+            "\nFull list + apply: hunt company on the laptop, or Review Center → Companies"
     if cmd == "brief":
         from .morning import as_telegram, build
         return as_telegram(build(db=db, heartbeat=False))
@@ -109,7 +154,8 @@ def run() -> None:
         requests.post(f"{api}/setMyCommands", timeout=20, json={"commands": [
             {"command": c, "description": d} for c, d in [
                 ("brief", "morning brief now"), ("top", "best open jobs"), ("govt", "govt notices + deadlines"),
-                ("review", "forms waiting for approval"), ("stats", "pipeline numbers"), ("scan", "scan now"),
+                ("review", "forms waiting for approval"), ("questions", "questions only you can answer"),
+                ("company", "a company's open listings"), ("stats", "pipeline numbers"), ("scan", "scan now"),
                 ("help", "all commands")]]})
     except requests.RequestException:
         pass

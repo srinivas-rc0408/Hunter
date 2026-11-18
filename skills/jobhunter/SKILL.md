@@ -38,7 +38,8 @@ just drives the same commands.
   `config/private.yaml`, `config/profile.yaml`, `config/resume.yaml` or `data/answers.yaml`.
 - **Never commit or print private data.** `config/private.yaml`, `config/resume.pdf`,
   `config/advantages.yaml`, `docs/private/` and `data/` stay out of git (the repo is public).
-- Gender is set (Male). Don't ask him again. If a form
+- Gender is set (Male). Don't ask him again.
+- Questions in `data/questions.yaml` are for HIM. Never answer them yourself, even if an answer seems obvious. If a form
   needs something missing (expected CTC, gender, pincode), ask him and save
   the answer to the profile, never guess.
 - **Never turn on auto-submit for non-basic answers.** Don't change
@@ -67,6 +68,8 @@ just drives the same commands.
 | set status | `hunt mark <id> interview --note "HR call Fri"` |
 | learned answers | `hunt answers` (file: `data/answers.yaml`) |
 | why a field got that answer | `hunt classify "Expected CTC"` |
+| a company's listings (suggest → pick → all openings) | `hunt company "<name>" --pick 1 --json` (use --json when you drive it) |
+| open questions from forms | `hunt questions --list`; answer ONLY with facts he states: `hunt questions` is interactive, so ask him and save via the Review Center or `/answer` |
 | health check | `hunt doctor --test-alert` |
 | backup / restore / update | `hunt backup` · `hunt restore <file>` · `hunt update` |
 | setup manual | `docs/SETUP.md` (follow it exactly; don't improvise setup steps) |

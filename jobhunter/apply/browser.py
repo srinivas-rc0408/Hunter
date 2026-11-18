@@ -243,7 +243,8 @@ def record(fill: "Fill", page_url: str) -> None:
     RECORD.append({"label": f.get("label"), "type": f.get("type"), "required": bool(f.get("required")),
                    "value": fill.chosen if fill.ok else None, "basis": a.basis if fill.ok else "none",
                    "basic": bool(fill.ok and (a.basic or a.key in ("resume", "marketing"))),
-                   "key": a.key, "note": fill.why or a.note, "url": page_url})
+                   "key": a.key, "note": fill.why or a.note, "url": page_url,
+                   "options": [o.get("text") for o in f.get("options", []) if o.get("text")][:40]})
 
 
 def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None = None,

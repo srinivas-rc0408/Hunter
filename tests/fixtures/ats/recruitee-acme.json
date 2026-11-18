@@ -1,0 +1,17 @@
+{
+ "offers": [
+  {
+   "id": 991,
+   "title": "Backend Engineer (Python)",
+   "careers_url": "https://acme.recruitee.com/o/backend-engineer-python",
+   "careers_apply_url": "https://acme.recruitee.com/o/backend-engineer-python/c/new",
+   "published_at": "2026-11-10 09:12:00 UTC",
+   "location": "Bengaluru, Karnataka, India",
+   "city": "Bengaluru",
+   "country": "India",
+   "remote": false,
+   "employment_type_code": "fulltime",
+   "description": "<p>FastAPI, PostgreSQL.</p>"
+  }
+ ]
+}

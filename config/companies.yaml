@@ -8,6 +8,9 @@
 # `checked` = verified live on that date.
 
 boards:
+  # Dream companies, read straight from their own career platforms (verified 2026-11-18):
+  - {company: Aditya Birla Group, type: abg, url: "https://careers.adityabirla.com/job-search", checked: 2026-11-18}
+  - {company: Birlasoft, type: successfactors, host: jobs.birlasoft.com, location: India, max_rows: 300, checked: 2026-11-18}
   # India-heavy (verified 2026-11-17)
   - {company: CRED,        type: lever,      token: cred,        checked: 2026-11-17}
   - {company: Meesho,      type: lever,      token: meesho,      checked: 2026-11-17}
@@ -44,12 +47,5 @@ manual:
 # Dream companies live here too, so a new Birla posting reaches you fast even
 # before LinkedIn indexes it.
 watch:
-  - {company: Aditya Birla Group, url: "https://careers.adityabirla.com/job-search", dream: true,
-     include: [engineer, developer, data, analytics, "machine learning", "ai", scientist, intern,
-               trainee, graduate, software, digital, technology, it],
-     exclude: [sales, marketing, finance, hr, "human resources", plant, mechanical, chemical]}
   - {company: Aditya Birla Group, url: "https://careers.adityabirla.com/leadership-programs", dream: true,
      include: [program, programme, graduate, trainee, leadership, apply]}
-  - {company: Birlasoft, url: "https://jobs.birlasoft.com/", dream: true,
-     include: [engineer, developer, data, "machine learning", "ai", scientist, intern, trainee,
-               graduate, software, analyst, python]}

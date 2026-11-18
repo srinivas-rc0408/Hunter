@@ -1,0 +1,30 @@
+{
+ "status": "success",
+ "job_counts": 2,
+ "data": [
+  {
+   "id": "a6f1c2",
+   "title": "Machine Learning Engineer - Fresher",
+   "jd": "<p>Build ML models with Python and PyTorch.</p>",
+   "country": "India",
+   "officelocations_without_area": [
+    "Bengaluru"
+   ],
+   "is_remote": 0,
+   "emp_type_name": "Full Time",
+   "posted_on": 1794700000
+  },
+  {
+   "id": "b7e2d3",
+   "title": "Data Analyst Intern",
+   "jd": "<p>SQL and Power BI.</p>",
+   "country": "India",
+   "officelocations_without_area": [
+    "Mumbai"
+   ],
+   "is_remote": 0,
+   "emp_type_name": "Internship",
+   "posted_on": 1794600000
+  }
+ ]
+}

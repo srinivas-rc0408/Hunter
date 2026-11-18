@@ -60,6 +60,23 @@ jobs:
       - name: Install
         run: pip install -r requirements-radar.txt
 
+      - name: Pick mode
+        id: mode
+        run: |
+          M="${{ github.event.inputs.mode }}"
+          if [ -z "$M" ]; then
+            case "${{ github.event.schedule }}" in
+              "45 14 * * *") M=digest ;;
+              "52 */3 * * *") M=full ;;
+              *) M=light ;;
+            esac
+          fi
+          echo "mode=$M" >> "$GITHUB_OUTPUT"; echo "mode: $M"
+
+      - name: Chromium for JavaScript career sites (full scans; e.g. Aditya Birla)
+        if: steps.mode.outputs.mode == 'full'
+        run: python -m playwright install --with-deps chromium
+
       - name: Private config (masked)
         run: |
           echo "$PRIVATE_YAML_B64" | base64 -d > config/private.yaml
@@ -87,19 +104,6 @@ jobs:
           else
             echo "first run: no state yet"
           fi
-
-      - name: Pick mode
-        id: mode
-        run: |
-          M="${{ github.event.inputs.mode }}"
-          if [ -z "$M" ]; then
-            case "${{ github.event.schedule }}" in
-              "45 14 * * *") M=digest ;;
-              "52 */3 * * *") M=full ;;
-              *) M=light ;;
-            esac
-          fi
-          echo "mode=$M" >> "$GITHUB_OUTPUT"; echo "mode: $M"
 
       - name: Scan
         if: steps.mode.outputs.mode != 'digest'

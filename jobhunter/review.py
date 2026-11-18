@@ -78,7 +78,9 @@ def state() -> dict:
         d["description"] = (j.get("description") or "")[:2500]
         d["apps"] = by_job.get(j["id"], [])[:5]
         out.append(d)
+    from .apply.questions import pending
     stats = {"tracked": len(out), "to review": sum(1 for j in out if j["status"] in ("needs_you",)),
+             "questions": len(pending()),
              "applied": db.count("status='applied'"), "interviews": db.count("status='interview'"),
              "offers": db.count("status='offer'"), "govt": db.count("kind='govt'"),
              "applied today": db.applied_today()}
@@ -130,6 +132,22 @@ class H(BaseHTTPRequestHandler):
             return self._json(state())
         if u.path == "/api/task":
             return self._json(_task())
+        qs = {k: v[0] for k, v in parse_qs(u.query).items()}
+        if u.path == "/api/companies/suggest":
+            from . import companies
+            return self._json(companies.suggest(qs.get("q", ""), online=qs.get("online", "1") == "1"))
+        if u.path == "/api/company":
+            from . import companies
+            if not qs.get("name"):
+                return self._json({"error": "name required"}, 400)
+            info = companies.resolve(qs["name"], qs.get("domain") or None, qs.get("wikidata") or None,
+                                     refresh=qs.get("refresh") == "1")
+            res = companies.listings(info, boards_search=qs.get("boards") == "1")
+            res["links"] = companies.links(info)
+            return self._json(res)
+        if u.path == "/api/questions":
+            from .apply.questions import pending
+            return self._json(pending())
         if u.path == "/file":
             f = _safe_file(parse_qs(u.query).get("p", [""])[0])
             if not f:
@@ -141,6 +159,38 @@ class H(BaseHTTPRequestHandler):
         if not self._host_ok() or self.headers.get("X-JH-Token") != TOKEN:
             return self._send(403, b"forbidden", "text/plain")
         parts = [p for p in urlparse(self.path).path.split("/") if p]
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(n) or b"{}") if 0 < n < 5_000_000 else {}
+        except ValueError:
+            body = {}
+        if parts == ["api", "answer"]:
+            from .apply.questions import answer
+            try:
+                res = answer(body.get("key", ""), str(body.get("value", "")))
+            except (KeyError, ValueError) as exc:
+                return self._json({"ok": False, "msg": str(exc)})
+            return self._json({"ok": True, "msg": f"saved: {res['label'][:50]} → {res['value']}"
+                               + (f" · {len(res['requeued'])} job(s) back in the queue" if res["requeued"] else "")})
+        if parts == ["api", "company", "watch"]:
+            from . import companies
+            info = companies.resolve(body.get("name", ""), body.get("domain"), body.get("wikidata"))
+            return self._json({"ok": True, "msg": "watching: every scan now includes it" if companies.watch(info)
+                               else "already watched, or no platform/careers page found"})
+        if parts == ["api", "company", "track"]:
+            from . import companies
+            rows = [x for x in body.get("rows", []) if isinstance(x, dict) and x.get("title")][:30]
+            if not rows:
+                return self._json({"ok": False, "msg": "select at least one listing"})
+            ids = companies.track(rows)
+            how = body.get("action", "track")
+            if how in ("preview", "apply"):
+                if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+                    return self._json({"ok": False, "msg": "Queued. This service can't open a browser: run `hunt apply "
+                                       + " ".join(i[:8] for i in ids) + "` in a terminal"})
+                ok, msg = _start(f"{how} {len(ids)} job(s)", ["apply", *ids] + (["--dry-run"] if how == "preview" else []))
+                return self._json({"ok": ok, "msg": msg})
+            return self._json({"ok": True, "msg": f"{len(ids)} job(s) added to your apply queue"})
         db = DB()
         if len(parts) >= 3 and parts[0] == "api":
             act, jid = parts[1], parts[2]
@@ -223,6 +273,9 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--bg);padding:10px;bord
 #task{position:fixed;right:12px;bottom:12px;max-width:min(560px,calc(100vw - 24px));background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:none;box-shadow:0 6px 24px rgba(0,0,0,.15)}
 #task pre{max-height:180px;margin:6px 0 0}#zoom{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:flex-start;justify-content:center;overflow:auto;z-index:9;padding:20px}
 #zoom img{max-width:min(1100px,100%)}.empty{color:var(--mut);padding:30px;text-align:center}
+.sugbox{display:none;position:absolute;left:0;right:0;top:100%;z-index:6;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:360px;overflow:auto}
+.sg{padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--line)}.sg:hover{background:var(--bg)}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin:1px 3px 1px 0}
 .jrow{display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:start}.sc{font-weight:700;text-align:center;background:var(--bg);border-radius:8px;padding:6px 0}
 </style></head><body>
 <header><div class="wrap"><div class="top"><h1>Review Center</h1><div class="stats" id="stats"></div>
@@ -236,7 +289,61 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--bg);padding:10px;bord
 const TOKEN="__TOKEN__"; let S=null, TAB=localStorage.getItem('jh_tab')||'review', Q='';
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SRC={profile:'your fact',consent:'consent',learned:'learned from you',drafted:'drafted, check it',none:'missing',opt:'optional, left empty'};
-const TABS=[['review','To review'],['applied','Applied'],['active','Jobs'],['govt','Govt'],['all','Everything']];
+const TABS=[['review','To review'],['questions','Questions'],['companies','Companies'],['applied','Applied'],['active','Jobs'],['govt','Govt'],['all','Everything']];
+let QS=[], CO=null, CQ='', CSUG=[], CF={ka:true,fit:false,t:''}, CSEL=new Set(), CBUSY='';
+async function loadQ(){ QS=await (await fetch('/api/questions')).json(); if(TAB==='questions') render(); }
+async function post(path, body){ const r=await fetch(path,{method:'POST',headers:{'X-JH-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(body||{})}); return r.json(); }
+async function answerQ(i){ const el=document.getElementById('qa'+i); const v=el.value.trim(); if(!v){toast('type an answer first');return;}
+  const j=await post('/api/answer',{key:QS[i].key,value:v}); toast(j.msg); await loadQ(); load(); }
+function questionsView(){ if(!QS.length) return '<div class="empty">No open questions. When a form asks something that isn\'t in your files, it appears here. Nothing is ever guessed.</div>';
+  return '<p class="m">Answer with true facts only. Each answer is saved once and reused on every form; jobs waiting only on these go back into the apply queue.</p>'+
+  QS.map((q,i)=>`<div class="card"><div class="t">${esc(q.label)}</div><div class="m">${q.jobs.length} job(s) waiting · seen on ${esc((q.sites||[]).join(', ')||'?')} · first asked ${esc((q.first_asked||'').slice(0,10))}</div>
+   <div class="acts">${q.options&&q.options.length?`<select id="qa${i}"><option value="">choose…</option>${q.options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`:
+   `<input id="qa${i}" placeholder="your answer" style="flex:1;min-width:220px" onkeydown="if(event.key==='Enter')answerQ(${i})">`}
+   <button class="b p" onclick="answerQ(${i})">Save answer</button></div></div>`).join(''); }
+let sugT=null;
+function csInput(v){ CQ=v; clearTimeout(sugT); if(v.trim().length<2){CSUG=[];drawSug();return;}
+  sugT=setTimeout(async()=>{ CSUG=await (await fetch('/api/companies/suggest?q='+encodeURIComponent(v))).json(); drawSug(); },250); }
+function drawSug(){ const el=$('#sug'); if(!el) return; el.innerHTML=CSUG.map((s,i)=>`<div class="sg" onmousedown="pickCo(${i})"><b>${esc(s.name)}</b> <span class="m">${esc(s.hint||'')} · ${esc(s.source)}</span></div>`).join(''); el.style.display=CSUG.length?'block':'none'; }
+async function pickCo(i){ const s=CSUG[i]; CSUG=[]; CQ=s.name; CO=null; CSEL=new Set(); CBUSY='Finding '+s.name+'\'s careers page and hiring platform…'; render();
+  const p=new URLSearchParams({name:s.name,domain:s.domain||'',wikidata:s.wikidata||''});
+  CO=await (await fetch('/api/company?'+p+'&boards=0')).json(); CBUSY='Adding LinkedIn / Naukri / Indeed results…'; render();
+  try{ const full=await (await fetch('/api/company?'+p+'&boards=1')).json(); if(full.listings) CO=full; }catch(e){}
+  CBUSY=''; render(); }
+function coRows(){ if(!CO||!CO.listings) return []; const t=CF.t.toLowerCase();
+  return CO.listings.filter(r=>(!CF.ka||r.karnataka)&&(!CF.fit||r.fit)&&(!t||(r.title+' '+(r.location||'')).toLowerCase().includes(t))); }
+async function coAct(action){ const rows=coRows().filter(r=>CSEL.has(r.id)); if(!rows.length){toast('tick at least one listing');return;}
+  const j=await post('/api/company/track',{rows,action}); toast(j.msg); CSEL=new Set(); load(); poll(); }
+async function coWatch(){ const j=await post('/api/company/watch',{name:CO.company.name,domain:CO.company.domain,wikidata:CO.company.wikidata}); toast(j.msg); }
+function companiesView(){ let h=`<div style="position:relative;max-width:640px"><input id="cq" value="${esc(CQ)}" placeholder="Type a company, e.g. Birla, Sarvam, Bosch…" autocomplete="off"
+   oninput="csInput(this.value)" onblur="setTimeout(()=>{const e=$('#sug');if(e)e.style.display='none'},150)" style="width:100%;font-size:15px;padding:10px 12px">
+   <div id="sug" class="sugbox"></div></div>`;
+  if(CBUSY) h+=`<p class="m">⏳ ${esc(CBUSY)}</p>`;
+  if(!CO) return h+'<p class="m" style="margin-top:14px">Pick a company to see every open listing: its own careers platform (Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Keka, Darwinbox, Zoho…), LinkedIn, Naukri, Indeed, and jobs already in your tracker.</p>';
+  const c=CO.company, k=CO.counts, rows=coRows();
+  h+=`<div class="card" style="margin-top:12px"><div class="ch"><div><div class="t">${esc(c.name)}</div>
+    <div class="m">${[c.description,c.employees?('~'+c.employees+' employees'):'',c.founded?('founded '+c.founded):''].filter(Boolean).map(esc).join(' · ')}</div>
+    <div class="m">platform: <b>${(c.boards||[]).map(b=>esc(b.type)).join(', ')||'none found'}</b>${c.careers_url?` · <a href="${esc(c.careers_url)}" target="_blank" rel="noopener">careers page ↗</a>`:''}${c.website?` · <a href="${esc(c.website)}" target="_blank" rel="noopener">website ↗</a>`:''}</div>
+    ${(c.notes||[]).map(n=>`<div class="m" style="color:var(--warn)">${esc(n)}</div>`).join('')}</div>
+    <div><button class="b" onclick="coWatch()">★ Watch company</button></div></div>
+    <div class="stats" style="margin-top:8px"><span class="stat"><b>${k.total}</b> listings</span><span class="stat"><b>${k.karnataka}</b> Karnataka/remote</span><span class="stat"><b>${k.fit}</b> fit your rules</span><span class="stat"><b>${k.new_24h}</b> new in 24 h</span></div>
+    <details style="margin-top:8px"><summary>Referrals & research: REVA alumni there, recruiters, reviews, salaries</summary>
+    <div class="acts">${Object.entries(CO.links||{}).filter(([a,b])=>b).map(([a,b])=>`<a class="b" href="${esc(b)}" target="_blank" rel="noopener" style="text-decoration:none">${esc(a)} ↗</a>`).join('')}</div></details></div>
+    <div class="bar"><label class="m"><input type="checkbox" ${CF.ka?'checked':''} onchange="CF.ka=this.checked;render()"> Karnataka / remote-India only</label>
+    <label class="m"><input type="checkbox" ${CF.fit?'checked':''} onchange="CF.fit=this.checked;render()"> fits my rules only</label>
+    <input placeholder="filter titles…" value="${esc(CF.t)}" onchange="CF.t=this.value;render()">
+    <button class="b" onclick="coAct('track')">Add ticked to queue</button><button class="b" onclick="coAct('preview')">Preview ticked</button><button class="b p" onclick="coAct('apply')">Apply to ticked</button></div>
+    <div style="overflow-x:auto"><table style="min-width:760px"><tr><th></th><th>Posted</th><th>Role</th><th>Location</th><th>Type</th><th>Via</th><th>Fit</th><th>Status</th><th></th></tr>
+    ${rows.slice(0,400).map(r=>`<tr><td><input type="checkbox" ${CSEL.has(r.id)?'checked':''} onchange="this.checked?CSEL.add('${r.id}'):CSEL.delete('${r.id}')"></td>
+      <td style="white-space:nowrap">${r.days_ago==null?'?':(r.days_ago===0?'🔥 today':r.days_ago+'d ago')}<div class="m">${esc(r.posted||'')}</div></td>
+      <td><b>${esc(r.title)}</b><details><summary>details</summary><pre>${esc(r.why||'')}\n\n${esc(r.description||'')}</pre></details></td>
+      <td>${esc(r.location||'')}${r.karnataka?' <span class="pill">KA</span>':''}${r.remote?' <span class="pill">remote</span>':''}</td>
+      <td>${esc(r.job_type||'')}</td><td>${(r.sources||[]).map(s=>`<span class="pill">${esc(s)}</span>`).join('')}</td>
+      <td>${r.fit?r.score:'<span class="m" title="outside your rules">—</span>'}</td><td class="st s-${esc(r.status||'')}">${esc(r.status||'')}</td>
+      <td><a href="${esc(r.apply_url||r.url)}" target="_blank" rel="noopener">open ↗</a></td></tr>`).join('')}</table></div>
+    ${rows.length?'':'<div class="empty">No listings match these filters. Untick "Karnataka only" to see all.</div>'}
+    ${(CO.errors||[]).length?`<p class="m">some sources failed: ${esc(CO.errors.join('; '))}</p>`:''}`;
+  return h; }
 async function load(){ S=await (await fetch('/api/state')).json(); render(); }
 function file(p){return '/file?p='+encodeURIComponent(p)}
 async function act(a,id,extra){ const btns=document.querySelectorAll('button'); btns.forEach(b=>b.disabled=true);
@@ -289,6 +396,8 @@ function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).ma
   const q=Q.toLowerCase(), m=j=>!q||(j.title+' '+j.company+' '+j.location).toLowerCase().includes(q);
   let html='<div style="height:12px"></div>';
   const J=S.jobs.filter(m);
+  if(TAB==='questions'){ html+=questionsView(); $('#main').innerHTML=html; return; }
+  if(TAB==='companies'){ html+=companiesView(); $('#main').innerHTML=html; drawSug(); const e=$('#cq'); if(e&&!CO&&!CBUSY) e.focus(); return; }
   if(TAB==='review'){ const L=J.filter(j=>j.kind!=='govt'&&(j.status==='needs_you'||(j.apps&&j.apps.length&&j.apps[0].dry&&!['applied','skipped','rejected'].includes(j.status))));
     html+=L.length?L.map(appCard).join(''):'<div class="empty">Nothing to review. Forms the bot fills but doesn\'t submit land here.</div>'; }
   else if(TAB==='applied'){ const L=J.filter(j=>['applied','interview','offer','rejected'].includes(j.status)).sort((a,b)=>(b.status_at||'').localeCompare(a.status_at||''));
@@ -297,5 +406,6 @@ function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).ma
   else if(TAB==='govt'){ html+=J.filter(j=>j.kind==='govt').sort((a,b)=>(a.deadline||'9').localeCompare(b.deadline||'9')).map(jobRow).join('')||'<div class="empty">No govt notices yet.</div>'; }
   else html+=J.slice(0,500).map(jobRow).join('');
   $('#main').innerHTML=html; if(location.hash){const e=document.getElementById('j'+location.hash.slice(1)); if(e){e.scrollIntoView(); location.hash='';}} }
-load(); poll(); setInterval(load,30000);
+load(); loadQ(); poll(); setInterval(()=>{ if(!['companies','questions'].includes(TAB)) load(); else loadStatsOnly(); },30000);
+async function loadStatsOnly(){ S=await (await fetch('/api/state')).json(); $('#stats').innerHTML=Object.entries(S.stats).map(([k,v])=>`<span class="stat"><b>${v}</b> ${esc(k)}</span>`).join(''); }
 </script></body></html>"""
