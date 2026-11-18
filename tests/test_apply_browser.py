@@ -231,6 +231,18 @@ class Browser(unittest.TestCase):
         self.assertNotIn("couldn't find Next", o.why)
         self.assertIn("would", o.why)
 
+    def test_options_redrawn_mid_step_are_read_again(self):
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()                # live (Wedding Co 3/5): onsite read mid-redraw → "no option matches"
+        p.set_content('<dialog data-testid="dialog" open><fieldset id="g"><legend>Are you comfortable working in an '
+                      'onsite setting?</legend><input type="radio" name="o" id="y"><label for="y"></label>'
+                      '<input type="radio" name="o" id="n"><label for="n"></label></fieldset></dialog><script>'
+                      'setTimeout(() => g.innerHTML = g.innerHTML.replace(\'for="y"></label>\', \'for="y">Yes</label>\')'
+                      '.replace(\'for="n"></label>\', \'for="n">No</label>\'), 400);</script>')
+        res = B.fill_form(p, JOB, None, root=flows.LI_MODAL)
+        self.assertTrue(res.fills[0].ok, res.fills[0].why)
+        self.assertTrue(p.is_checked("#y"))
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

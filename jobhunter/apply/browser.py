@@ -386,6 +386,15 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
             continue
         try:
             _fill_one(page, f, a, fill, resume_path, cover_text)
+            if not fill.ok and fill.why.startswith("no option matches"):
+                # read mid-redraw (options still empty): wait, find the question again, try once more
+                page.wait_for_timeout(800)
+                f = _same_field(scan(page, root), f0)
+                if f:
+                    a = F.answer(f0["label"], f0["type"], f0.get("placeholder", ""),
+                                 [o["text"] for o in f.get("options", [])], job)
+                    fill.field, fill.answer, fill.why = f, a, ""
+                    _fill_one(page, f, a, fill, resume_path, cover_text)
         except Exception as exc:  # one bad field must not stop the form
             fill.ok, fill.why = False, f"{type(exc).__name__}: {str(exc)[:80]}"
         record(fill, page.url)
