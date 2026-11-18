@@ -187,6 +187,23 @@ def from_bank(label: str) -> Any:
 
 
 # ── answering ──────────────────────────────────────────────────────────────
+def _degree_yes_no(label: str, edu: dict) -> str | None:
+    """Yes/No about your bachelor's, from its end year in your profile. None = can't tell: ask you."""
+    lab, end, now = label.lower(), edu.get("end"), dt.date.today().year
+    if not end or not re.search(r"degree|bachelor|b\.?\s?tech|\bb\.?e\b|graduat|undergrad", lab) or \
+            re.search(r"master|m\.?\s?tech|\bmba\b|ph\.?\s?d|doctor|diploma|class|\b1[02]th\b|puc", lab):
+        return None
+    end, m = int(end), re.search(r"\b(20\d\d)\b", lab)
+    if m:
+        y = int(m[1])
+        return "Yes" if (end <= y if re.search(r"\bby\b", lab) else end == y) else "No"
+    if re.search(r"pursuing|currently (?:enrolled|studying)", lab):
+        return "Yes" if end >= now else "No"
+    if re.search(r"complet|graduated|\bhold\b|possess", lab):
+        return "Yes" if end < now else "No" if end > now else None
+    return None
+
+
 def _unconfirmed(prof: dict) -> set[str]:
     return set(prof.get("unconfirmed") or [])
 
@@ -223,6 +240,10 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
         if fix.get("override") and fix.get("answer") not in (None, ""):
             return Answer(key, fix["answer"], "learned", "you corrected this before")
 
+    if key in ("degree", "unknown") and options and pick_option("Yes", options) and pick_option("No", options):
+        v = _degree_yes_no(label, edu)
+        if v or key == "degree":             # a Yes/No degree question never gets the degree's name
+            return P(v, "from your graduation year" if v else "degree question: your call once")
     if key == "unknown":
         v = from_bank(label)
         return Answer(key, v, "learned" if v not in (None, "") else "none")

@@ -167,6 +167,18 @@ class Fields(unittest.TestCase):
         self.assertEqual(answer("Date of Birth", "date").value, "2004-07-21")
         self.assertEqual(answer("DOB", "text", "MM/DD/YYYY").value, "07/21/2004")
 
+    def test_yes_no_degree_questions_follow_graduation_year(self):
+        yn = ["Yes", "No"]                     # test profile: B.Tech 2023-2027, so in progress until 2027
+        for label, want in [("Have you completed your Bachelor's degree?", "No"),
+                            ("Are you currently pursuing a Bachelor's degree?", "Yes"),
+                            ("Will you graduate in 2027?", "Yes"), ("Are you graduating in 2026?", "No"),
+                            ("Will you complete your B.Tech degree by 2028?", "Yes"),
+                            ("Have you completed a Master's degree?", None)]:      # no masters in profile: ask
+            a = answer(label, "radio", "", yn)
+            self.assertEqual(a.value, want, label)
+            self.assertEqual(a.basis, "profile" if want else "none", label)
+        self.assertEqual(answer("Highest degree", "select", "", ["B.Tech", "M.Tech"]).value, "B.Tech")
+
     def test_not_basic(self):
         for label in ("Expected CTC", "Why do you want to join us?", "Gender",
                       "How many years of experience do you have with Kubernetes?", "Caste category"):
