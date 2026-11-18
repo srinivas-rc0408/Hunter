@@ -1,0 +1,32 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn-style step that redraws mid-fill</title></head><body><main>
+<!-- Live (Wedding Company, step 3/5): after typing, LinkedIn re-rendered the questions and the unknown
+     commute question ended up "Yes". Like React, this page keeps answers in state and re-renders them onto
+     whichever DOM nodes it reuses: after the first keystroke the two radio questions swap nodes. -->
+<button aria-label="Easy Apply to this job" onclick="document.getElementById('ea').showModal()">Easy Apply</button>
+</main>
+<dialog id="ea" data-testid="dialog">
+  <h2>Apply to Acme</h2><p>3/5 pages</p>
+  <label for="np">What is your Notice Period?</label><input id="np" type="text">
+  <p id="q0"></p><fieldset><label><input type="radio" value="Yes"> Yes</label><label><input type="radio" value="No"> No</label></fieldset>
+  <p id="q1"></p><fieldset><label><input type="radio" value="Yes"> Yes</label><label><input type="radio" value="No"> No</label></fieldset>
+  <button type="button">Next</button>
+</dialog>
+<script>
+const Q = {onsite: "Are you comfortable working in an onsite setting?*",
+           commute: "Are you comfortable commuting to this job's location?*"};
+const state = {};
+let order = ["onsite", "commute"];
+const sets = [...document.querySelectorAll('#ea fieldset')];
+function render() {
+  sets.forEach((fs, i) => {
+    const q = order[i];
+    document.getElementById('q' + i).textContent = Q[q];
+    fs.querySelectorAll('input').forEach(r => { r.name = 'radio-group-' + q; r.dataset.q = q; r.checked = state[q] === r.value; });
+  });
+}
+sets.forEach(fs => fs.addEventListener('change', e => { state[e.target.dataset.q] = e.target.value; render(); }));
+document.getElementById('np').addEventListener('input', () => { if (order[0] === 'onsite') { order = ['commute', 'onsite']; render(); } }, );
+window.answers = () => ({...state});
+render();
+</script>
+</body></html>

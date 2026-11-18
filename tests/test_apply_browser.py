@@ -133,6 +133,19 @@ class Browser(unittest.TestCase):
         p.click("#next")
         self.assertTrue(p.is_visible("text=Review your application"))
 
+    def test_redraw_mid_step_never_answers_an_unknown_question(self):
+        from jobhunter.apply import browser as B
+        p = self.page("linkedin_redraw")         # live: commute (no answer) ended up "Yes" after a re-render
+        p.click("button[aria-label='Easy Apply to this job']")
+        B.fill_form(p, JOB, self.resume, root=flows.LI_MODAL)
+        self.assertEqual(p.evaluate("answers()"), {"onsite": "Yes"})
+        p.evaluate("""() => { const r = document.querySelector('input[name="radio-group-commute"][value="Yes"]');
+                             r.checked = true; }""")   # a stray tick, however it got there
+        again = {f.field["label"]: f for f in B.fill_form(p, JOB, self.resume, root=flows.LI_MODAL).fills}
+        c = again["Are you comfortable commuting to this job's location?*"]
+        self.assertFalse(c.ok, "a pre-ticked radio was taken as your answer")
+        self.assertEqual(c.answer.basis, "none")
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

@@ -359,13 +359,20 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
     """Fill every field we can. Leaves unknowns alone. Never clicks submit."""
     res = FormResult(blockers=blocked(page))
     skip_jh = skip_jh or set()
-    for f in scan(page, root):
-        if f["jh"] in skip_jh:
+    for i, f0 in enumerate(scan(page, root)):
+        if f0["jh"] in skip_jh:
             continue
-        opts = [o["text"] for o in f.get("options", [])]
-        a = F.answer(f["label"], f["type"], f.get("placeholder", ""), opts, job)
-        fill = Fill(f, a)
+        # Sites (LinkedIn/React) redraw while we fill and reuse inputs for other questions: find the field
+        # again by its question before touching it, never trust an id from an earlier scan.
+        f = f0 if i == 0 else _same_field(scan(page, root), f0)
+        opts = [o["text"] for o in (f or f0).get("options", [])]
+        a = F.answer(f0["label"], f0["type"], f0.get("placeholder", ""), opts, job)
+        fill = Fill(f or f0, a)
         res.fills.append(fill)
+        if f is None:
+            fill.why = "the form redrew and this question moved: left for you"
+            record(fill, page.url)
+            continue
         try:
             _fill_one(page, f, a, fill, resume_path, cover_text)
         except Exception as exc:  # one bad field must not stop the form
@@ -373,6 +380,12 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
         record(fill, page.url)
         human_pause(0.15, 0.6)
     return res
+
+
+def _same_field(now: list[dict], f: dict) -> dict | None:
+    """`f` as the page shows it now: same question and type (same id preferred). None if it's gone."""
+    same = [x for x in now if x["label"] == f["label"] and x["type"] == f["type"]]
+    return next((x for x in same if x["jh"] == f["jh"]), same[0] if same else None)
 
 
 def _choose(a: F.Answer, options: list[str]) -> str | None:
@@ -414,8 +427,9 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
         fill.ok, fill.chosen = True, "left unticked"
         return
     if a.value is None or (a.value == "" and a.key not in ("middle_name", "referred")):
-        if already not in (None, "", False):
-            # site pre-filled it (e.g. LinkedIn email/phone from your account). That's your own data.
+        if already not in (None, "", False) and t not in ("radio", "checkbox", "select"):
+            # site pre-filled a typed field (e.g. LinkedIn email/phone from your account). That's your own data.
+            # A ticked choice with no answer of yours is NOT: it stays basis "none" and becomes a question.
             fill.ok, fill.chosen = True, already
             fill.answer = F.Answer(a.key, already, "profile", "pre-filled by the site from your account")
         else:
