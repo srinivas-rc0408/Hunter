@@ -33,16 +33,17 @@ TAG = {"profile": ("your details", "#1a7f37"), "consent": ("consent", "#1a7f37")
 
 PANEL_JS = r"""
 (d) => {
+""" + B.DEEP_JS + r"""
   const old = document.getElementById('jh-panel-host'); if (old) old.remove();
   window.__jhAction = null;
   const host = document.createElement('div'); host.id = 'jh-panel-host';
-  host.style.cssText = 'position:fixed;top:12px;right:12px;z-index:2147483647;';
+  host.style.cssText = 'position:fixed;top:12px;left:12px;z-index:2147483647;';
   const sh = host.attachShadow({mode: 'open'});
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const counts = {}; d.rows.forEach(r => counts[r.tag] = (counts[r.tag] || 0) + 1);
   const chip = (t, n) => n ? `<span class="chip" style="border-color:${d.tags[t][1]};color:${d.tags[t][1]}">${n} ${esc(d.tags[t][0])}</span>` : '';
   sh.innerHTML = `<style>
-    .p{width:360px;max-height:calc(100vh - 24px);display:flex;flex-direction:column;background:#fff;color:#1a1a1a;
+    .p{width:min(360px,44vw);min-width:250px;max-height:calc(100vh - 24px);display:flex;flex-direction:column;background:#fff;color:#1a1a1a;
        border:2px solid #1f5fbf;border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,.35);font:13px/1.4 system-ui,sans-serif}
     .h{padding:10px 12px;border-bottom:1px solid #e5e5e5}.t{font-weight:700;font-size:14px}.m{color:#555;font-size:12px}
     .chip{display:inline-block;border:1px solid;border-radius:999px;padding:0 7px;margin:3px 3px 0 0;font-size:11px;font-weight:600}
@@ -54,7 +55,7 @@ PANEL_JS = r"""
     .x{float:right;border:none;background:none;font-size:16px;padding:0 4px}.min .rows,.min .f,.min .msg,.min .hint{display:none}
   </style>
   <div class="p" id="p"><div class="h"><button class="x" id="min" title="minimise">–</button>
-    <div class="t">JobHunter · check this form</div><div class="m">${esc(d.title)}</div>
+    <div class="t">JobHunter · check this form <span class="m">(drag me)</span></div><div class="m">${esc(d.title)}</div>
     <div>${chip('profile', counts.profile)}${chip('learned', counts.learned)}${chip('drafted', counts.drafted)}${chip('none', counts.none)}${chip('opt', counts.opt)}</div>
     <div class="m hint" style="margin-top:4px">${esc(d.hint)}</div></div>
     <div class="msg" id="msg">${esc(d.msg || '')}</div>
@@ -67,8 +68,8 @@ PANEL_JS = r"""
        <button data-a="skip">Skip job</button><button data-a="later">Later</button></div></div>`;
   document.documentElement.appendChild(host);
   const byJh = {}; d.rows.forEach((r, i) => byJh[r.jh] = i);
-  const elOf = jh => jh.startsWith('g:') ? document.querySelector(`input[type=radio][name="${CSS.escape(jh.slice(2))}"]`)
-                                         : document.querySelector(`[data-jh="${CSS.escape(jh)}"]`);
+  const elOf = jh => jh.startsWith('g:') ? deepOne(`input[type=radio][name="${CSS.escape(jh.slice(2))}"]`)
+                                         : deepOne(`[data-jh="${CSS.escape(jh)}"]`);
   d.rows.forEach(r => { const e = elOf(r.jh); if (!e) return;
     const box = (e.type === 'radio' || e.type === 'checkbox') ? (e.closest('fieldset, [role=radiogroup], label') || e) : e;
     box.style.outline = `3px solid ${d.tags[r.tag][1]}`; box.style.outlineOffset = '2px'; });
@@ -79,7 +80,13 @@ PANEL_JS = r"""
   sh.querySelectorAll('button[data-a]').forEach(b => b.addEventListener('click', () => {
     window.__jhAction = b.dataset.a; sh.getElementById('msg').textContent = 'Working…'; }));
   sh.getElementById('min').addEventListener('click', () => sh.getElementById('p').classList.toggle('min'));
-  const changed = ev => { const t = ev.target; if (!t || !t.getAttribute) return;
+  const hd = sh.querySelector('.h'); hd.style.cursor = 'move';          // drag the panel by its header
+  hd.addEventListener('mousedown', e => { if (e.target.tagName === 'BUTTON') return;
+    const sx = e.clientX - host.offsetLeft, sy = e.clientY - host.offsetTop;
+    const mv = m => { host.style.left = Math.max(0, m.clientX - sx) + 'px'; host.style.top = Math.max(0, m.clientY - sy) + 'px'; };
+    const up = () => { document.removeEventListener('mousemove', mv); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', mv); document.addEventListener('mouseup', up); e.preventDefault(); });
+  const changed = ev => { const t = (ev.composedPath && ev.composedPath()[0]) || ev.target; if (!t || !t.getAttribute) return;
     let jh = t.getAttribute('data-jh'); if (t.type === 'radio') jh = 'g:' + t.name;
     if (!(jh in byJh)) return; const i = byJh[jh];
     let v = t.type === 'checkbox' ? (t.checked ? '✓ ticked' : 'unticked') : t.tagName === 'SELECT' ? t.options[t.selectedIndex].text
@@ -87,9 +94,10 @@ PANEL_JS = r"""
     sh.getElementById('v' + i).textContent = String(v).slice(0, 200) || '—';
     sh.getElementById('g' + i).textContent = 'you changed this · will be remembered'; sh.getElementById('g' + i).style.color = '#1f5fbf';
     sh.querySelector(`.r[data-i="${i}"]`).classList.add('ch'); };
-  if (!window.__jhListen) { window.__jhListen = true;
-    document.addEventListener('input', ev => window.__jhChanged && window.__jhChanged(ev), true);
-    document.addEventListener('change', ev => window.__jhChanged && window.__jhChanged(ev), true); }
+  const hook = r => { if (r.__jhHooked) return; r.__jhHooked = true;   // 'change' doesn't leave a shadow root: hook each
+    r.addEventListener('input', ev => window.__jhChanged && window.__jhChanged(ev), true);
+    r.addEventListener('change', ev => window.__jhChanged && window.__jhChanged(ev), true); };
+  hook(document); deepAll(document, '*').forEach(e => { if (e.shadowRoot && e !== host) hook(e.shadowRoot); });
   window.__jhChanged = changed;
   window.__jhMsg = m => { const e = sh.getElementById('msg'); if (e) e.textContent = m; };
   return true;
@@ -130,6 +138,15 @@ def show(page, fills: list, title: str, final: bool, dry: bool = False, msg: str
                                              "hint": hint, "msg": msg, "tags": TAG}))
     except Exception:
         return False
+
+
+def hide(page) -> None:
+    """Take the panel (and the 🎯 button) off the page so they can't cover the site's own buttons."""
+    try:
+        page.evaluate("""() => { const h = document.getElementById('jh-panel-host'); if (h) h.remove();
+                                 const f = document.getElementById('jh-fab'); if (f) f.style.display = 'none'; }""")
+    except Exception:
+        pass
 
 
 def message(page, text: str) -> None:

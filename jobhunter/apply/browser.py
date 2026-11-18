@@ -16,26 +16,39 @@ from typing import Any
 from .. import config
 from . import fields as F
 
+# Sites (LinkedIn's Easy Apply since 2025) can draw forms inside open shadow roots, where
+# document.querySelector can't see them. These helpers search the page AND every open shadow root.
+DEEP_JS = r"""
+  const deepAll = (root, sel) => { const out = [...root.querySelectorAll(sel)];
+    const walk = n => { for (const e of n.querySelectorAll('*')) if (e.shadowRoot) {
+      out.push(...e.shadowRoot.querySelectorAll(sel)); walk(e.shadowRoot); } };
+    walk(root); return out; };
+  const deepOne = sel => { try { return deepAll(document, sel)[0] || null; } catch (_) { return null; } };
+"""
+
 SCAN_JS = r"""
 (rootSel) => {
-  const root = rootSel ? (document.querySelector(rootSel) || document) : document;
+""" + DEEP_JS + r"""
+  const root = rootSel ? (deepOne(rootSel) || document) : document;
   const shown = el => { if (!el) return false; const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const vis = el => {
     if (shown(el)) return true;
     if (el.type === 'radio' || el.type === 'checkbox') {      // styled inputs: the label is what shows
-      const l = el.closest('label') || (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`));
+      const l = el.closest('label') || (el.id && el.getRootNode().querySelector && el.getRootNode().querySelector(`label[for="${CSS.escape(el.id)}"]`));
       return shown(l);
     }
     if (el.type === 'file') return shown(el.parentElement) || shown(el.closest('div, label, form'));
     return false;
   };
   const txt = n => (n ? (n.innerText || n.textContent || '') : '').replace(/\s+/g, ' ').trim();
+  const R = el => { const r = el.getRootNode(); return r && r.querySelector ? r : document; };
+  const byId = (el, i) => (R(el).getElementById ? R(el).getElementById(i) : null) || document.getElementById(i);
   const labelOf = el => {
     let t = '';
-    if (el.id) { const l = document.querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t = txt(l); }
+    if (el.id) { const l = R(el).querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t = txt(l); }
     if (!t && el.getAttribute('aria-labelledby'))
-      t = el.getAttribute('aria-labelledby').split(/\s+/).map(i => txt(document.getElementById(i))).join(' ');
+      t = el.getAttribute('aria-labelledby').split(/\s+/).map(i => txt(byId(el, i))).join(' ');
     if (!t && el.getAttribute('aria-label')) t = el.getAttribute('aria-label');
     if (!t) { const l = el.closest('label'); if (l) t = txt(l); }
     if (!t) {
@@ -54,7 +67,7 @@ SCAN_JS = r"""
       const lg = fs.querySelector('legend'); if (lg && txt(lg)) return txt(lg);
       if (fs.getAttribute('aria-label')) return fs.getAttribute('aria-label');
       const lb = fs.getAttribute('aria-labelledby');
-      if (lb) return lb.split(/\s+/).map(i => txt(document.getElementById(i))).join(' ');
+      if (lb) return lb.split(/\s+/).map(i => txt(byId(el, i))).join(' ');
     }
     let c = el.parentElement;
     for (let i = 0; i < 6 && c; i++) {
@@ -69,7 +82,7 @@ SCAN_JS = r"""
     return el.name || '';
   };
   const out = []; const groups = {}; window.__jhN = window.__jhN || 0;
-  const els = root.querySelectorAll('input, select, textarea, [contenteditable="true"]');
+  const els = deepAll(root, 'input, select, textarea, [contenteditable="true"]');
   for (const el of els) {
     const type = (el.tagName === 'SELECT') ? 'select' : (el.tagName === 'TEXTAREA') ? 'textarea'
                : el.isContentEditable && el.tagName !== 'INPUT' ? 'textarea' : (el.type || 'text').toLowerCase();
@@ -107,9 +120,10 @@ SCAN_JS = r"""
 
 ERRORS_JS = r"""
 (rootSel) => {
-  const root = rootSel ? (document.querySelector(rootSel) || document) : document;
+""" + DEEP_JS + r"""
+  const root = rootSel ? (deepOne(rootSel) || document) : document;
   const msgs = [];
-  root.querySelectorAll('[aria-invalid="true"], .artdeco-inline-feedback--error, [role="alert"], .error, .field-error, .invalid-feedback, [class*="error-message"]')
+  deepAll(root, '[aria-invalid="true"], .artdeco-inline-feedback--error, [role="alert"], .error, .field-error, .invalid-feedback, [class*="error-message"]')
     .forEach(e => { const r = e.getBoundingClientRect(); const t = (e.innerText || '').trim();
                     if (r.width > 0 && r.height > 0 && t && t.length < 200) msgs.push(t); });
   return [...new Set(msgs)].slice(0, 10);
@@ -217,7 +231,9 @@ def launch(headless: bool | None = None):
     try:
         ctx = pw.chromium.launch_persistent_context(
             str(prof_dir), headless=s.get("headless", False) if headless is None else headless,
-            viewport={"width": 1280, "height": 860}, locale="en-IN", timezone_id="Asia/Kolkata",
+            no_viewport=not (s.get("headless", False) if headless is None else headless),   # page = real window size
+            viewport=None if not (s.get("headless", False) if headless is None else headless) else {"width": 1280, "height": 860},
+            locale="en-IN", timezone_id="Asia/Kolkata",
             args=["--disable-blink-features=AutomationControlled", "--no-first-run",
                   "--disable-session-crashed-bubble", "--hide-crash-restore-bubble"])
     except Exception:
@@ -265,11 +281,25 @@ def blocked(page) -> list[str]:
     return out
 
 
+TEXT_JS = r"""
+() => {
+""" + DEEP_JS + r"""
+  let t = document.body ? document.body.innerText : '';
+  for (const e of deepAll(document, '*')) if (e.shadowRoot) t += '\n' + [...e.shadowRoot.children].map(c => c.innerText || c.textContent || '').join('\n');
+  return t;
+}
+"""
+
+
 def page_text(page) -> str:
+    """Visible text, including forms drawn inside shadow roots."""
     try:
-        return page.inner_text("body", timeout=3000).lower()
+        return (page.evaluate(TEXT_JS) or "").lower()
     except Exception:
-        return ""
+        try:
+            return page.inner_text("body", timeout=3000).lower()
+        except Exception:
+            return ""
 
 
 def succeeded(page) -> bool:
@@ -385,7 +415,12 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
     if t == "select":
         choice = _choose(a, [o["text"] for o in f["options"]])
         if not choice:
-            fill.why = f"no option matches {a.value!r}"
+            if already not in (None, "") and a.key in SITE_PREFILL_OK:
+                # e.g. LinkedIn's email dropdown lists the addresses of your own account
+                fill.ok, fill.chosen = True, already
+                fill.answer = F.Answer(a.key, already, "profile", "pre-filled by the site from your account")
+                return
+            fill.why = f"no option matches {a.value!r}" + (f" (site shows {already!r}: check it)" if already else "")
             return
         page.select_option(sel, label=choice)
         fill.ok, fill.chosen = True, choice
@@ -426,6 +461,9 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
     else:
         _type(page, loc, value)
     fill.ok, fill.chosen = True, value
+
+
+SITE_PREFILL_OK = {"email", "email_confirm", "phone", "country_code"}
 
 
 def verify(page, res: FormResult, root: str | None = None) -> list[str]:

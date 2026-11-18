@@ -97,7 +97,7 @@ class ReviewCenter(unittest.TestCase):
     def test_page_and_security(self):
         import requests
         base = f"http://127.0.0.1:{self.port}"
-        self.assertIn("Review Center", requests.get(base).text)
+        self.assertIn("JobHunter", requests.get(base).text)
         st = requests.get(base + "/api/state").json()
         self.assertTrue(any(j["apps"] for j in st["jobs"]))
         self.assertEqual(requests.post(f"{base}/api/mark/{self.hard.id}/skipped").status_code, 403)   # no token

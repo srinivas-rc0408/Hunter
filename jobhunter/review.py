@@ -84,6 +84,10 @@ def state() -> dict:
              "applied": db.count("status='applied'"), "interviews": db.count("status='interview'"),
              "offers": db.count("status='offer'"), "govt": db.count("kind='govt'"),
              "applied today": db.applied_today()}
+    import datetime as _dt
+    week = (_dt.datetime.now() - _dt.timedelta(days=7)).isoformat()
+    stats["applied this week"] = sum(1 for j in out if j["status"] in ("applied", "interview", "offer", "rejected")
+                                     and (j.get("status_at") or "") >= week)
     return {"jobs": out, "stats": stats, "task": _task(), "now": iso(), "statuses": STATUSES}
 
 
@@ -232,6 +236,16 @@ class H(BaseHTTPRequestHandler):
             if act == "mark" and len(parts) == 4 and parts[3] in STATUSES:
                 db.set_status(j["id"], parts[3], "review center")
                 return self._json({"ok": True, "msg": f"marked {parts[3]}"})
+        if parts[:2] == ["api", "browser"]:
+            if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+                return self._json({"ok": False, "msg": "This service can't open windows: run `hunt browser` in a terminal"})
+            url = str(body.get("url") or "")
+            ok, msg = _start("bot browser", ["browser"] + ([url] if url.startswith("http") else []))
+            return self._json({"ok": ok, "msg": msg + (" · press 🎯 Fill this form on any application page" if ok else "")})
+        if parts[:2] == ["api", "applyn"]:
+            n = max(1, min(20, int(body.get("n") or 5)))
+            ok, msg = _start(f"apply to best {n}", ["apply", "--top", str(n)])
+            return self._json({"ok": ok, "msg": msg + (" · check each form in the bot's browser and press Submit" if ok else "")})
         if parts[:2] == ["api", "scan"]:
             ok, msg = _start("scan", ["scan"])
             return self._json({"ok": ok, "msg": msg})
@@ -255,7 +269,7 @@ def serve(port: int = 8765, open_browser: bool = False) -> None:
 
 
 PAGE = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Review Center</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>JobHunter</title>
 <style>
 :root{--bg:#f6f6f3;--fg:#1a1a1a;--mut:#666;--card:#fff;--line:#e2e2dc;--acc:#1f5fbf;--good:#1a7f37;--goodbg:#e8f5ec;
 --warn:#9a5b00;--warnbg:#fff4df;--bad:#b42318;--badbg:#fdecea;--info:#5b3cc4;--infobg:#efeafd}
@@ -297,7 +311,7 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--bg);padding:10px;bord
 .pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--mut);margin:1px 3px 1px 0}
 .jrow{display:grid;grid-template-columns:48px 1fr auto;gap:10px;align-items:start}.sc{font-weight:700;text-align:center;background:var(--bg);border-radius:8px;padding:6px 0}
 </style></head><body>
-<header><div class="wrap"><div class="top"><h1>Review Center</h1><div class="stats" id="stats"></div>
+<header><div class="wrap"><div class="top"><h1>🎯 JobHunter</h1><div class="stats" id="stats"></div>
 <div style="display:flex;gap:6px"><button class="b" onclick="act('scan','x')">Scan now</button><button class="b" onclick="act('queue','x')">Apply to queue (top 10)</button></div></div>
 <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><div class="tabs" id="tabs" style="margin:0"></div>
 <input id="q" placeholder="Search title, company, place…" oninput="Q=this.value;render()" style="flex:1;min-width:180px"></div></div></header>
@@ -305,14 +319,14 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--bg);padding:10px;bord
 <div id="task"><div class="ch"><b id="tl"></b><button class="b" onclick="document.getElementById('task').style.display='none'">×</button></div><pre id="tt"></pre></div>
 <div id="zoom" onclick="this.style.display='none'"><img id="zimg"></div>
 <script>
-const TOKEN="__TOKEN__"; let S=null, TAB=localStorage.getItem('jh_tab')||'review', Q='';
+const TOKEN="__TOKEN__"; let S=null, TAB=localStorage.getItem('jh_tab')||'home', Q='';
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const SRC={profile:'your details',consent:'consent',learned:'learned from you',you:'you changed it',drafted:'AI draft: read it',none:'EMPTY',opt:'optional, empty'};
 async function fixField(jid,n){ const el=document.getElementById('fx'+jid.slice(0,8)+'_'+n); const v=(el.value||'').trim(); if(!v){toast('type the new value');return;}
   const j=await post('/api/fix',{job:jid,n:n,value:v}); toast(j.msg); if(j.ok) load(); }
 function editRow(jid,n){ const c=document.getElementById('ed'+jid.slice(0,8)+'_'+n); c.style.display=c.style.display==='none'?'':'none'; }
 async function dream(name,action){ const j=await post('/api/dream',{name,action:action||'add'}); toast(j.msg); load(); }
-const TABS=[['review','To review'],['questions','Questions'],['companies','Companies'],['applied','Applied'],['active','Jobs'],['govt','Govt'],['all','Everything']];
+const TABS=[['home','Dashboard'],['review','To review'],['questions','Questions'],['companies','Companies'],['applied','Applied'],['active','Jobs'],['govt','Govt'],['all','Everything']];
 let QS=[], CO=null, CQ='', CSUG=[], CF={ka:true,fit:false,t:''}, CSEL=new Set(), CBUSY='';
 async function loadQ(){ QS=await (await fetch('/api/questions')).json(); if(TAB==='questions') render(); }
 async function post(path, body){ const r=await fetch(path,{method:'POST',headers:{'X-JH-Token':TOKEN,'Content-Type':'application/json'},body:JSON.stringify(body||{})}); return r.json(); }
@@ -419,11 +433,46 @@ function jobRow(j){ return `<div class="card jrow"><div class="sc">${j.score}</d
   <div style="text-align:right"><div class="st s-${j.status}">${esc(j.status.replace('_',' '))}</div>
   ${j.kind==='govt'?`<div class="acts" style="justify-content:flex-end"><button class="b" onclick="act('mark','${j.id}','applied')">Applied</button><button class="b" onclick="act('mark','${j.id}','skipped')">Skip</button></div>`:
    ['new','alerted','queued'].includes(j.status)?`<div class="acts" style="justify-content:flex-end"><button class="b" onclick="act('dry','${j.id}')">Preview</button><button class="b p" onclick="act('fill','${j.id}')">Apply</button><button class="b" onclick="act('mark','${j.id}','skipped')">Skip</button></div>`:''}</div></div>`; }
+const DONE=['applied','interview','offer','rejected'];
+async function openBrowser(){ const u=prompt('Open which page first? (blank = LinkedIn jobs)','')||''; const j=await post('/api/browser',{url:u}); toast(j.msg); poll(); }
+async function applyN(){ const n=prompt('Apply to how many of your best matches? You check each form before it is sent.','5'); if(!n) return;
+  const j=await post('/api/applyn',{n:+n}); toast(j.msg); poll(); }
+function goCompany(v){ TAB='companies'; localStorage.setItem('jh_tab',TAB); CQ=v; CO=null; render(); if(v) csInput(v); }
+function ago(t){ if(!t) return ''; const d=(Date.now()-new Date(t))/864e5; return d<1?'today':d<2?'yesterday':Math.floor(d)+' days ago'; }
+function homeView(){ const st=S.stats, q=Q.toLowerCase();
+  const big=(n,l,c)=>`<div class="card" style="text-align:center;padding:12px"><div style="font-size:26px;font-weight:750;color:${c||'inherit'}">${n}</div><div class="m">${l}</div></div>`;
+  const H=S.jobs.filter(j=>DONE.includes(j.status)&&(!q||(j.title+' '+j.company).toLowerCase().includes(q)))
+    .sort((a,b)=>(b.status_at||'').localeCompare(a.status_at||''));
+  let h=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+    ${big(st.applied+st.interviews+st.offers,'applied in total')}${big(st['applied this week'],'this week')}${big(st['applied today'],'today')}
+    ${big(st.interviews,'interviews','var(--good)')}${big(st.offers,'offers','var(--good)')}${big(st['to review'],'waiting for you','var(--warn)')}${big(st.questions,'questions for you','var(--warn)')}</div>
+  <div class="card"><div class="t" style="margin-bottom:8px">Apply</div>
+    <div class="acts" style="margin-top:0">
+      <input placeholder="Type a company (Birla, Zoho, Sarvam…) and press Enter" style="flex:1;min-width:240px" onkeydown="if(event.key==='Enter')goCompany(this.value)">
+      <button class="b" onclick="goCompany('')">🔍 Search a company</button>
+      <button class="b p" onclick="applyN()">▶ Apply to my best matches</button>
+      <button class="b" onclick="openBrowser()">🎯 Open bot browser</button>
+      <button class="b" onclick="act('scan','x')">⟳ Scan for new jobs</button></div>
+    <p class="m" style="margin:8px 0 0">The bot fills every form; a JobHunter panel on the page shows what it typed. You read it, fix anything, press Submit. Your fixes are remembered.
+    In the bot browser, go to any application page and press <b>🎯 Fill this form</b>.</p></div>
+  <div class="card"><div class="ch"><div class="t">Your applications (${H.length})</div><span class="m">search box above filters this list</span></div>`;
+  if(!H.length) return h+'<div class="empty">No applications yet. Press ▶ Apply to my best matches.</div></div>';
+  h+=`<div style="overflow-x:auto"><table style="min-width:820px"><tr><th>When</th><th>Company</th><th>Role</th><th>Via</th><th>Status</th><th>You fixed</th><th>Files</th><th></th></tr>
+  ${H.map(j=>{ const a=(j.apps||[]).find(x=>!x.dry)||(j.apps||[])[0]||{}; const fs=a.fields||[]; const fixed=fs.filter(f=>f.basis==='you').length;
+    return `<tr><td style="white-space:nowrap">${esc(ago(j.status_at))}<div class="m">${esc((j.status_at||'').slice(0,10))}</div></td>
+    <td>${j.dream?'★ ':''}<b>${esc(j.company)}</b></td><td>${esc(j.title)}<div class="m">${esc(j.location||'')}</div></td>
+    <td>${esc(a.site||(j.sources||[]).join(', '))}</td>
+    <td><select onchange="act('mark','${j.id}',this.value)">${DONE.map(x=>`<option ${x===j.status?'selected':''}>${x}</option>`).join('')}</select></td>
+    <td>${fixed?fixed+' field(s)':'—'}</td>
+    <td style="white-space:nowrap"><a href="${esc(j.url)}" target="_blank" rel="noopener">job ↗</a>${a.resume?` · <a href="${file(a.resume)}" target="_blank">resume</a>`:''}${a.screenshot?` · <a href="#" onclick="zoom('${file(a.screenshot)}');return false">form</a>`:''}</td>
+    <td><details><summary>what was sent</summary>${fieldsTable(fs,j.id)}${a.cover?`<pre>${esc(a.cover)}</pre>`:''}</details></td></tr>`}).join('')}</table></div></div>`;
+  return h; }
 function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).map(([k,v])=>`<span class="stat"><b>${v}</b> ${esc(k)}</span>`).join('');
   $('#tabs').innerHTML=TABS.map(([k,l])=>`<button class="tab ${k===TAB?'on':''}" onclick="TAB='${k}';localStorage.setItem('jh_tab',TAB);render()">${l}</button>`).join('');
   const q=Q.toLowerCase(), m=j=>!q||(j.title+' '+j.company+' '+j.location).toLowerCase().includes(q);
   let html='<div style="height:12px"></div>';
   const J=S.jobs.filter(m);
+  if(TAB==='home'){ html+=homeView(); $('#main').innerHTML=html; return; }
   if(TAB==='questions'){ html+=questionsView(); $('#main').innerHTML=html; return; }
   if(TAB==='companies'){ html+=companiesView(); $('#main').innerHTML=html; drawSug(); const e=$('#cq'); if(e&&!CO&&!CBUSY) e.focus(); return; }
   if(TAB==='review'){ const L=J.filter(j=>j.kind!=='govt'&&(j.status==='needs_you'||(j.apps&&j.apps.length&&j.apps[0].dry&&!['applied','skipped','rejected'].includes(j.status))));
@@ -434,6 +483,6 @@ function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).ma
   else if(TAB==='govt'){ html+=J.filter(j=>j.kind==='govt').sort((a,b)=>(a.deadline||'9').localeCompare(b.deadline||'9')).map(jobRow).join('')||'<div class="empty">No govt notices yet.</div>'; }
   else html+=J.slice(0,500).map(jobRow).join('');
   $('#main').innerHTML=html; if(location.hash){const e=document.getElementById('j'+location.hash.slice(1)); if(e){e.scrollIntoView(); location.hash='';}} }
-load(); loadQ(); poll(); setInterval(()=>{ if(!['companies','questions'].includes(TAB)) load(); else loadStatsOnly(); },30000);
+load(); loadQ(); poll(); setInterval(()=>{ if(!['companies','questions'].includes(TAB)&&!document.querySelector('main details[open], main input:focus, main select:focus')) load(); else loadStatsOnly(); },30000);
 async function loadStatsOnly(){ S=await (await fetch('/api/state')).json(); $('#stats').innerHTML=Object.entries(S.stats).map(([k,v])=>`<span class="stat"><b>${v}</b> ${esc(k)}</span>`).join(''); }
 </script></body></html>"""

@@ -118,6 +118,7 @@ def wait_for_you(page, res: B.FormResult | None, site: str, root: str | None = N
                                   msg="Finish anything the bot couldn't do, then press the site's own Submit.")
         PN.say_learned(saved)
         if act == "submit":
+            PN.hide(page)
             page.wait_for_timeout(2500)
         return act == "submitted" or (act == "submit" and B.succeeded(page)), len(saved)
     if config.cfg("search").get("apply", {}).get("on_needs_you", "queue") == "queue" and not APPROVED:
@@ -142,6 +143,7 @@ def check_form(page, db: DB, job: dict, res: B.FormResult, site: str, resume: Pa
             fills, msg = nxt.fills, ""
             continue
         if act == "submit":
+            PN.hide(page)
             B.snap(page)                         # the form exactly as you approved it
             if not B.click_button(page, SUBMIT_NAMES):
                 msg = "I can't find this site's Submit button. Press it yourself; I'll notice."
@@ -270,13 +272,12 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         return Outcome("skipped", "linkedin", why="no apply button (closed or already applied)")
     label = (btn.get_attribute("aria-label") or btn.inner_text() or "").lower()
     if "easy apply" not in label:
-        # external apply: follow to the company site
-        with page.context.expect_page(timeout=15000) as newp:
-            btn.click()
-        p2 = newp.value
-        p2.wait_for_load_state("domcontentloaded")
+        p2 = follow_external(page, btn)
+        if p2 is None:
+            return Outcome("needs_you", "linkedin", why="LinkedIn's Apply button should open the company's site, "
+                           "but nothing opened in 25 s. Open the job and press Apply yourself.")
         site = site_of(p2.url)
-        console.print(f"   external apply → {site}: {p2.url[:80]}")
+        console.print(f"   company site → {site}: {p2.url[:80]}")
         return single_page(p2, db, job, resume, cover, site, dry)
     btn.click()
     page.wait_for_selector(LI_MODAL, timeout=12000)
@@ -332,6 +333,27 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
     return Outcome("needs_you", "linkedin", why="too many steps")
 
 
+def follow_external(page, btn, wait_s: int = 25):
+    """Press an 'Apply on company site' button and return the page it opens: a new tab, the same tab,
+    or after LinkedIn's 'Continue to apply' / 'Share your profile?' dialog."""
+    ctx = page.context
+    before, url0 = set(ctx.pages), page.url
+    btn.click()
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        page.wait_for_timeout(700)
+        new = [p for p in ctx.pages if p not in before]
+        if new or (page.url != url0 and "linkedin.com" not in page.url):
+            p2 = new[-1] if new else page
+            try:
+                p2.wait_for_load_state("domcontentloaded", timeout=30000)
+            except Exception:
+                pass
+            return p2
+        B.click_button(page, ["Continue to apply", "Continue", "Apply anyway"], root='div[role="dialog"]')
+    return None
+
+
 def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | None, all_fills: B.FormResult) -> Outcome:
     """Easy Apply in check mode: every step is filled, shown on the panel, and moves on only when you say."""
     seen: set[str] = set()
@@ -367,6 +389,8 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
             return Outcome("applied", "linkedin", why="you submitted it", learned=len(saved_all))
         if act == "moved":
             continue
+        if act in ("next", "submit"):
+            PN.hide(page)
         if act == "next":
             if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
                 msg = "I can't find Next: press LinkedIn's own Next button."
@@ -402,10 +426,9 @@ def naukri(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry:
         return Outcome("applied", "naukri", why="already applied")
     ext = page.locator("#company-site-button, button:has-text('Apply on company site')").first
     if ext.count() and ext.is_visible():
-        with page.context.expect_page(timeout=15000) as newp:
-            ext.click()
-        p2 = newp.value
-        p2.wait_for_load_state("domcontentloaded")
+        p2 = follow_external(page, ext)
+        if p2 is None:
+            return Outcome("needs_you", "naukri", why="'Apply on company site' opened nothing in 25 s")
         return single_page(p2, db, job, resume, cover, site_of(p2.url), dry)
     btn = page.locator("#apply-button, button.apply-button, button:has-text('Apply')").first
     if not btn.count():
@@ -475,7 +498,12 @@ def run(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry: bo
         return Outcome("skipped", "govt", why="govt portals need OTR/OTP/fee: apply yourself from the alert")
     global TITLE
     TITLE = f"{job.get('title', '')} · {job.get('company', '')}"
-    page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    except Exception as exc:
+        if "Timeout" not in type(exc).__name__ or page.url in ("about:blank", ""):
+            raise
+        console.print("   [dim]page still loading after 45 s: working with what's there[/]")
     page.wait_for_timeout(1500)
     if site == "linkedin":
         return linkedin(page, db, job, resume, cover, dry)

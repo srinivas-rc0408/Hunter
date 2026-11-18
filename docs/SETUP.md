@@ -254,6 +254,26 @@ hunt backup
 
 ---
 
+## The dashboard: http://localhost:8765
+
+Bookmark it. It opens on **Dashboard**:
+- your numbers: applied in total, this week, today, interviews, offers, waiting for you;
+- **Apply**: type a company and press Enter (its open jobs, pick and apply), **▶ Apply to my best
+  matches** (the bot fills each one, you check and press Submit), **🎯 Open bot browser**, **⟳ Scan**;
+- **Your applications**: every job you applied to, with the date, how it was sent, its status (change it
+  there: interview / offer / rejected), how many fields you fixed, the job link, the resume that was
+  sent, the filled form's screenshot, and **what was sent** (every field and value).
+Other tabs: To review, Questions, Companies, Applied, Jobs, Govt, Everything.
+
+## The bot browser (apply anywhere)
+```fish
+hunt browser                       # or: hunt browser https://careers.adityabirla.com/job-search
+```
+A browser opens with your LinkedIn/Naukri logins. Go to any job or application form and press the green
+**🎯 Fill this form** button (bottom-left). The bot fills what it knows, shows the check panel, you fix and
+press Submit, and it's recorded in the dashboard with your fixes learned. Close the window when done.
+Only one bot window can run at a time (`hunt apply`, `hunt browser`, `hunt login` share the logins).
+
 ## Company search (any time)
 
 **Terminal:**
@@ -387,6 +407,7 @@ hunt doctor
 ```
 hunt morning [--send]            today's brief          hunt apply --top 5           apply: you check each form, press Submit
 hunt company <name>              search a company       hunt apply <id>              one job
+hunt browser [url]               bot browser + 🎯 button
 hunt dream add "Zoho"            new dream company      hunt apply --dry-run         preview to the Review Center, never sends
 hunt dream remove "Zoho" / list                         hunt apply --auto            no panel: basic-only forms, queue the rest
 hunt list --min 55               open jobs              hunt questions               answer what forms asked

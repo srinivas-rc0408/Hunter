@@ -285,3 +285,81 @@ class Resume(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BotBrowser(unittest.TestCase):
+    """`hunt browser`: the 🎯 button fills any page, you check and submit, it's recorded."""
+    @classmethod
+    def setUpClass(cls):
+        from playwright.sync_api import sync_playwright
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+        write_pdf(HOME / "config" / "resume.pdf")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+
+    def setUp(self):
+        config.reload()
+        config.cfg("search")["apply"]["mode"] = "check"
+        F._bank_path().unlink(missing_ok=True)
+
+    def test_fab_and_assist_records_the_application(self):
+        from jobhunter.apply import assist
+        ctx = self.browser.new_context()
+        asked = []
+        ctx.expose_binding("__jhFill", lambda src: asked.append(src["page"]))
+        ctx.add_init_script(assist.FAB_JS)
+        p = ctx.new_page()
+        p.goto((FX / "basic_ats.html").as_uri())
+        p.wait_for_selector("#jh-fab")
+        p.click("#jh-fab")
+        p.wait_for_timeout(300)
+        self.assertEqual(len(asked), 1)
+        p.evaluate(USER_JS, [{"set": [["#cg", "7.9"]], "press": "submit"}])
+        db = DB()
+        assist.assist(db, asked[0])
+        self.assertIn("thank you", p.inner_text("body").lower())
+        row = db.c.execute("SELECT job_id FROM events WHERE kind='opened_in_bot_browser' ORDER BY rowid DESC").fetchone()
+        j = db.get(row[0])
+        self.assertEqual(j["status"], "applied")
+        app = db.applications(j["id"])[0]
+        self.assertTrue(any(f["basis"] == "you" and f["value"] == "7.9" for f in app["fields"]))
+        ctx.close()
+
+
+class Dashboard(unittest.TestCase):
+    def test_page_renders_without_script_errors(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from playwright.sync_api import sync_playwright
+
+        from jobhunter import review
+        db = DB()
+        j = Job("Gen AI Engineer", "Dashco", "Bengaluru, Karnataka", url="https://x.example/d", source="linkedin")
+        db.upsert(j)
+        db.set_status(j.id, "applied", "test")
+        db.add_application(j.id, "greenhouse", "applied", False, False, False, "you submitted it",
+                           [{"label": "Notice <period>", "value": "15 days", "basis": "you", "note": "you changed it"}],
+                           "", "", None, "", "")
+        srv = ThreadingHTTPServer(("127.0.0.1", 0), review.H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        errs = []
+        with sync_playwright() as pw:
+            b = pw.chromium.launch()
+            p = b.new_page()
+            p.on("pageerror", lambda e: errs.append(str(e)))
+            p.add_init_script("localStorage.setItem('jh_tab','home')")
+            p.goto(f"http://localhost:{srv.server_port}/")
+            p.wait_for_selector("text=Your applications")
+            body = p.inner_text("body")
+            for tab in ("To review", "Questions", "Applied", "Jobs", "Govt", "Everything", "Dashboard"):
+                p.click(f"button.tab:has-text('{tab}')")
+            b.close()
+        srv.shutdown()
+        self.assertEqual(errs, [])
+        self.assertIn("Dashco", body)
+        self.assertIn("1 field(s)", body)

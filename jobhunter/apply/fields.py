@@ -254,7 +254,10 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
     if key == "alt_phone":
         return Answer(key, None, "none", "no alternate number given")
     if key == "country_code":
-        return P(prof.get("country_code", "+91"))
+        cc = str(prof.get("country_code", "+91"))
+        land = loc.get("country") or ("India" if cc.endswith("91") else "")
+        return Answer(key, cc, "profile", "", alts=tuple(x for x in (f"{land} ({cc})", f"{land} {cc}", land,
+                                                                    cc.lstrip("+")) if x.strip()))
     if key == "phone":
         plain = ftype in ("tel", "number") or "10" in placeholder or len(placeholder.replace(" ", "")) == 10
         return P(prof.get("phone_digits") if plain or not placeholder.startswith("+") else prof.get("phone"))

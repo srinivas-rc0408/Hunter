@@ -218,7 +218,7 @@ def _plain(exc: Exception) -> str:
     if "closed" in m.lower() or "TargetClosed" in t:
         return "the browser tab closed before the page loaded (fixed by a retry; if it repeats, close other bot windows)"
     if "Timeout" in t:
-        return "the page took too long to load (site slow or down)"
+        return "a step took too long: " + m.split("\n")[0][:140]
     if "net::ERR" in m:
         return "couldn't reach the site (" + m.split("net::")[1].split()[0] + ")"
     return f"{t}: {m[:160]}"

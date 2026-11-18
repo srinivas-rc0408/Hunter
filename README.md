@@ -126,6 +126,7 @@ it *would* send in the Review Center.
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
 | `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
+| `hunt browser [url]` | the bot's browser: on any form press 🎯 Fill this form, check, Submit (recorded + learned) |
 | `hunt dream add/remove/list "Name"` | dream companies (+15, watched, pushed to the cloud radar); Telegram `/dream Name` |
 | `hunt resume --use FILE` | the PDF every application uploads (or send it to the Telegram bot) |
 | `hunt llm [--test] [--models]` | LLM chain status; `--test` checks every key and model |

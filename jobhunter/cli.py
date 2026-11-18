@@ -116,6 +116,11 @@ def cmd_apply(a):
           with_cover=not a.no_cover, approve=a.approve or a.submit, submit_now=a.submit)
 
 
+def cmd_browser(a):
+    from .apply.assist import browse
+    browse(a.url)
+
+
 def cmd_login(a):
     from .apply.runner import login
     login(a.site)
@@ -750,6 +755,10 @@ def main(argv=None):
     s.add_argument("--auto", action="store_true",
                    help="no check panel: auto-submit only all-basic forms, queue the rest (old basic_auto mode)")
     s.set_defaults(fn=cmd_apply)
+
+    s = sub.add_parser("browser", help="the bot's browser: go to any form, press 🎯 Fill this form, check, submit")
+    s.add_argument("url", nargs="?", help="page to open first (default: LinkedIn recommended jobs)")
+    s.set_defaults(fn=cmd_browser)
 
     s = sub.add_parser("login", help="log in once to a site in the bot's browser")
     s.add_argument("site", choices=["linkedin", "naukri", "indeed", "internshala"])
