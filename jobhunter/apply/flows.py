@@ -378,14 +378,16 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
             return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
         clicked = B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL)
-        if not clicked:
-            submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
-            return Outcome("applied" if submitted else "needs_you", "linkedin", why="couldn't find Next", learned=learned)
-        page.wait_for_timeout(1000)
-        errs = B.errors(page, LI_MODAL)
+        errs = [] if clicked else ["couldn't find Next"]
+        if clicked:
+            page.wait_for_timeout(1000)
+            errs = B.errors(page, LI_MODAL)
         if errs:
+            why = "; ".join(errs[:3])
+            if dry:
+                return Outcome("filled", "linkedin", why=f"dry run · step {step + 1}: would wait: {why}")
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
-            return Outcome("applied" if submitted else "needs_you", "linkedin", why="; ".join(errs[:3]), learned=learned)
+            return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
     return Outcome("needs_you", "linkedin", why="too many steps")
 
 

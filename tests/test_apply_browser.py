@@ -107,6 +107,16 @@ class Browser(unittest.TestCase):
         self.assertEqual(res.fills, [])
         self.assertEqual(p.input_value("#first_name"), "")
 
+    def test_dry_run_never_waits_when_next_is_missing(self):
+        p = self.browser.new_page()
+        p.set_content('<main><button aria-label="Easy Apply to this job" onclick="document.querySelector(\'dialog\')'
+                      '.showModal()">Easy Apply</button></main><dialog data-testid="dialog"><label for="c">City</label>'
+                      '<input id="c"></dialog>')
+        n = len(self.waited)
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
+        self.assertEqual(len(self.waited), n, "a dry run waited for you")
+        self.assertEqual(o.status, "filled", o.why)
+
     def test_linkedin_already_applied(self):
         o = flows.linkedin(self.page("linkedin_applied"), self.db, JOB, self.resume, None, dry=False)
         self.assertEqual(o.status, "applied")
