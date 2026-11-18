@@ -23,6 +23,8 @@ def make_home() -> Path:
     sp = home / "config" / "search.yaml"
     d = yaml.safe_load(sp.read_text())
     d["apply"]["typing_delay_ms"] = [0, 1]        # fast tests
+    d["apply"]["headless"] = True
+    d["apply"]["pause_range_sec"] = [0, 0]
     sp.write_text(yaml.safe_dump(d))
     config.reload()
     from jobhunter.apply import browser
@@ -36,3 +38,12 @@ def write_pdf(path: Path) -> Path:
     c.drawString(72, 760, "Test resume")
     c.save()
     return path
+
+
+def use(home: Path) -> None:
+    """Point the package at this module's home (call from setUpModule: test modules
+    loaded together would otherwise share whichever home was created last)."""
+    os.environ["JOBHUNTER_HOME"] = str(home)
+    os.environ["LLM_PROVIDER"] = "none"
+    from jobhunter import config
+    config.reload()

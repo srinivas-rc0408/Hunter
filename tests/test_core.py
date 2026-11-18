@@ -3,9 +3,14 @@ import json
 import unittest
 from pathlib import Path
 
-from _home import ROOT, make_home
+from _home import use, ROOT, make_home
 
 HOME = make_home()
+
+
+def setUpModule():
+    use(HOME)
+
 
 from jobhunter import config  # noqa: E402
 from jobhunter.apply.fields import answer, classify, learn, pick_option  # noqa: E402

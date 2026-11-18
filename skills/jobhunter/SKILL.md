@@ -20,6 +20,7 @@ just drives the same commands.
 
 ## Daily loop
 
+0. `hunt morning`: the brief (cloud health, best new, approvals, govt deadlines, GATE).
 1. `hunt sync`: pull what the cloud radar (GitHub Actions) found.
 2. `hunt list --min 55`: show the queue (★ = dream company, 🏛 = govt).
 3. `hunt apply --top 10`: fills forms in his browser. It auto-submits only when
@@ -67,6 +68,8 @@ just drives the same commands.
 | learned answers | `hunt answers` (file: `data/answers.yaml`) |
 | why a field got that answer | `hunt classify "Expected CTC"` |
 | health check | `hunt doctor --test-alert` |
+| backup / restore / update | `hunt backup` · `hunt restore <file>` · `hunt update` |
+| setup manual | `docs/SETUP.md` (follow it exactly; don't improvise setup steps) |
 | share data with hunter-* skills | `hunt export-hunter` → `hunter/profile.json`, `hunter/pipeline.json` |
 
 ## With the hunter skills

@@ -1,0 +1,13 @@
+[Unit]
+Description=JobHunter Telegram command bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=%h/jobhunter
+ExecStart=%h/jobhunter/.venv/bin/hunt bot
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=default.target

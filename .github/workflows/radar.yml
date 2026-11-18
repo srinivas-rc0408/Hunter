@@ -21,6 +21,7 @@ on:
 
 permissions:
   contents: write
+  actions: write          # keep-alive: re-enable this workflow so GitHub's 60-day inactivity rule never stops it
 
 concurrency:
   group: radar
@@ -112,6 +113,14 @@ jobs:
       - name: Digest
         if: steps.mode.outputs.mode == 'digest'
         run: python -m jobhunter.cli digest
+
+      - name: Keep-alive
+        # Public repos: GitHub disables scheduled workflows after 60 days without repository
+        # activity. Re-enabling daily (plus the state pushes below) keeps the radar running.
+        if: steps.mode.outputs.mode == 'digest'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/radar.yml/enable" || true
 
       - name: Save state (encrypted)
         if: always()

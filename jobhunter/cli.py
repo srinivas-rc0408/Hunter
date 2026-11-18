@@ -163,6 +163,31 @@ def cmd_review(a):
     serve(port=a.port, open_browser=a.open)
 
 
+def cmd_morning(a):
+    from .morning import run
+    run(send=a.send, heartbeat=not a.offline)
+
+
+def cmd_bot(a):
+    from .bot import run
+    run()
+
+
+def cmd_backup(a):
+    from .ops import backup
+    backup(keep=a.keep)
+
+
+def cmd_restore(a):
+    from .ops import restore
+    restore(a.file)
+
+
+def cmd_update(a):
+    from .ops import update
+    update(run_tests=a.test)
+
+
 def cmd_answers(a):
     from .apply.fields import load_bank
     bank = load_bank()
@@ -272,7 +297,23 @@ def cmd_doctor(a):
             (" + resume.yaml filled" if filled else " (resume.yaml still has TODOs: tailoring uses only filled bullets)"))
     c.print(f"{ok(bool(env('TELEGRAM_BOT_TOKEN') and env('TELEGRAM_CHAT_ID')))} Telegram alerts")
     c.print(f"{ok(bool(env('SMTP_USER') and env('SMTP_PASS')))} email digest")
-    c.print(f"{ok(llm.available())} LLM ({llm.settings()[1]} @ {llm.settings()[0]}): optional")
+    c.print(f"{ok(llm.available())} LLM ({llm.settings()[1]} @ {llm.settings()[0] or 'none reachable'}): optional, "
+            "auto = Ollama → Gemini → Groq → templates")
+    c.print(f"{ok(bool(env('STATE_KEY')))} STATE_KEY (cloud state + backups). Keep a copy off this laptop")
+    c.print(f"{ok(bool(shutil.which('gh')))} GitHub CLI (gh) for secrets and workflow control")
+    if shutil.which("systemctl"):
+        for u in ("jobhunter-review.service", "jobhunter-bot.service", "jobhunter-sync.timer", "jobhunter-scan.timer",
+                  "jobhunter-morning.timer", "jobhunter-backup.timer"):
+            r = subprocess.run(["systemctl", "--user", "is-active", u], capture_output=True, text=True)
+            c.print(f"{ok(r.stdout.strip() == 'active')} {u} ({r.stdout.strip() or 'missing'})"
+                    + ("" if r.stdout.strip() == "active" else ": run scripts/install-services.sh"))
+    from .morning import cloud_heartbeat
+    hb, hrs = cloud_heartbeat()
+    c.print(f"{ok(hrs is not None and hrs <= 1.5)} {hb}")
+    from .ops import backup_dir
+    bk = sorted(backup_dir().glob("jobhunter-*.tar.gz.enc"))
+    c.print(f"{ok(bool(bk))} backups: {len(bk)} in {backup_dir()}" + (f" (newest {bk[-1].name})" if bk else
+                                                                      ": run `hunt backup`"))
     prof_dir = config.path(config.cfg("search").get("apply", {}).get("browser_profile_dir", "data/browser-profile"))
     c.print(f"{ok(prof_dir.exists())} browser profile (run `hunt login linkedin` and `hunt login naukri`)")
     try:
@@ -513,6 +554,26 @@ def main(argv=None):
     s = sub.add_parser("export-hunter", help="write hunter/profile.json + pipeline.json for the hunter skills")
     s.add_argument("--min", type=int, default=40)
     s.set_defaults(fn=cmd_export_hunter)
+
+    s = sub.add_parser("morning", help="morning brief: cloud health, best new jobs, approvals, govt deadlines, GATE")
+    s.add_argument("--send", action="store_true", help="also send it to Telegram")
+    s.add_argument("--offline", action="store_true", help="skip the cloud heartbeat check")
+    s.set_defaults(fn=cmd_morning)
+
+    s = sub.add_parser("bot", help="Telegram command bot (/top /govt /review /skip …): runs as a service")
+    s.set_defaults(fn=cmd_bot)
+
+    s = sub.add_parser("backup", help="encrypted backup of everything git doesn't hold → ~/jobhunter-backups")
+    s.add_argument("--keep", type=int, default=8)
+    s.set_defaults(fn=cmd_backup)
+
+    s = sub.add_parser("restore", help="restore an encrypted backup (needs STATE_KEY)")
+    s.add_argument("file")
+    s.set_defaults(fn=cmd_restore)
+
+    s = sub.add_parser("update", help="git pull + reinstall + refresh Chromium")
+    s.add_argument("--test", action="store_true", help="also run the test suite")
+    s.set_defaults(fn=cmd_update)
 
     s = sub.add_parser("doctor", help="check setup")
     s.add_argument("--test-alert", action="store_true")

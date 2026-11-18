@@ -1,0 +1,7 @@
+[Unit]
+Description=JobHunter encrypted backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/jobhunter
+ExecStart=%h/jobhunter/.venv/bin/hunt backup

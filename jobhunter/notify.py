@@ -38,7 +38,7 @@ def format_job(j: dict) -> str:
     for r in (j.get("reasons") or [])[:3]:
         lines.append("• " + _esc(clip(r, 110)))
     if j.get("url"):
-        lines.append(f'<a href="{_esc(j["url"])}">Open</a> · id <code>{j["id"][:8]}</code>')
+        lines.append(f'<a href="{_esc(j["url"])}">Open</a> · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
     return "\n".join(lines)
 
 

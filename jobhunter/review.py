@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import secrets
 import subprocess
 import sys
@@ -146,6 +147,10 @@ class H(BaseHTTPRequestHandler):
             j = db.get(jid)
             if not j and act != "scan":
                 return self._json({"ok": False, "msg": "no such job"}, 404)
+            if act in ("approve", "dry", "fill") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+                return self._json({"ok": False, "msg": "This service can't see your screen, so it can't open the browser. "
+                                   f"Run in a terminal: hunt apply {jid[:8]}{' --approve' if act == 'approve' else ''}"
+                                   " (or re-run scripts/install-services.sh from your desktop session)"})
             if act == "approve":
                 ok, msg = _start(f"approve {jid[:8]}", ["apply", jid, "--approve"])
                 return self._json({"ok": ok, "msg": msg})

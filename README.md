@@ -60,7 +60,10 @@ masks every personal value in the logs, and saves its database **AES-256
 encrypted** (`STATE_KEY`) on the `radar-state` branch. `tests/test_review.py`
 fails if any value from `private.yaml` appears in a tracked file.
 
-## Setup (once, ~15 min)
+## Setup
+
+**Follow [`docs/SETUP.md`](docs/SETUP.md)**: the step-by-step manual (setup, daily and weekly
+routine, running without Claude, troubleshooting, disaster recovery). Short version:
 
 ```bash
 git clone git@github.com:srinivas-rc0408/Hunter.git ~/jobhunter
@@ -74,8 +77,8 @@ cp config/private.example.yaml config/private.yaml   # fill it in (you already h
    `hunt secrets --push`. That generates `STATE_KEY` and sets all the secrets. Then
    `gh workflow run radar -f mode=full`.
 3. **Log in once:** `hunt login linkedin`, `hunt login naukri`.
-4. **Review Center:** http://localhost:8765. Bookmark it. It runs as a systemd user
-   service, so it's always up.
+4. **Services:** `./scripts/install-services.sh` sets up the Review Center (http://localhost:8765),
+   Telegram bot, morning brief 07:30, cloud sync, laptop scans and weekly encrypted backups.
 
 ## Daily use
 
@@ -115,6 +118,9 @@ it *would* send in the Review Center.
 | `hunt mark <id> <status>` | applied, interview, offer, rejected, skipped… |
 | `hunt answers` / `hunt classify "<label>"` | learned answers / how a label gets answered |
 | `hunt sync` / `hunt secrets [--push]` | pull encrypted cloud results / set GitHub secrets |
+| `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
+| `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
+| `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
 | `hunt digest` / `hunt dashboard` / `hunt export-hunter` / `hunt doctor` | digest, static HTML, hunter-skill data, health check |
 
 ## Tests

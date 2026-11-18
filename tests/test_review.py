@@ -7,9 +7,15 @@ import unittest
 from pathlib import Path
 
 import yaml
-from _home import ROOT, make_home, write_pdf
+from _home import use, ROOT, make_home, write_pdf
 
 HOME = make_home()
+
+
+def setUpModule():
+    use(HOME)
+
+os.environ.setdefault("DISPLAY", ":99")   # the approve test runs headless; the service checks a display exists
 sp = HOME / "config" / "search.yaml"
 d = yaml.safe_load(sp.read_text())
 d["apply"].update(headless=True, pause_range_sec=[0, 0])

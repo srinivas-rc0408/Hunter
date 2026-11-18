@@ -7,9 +7,14 @@ linkedin_modal.html  3-step Easy Apply modal (select, radio, number, follow-comp
 import unittest
 from pathlib import Path
 
-from _home import ROOT, make_home, write_pdf
+from _home import use, ROOT, make_home, write_pdf
 
 HOME = make_home()
+
+
+def setUpModule():
+    use(HOME)
+
 
 from jobhunter.apply import flows  # noqa: E402
 from jobhunter.db import DB  # noqa: E402

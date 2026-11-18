@@ -1,0 +1,9 @@
+[Unit]
+Description=JobHunter backup every Sunday 21:00 (catches up after downtime)
+
+[Timer]
+OnCalendar=Sun *-*-* 21:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
