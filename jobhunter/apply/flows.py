@@ -20,7 +20,9 @@ from . import browser as B
 from . import fields as F
 from . import panel as PN
 
-LI_MODAL = '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]:has(form)'
+# 2026 LinkedIn UI: a native <dialog data-testid="dialog" open>, hashed classes, no <form>
+LI_MODAL = ('.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]:has(form), '
+            'dialog[data-testid="dialog"][open]')
 
 
 def _in(page, root: str, sel: str):

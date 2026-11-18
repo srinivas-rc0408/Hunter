@@ -92,6 +92,12 @@ class Browser(unittest.TestCase):
         tab = p.context.pages[-1]
         self.assertIn("thank you", tab.inner_text("body").lower())
 
+    def test_linkedin_new_ui_dialog_without_form(self):
+        p = self.page("linkedin_sdui")          # real 2026 Easy Apply markup: <dialog>, no <form>
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
+        self.assertNotIn("didn't open", o.why)
+        self.assertEqual(p.input_value("input[type=tel]"), "9000000001")
+
     def test_linkedin_already_applied(self):
         o = flows.linkedin(self.page("linkedin_applied"), self.db, JOB, self.resume, None, dry=False)
         self.assertEqual(o.status, "applied")
