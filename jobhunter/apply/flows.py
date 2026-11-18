@@ -348,6 +348,7 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
                 _in(page, LI_MODAL, "label[for='follow-company-checkbox']").click()
         except Exception:
             pass
+        _li_resume(page, resume)
         res = B.fill_form(page, job, resume, root=LI_MODAL, cover_text=cover)
         all_fills.fills += res.fills
         all_fills.blockers += res.blockers
@@ -388,6 +389,26 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
     return Outcome("needs_you", "linkedin", why="too many steps")
 
 
+def _li_resume(page, resume: Path | None) -> bool:
+    """New Easy Apply resume step: no <input type=file> until "Upload resume" opens the file picker.
+    Uploads your own resume when none is selected yet."""
+    d = page.locator(LI_MODAL).first
+    up = d.get_by_role("button", name=re.compile(r"^\s*upload resume", re.I))
+    try:
+        if not resume or not up.count() or not up.first.is_visible() or \
+                d.locator("[role=radiogroup] input:checked, [role=radiogroup] [aria-checked=true]").count():
+            return False
+        with page.expect_file_chooser(timeout=8000) as fc:
+            up.first.click()
+        fc.value.set_files(str(resume))
+        page.wait_for_timeout(2500)
+        console.print(f"   resume uploaded: {resume.name}")
+        return True
+    except Exception as exc:
+        console.print(f"   [yellow]resume upload failed: {exc}[/]")
+        return False
+
+
 def follow_external(page, btn, wait_s: int = 25):
     """Press an 'Apply on company site' button and return the page it opens: a new tab, the same tab,
     or after LinkedIn's 'Continue to apply' / 'Share your profile?' dialog."""
@@ -426,6 +447,7 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
                 _in(page, LI_MODAL, "label[for='follow-company-checkbox']").click()
         except Exception:
             pass
+        _li_resume(page, resume)
         res = B.fill_form(page, job, resume, root=LI_MODAL, cover_text=cover, skip_jh=seen)
         seen |= {f.field["jh"] for f in res.fills}
         all_fills.fills += res.fills

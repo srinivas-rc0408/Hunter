@@ -96,7 +96,9 @@ class Browser(unittest.TestCase):
         p = self.page("linkedin_sdui")          # real 2026 Easy Apply markup: <dialog>, no <form>
         o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
         self.assertNotIn("didn't open", o.why)
-        self.assertEqual(p.input_value("input[type=tel]"), "9000000001")
+        self.assertEqual(p.get_attribute("#ea", "data-tel"), "9000000001")   # step 1 filled before Next
+        self.assertIn("would", o.why)                    # reached the last step, not "too many steps"
+        self.assertIn(self.resume.name, p.inner_text("dialog"))   # resume went in through the file picker
 
     def test_linkedin_already_applied(self):
         o = flows.linkedin(self.page("linkedin_applied"), self.db, JOB, self.resume, None, dry=False)
