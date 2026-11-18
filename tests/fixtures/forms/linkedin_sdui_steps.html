@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn 2026 Easy Apply: resume + question steps</title></head><body><main>
+<!-- Steps 1-4 of a live Easy Apply (18 Nov 2026), structure copied from the real dialog, hashed classes removed,
+     scrubbed to fixture person Asha K R. Radios: <input> + EMPTY <label for>, option text in a sibling <p> inside
+     div[role=radio], the question in a <p> before <fieldset role=radiogroup>. The 20-char limit shows only as helper
+     text. The upload toast is a role=alert. Open with #3 to start on step 3. -->
+<h1>AI/ML Research Intern</h1><div>Acme · Bengaluru</div>
+<button aria-label="Easy Apply to this job" onclick="document.getElementById('ea').showModal(); go(+location.hash.slice(1) || 1)">Easy Apply</button>
+</main>
+<dialog id="ea" aria-labelledby="dialog-header" data-testid="dialog"><header id="dialog-header"><h2>Apply to Acme</h2></header>
+<div data-testid="dialog-content">
+<section data-step="1"><h3>Contact info</h3>
+  <label for="ph">Mobile phone number*</label><div><input id="ph" type="tel" required></div>
+</section>
+<section data-step="2"><h3>Resume</h3>
+  <div><div><p>Resume*</p><p>Select or upload a resume in DOC, DOCX, or PDF format that is less than 2MB</p></div>
+  <div><fieldset aria-describedby="error-message-_r_28_" role="radiogroup"><div><div>
+    <div role="button" tabindex="0" data-view-name="choose-document"><p>PDF</p><p><span>Asha_K_R_Resume.pdf</span></p><p>11/18/2026</p></div>
+    <div aria-checked="true" aria-label="Asha_K_R_Resume.pdf" role="radio" tabindex="0"><div aria-label="Asha_K_R_Resume.pdf">
+      <input checked id="_r_2b_" name="radio-group-_r_28_" type="radio"><label for="_r_2b_"></label></div></div>
+  </div></div></fieldset>
+  <div><button type="button">Upload resume</button></div></div></div>
+  <div role="alert"><div><div><svg id="signal-success-medium" width="24" height="24" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/></svg><p>Resume uploaded successfully</p></div></div></div>
+</section>
+<section data-step="3"><h3>Additional questions</h3>
+  <div><p>Are you comfortable working in an onsite setting?*</p>
+  <fieldset aria-describedby="error-message-_r_2h_" role="radiogroup"><div>
+    <div aria-checked="false" aria-label="Are you comfortable working in an onsite setting?" role="radio" tabindex="0"><div><div>
+      <input id="_r_2j_" name="radio-group-_r_2h_" type="radio"><label for="_r_2j_"></label></div><div><p>Yes</p></div></div></div>
+    <div aria-checked="false" aria-label="Are you comfortable working in an onsite setting?" role="radio" tabindex="0"><div><div>
+      <input id="_r_2l_" name="radio-group-_r_2h_" type="radio"><label for="_r_2l_"></label></div><div><p>No</p></div></div></div>
+  </div></fieldset></div>
+  <div><p>What is your Notice Period?*</p><div><div>
+    <input aria-describedby="_r_2m_-info" aria-label="What is your Notice Period?" id="_r_2m_" required type="text"
+           oninput="document.getElementById('cnt').textContent = this.value.length + ' of 20 characters'"></div>
+    <div data-testid="text-input-helper-text" id="_r_2m_-info"><div><p aria-live="polite"><span aria-hidden="true"></span><span id="cnt">0 of 20 characters</span></p></div></div>
+  </div></div>
+  <p id="err3" role="alert" hidden>Please make a selection</p>
+</section>
+<section data-step="4"><h3>Review your application</h3><p>Asha K R</p></section>
+</div>
+<footer><button id="next" type="button" onclick="next()">Next</button>
+<button id="sub" type="button" aria-label="Submit application" hidden>Submit application</button></footer>
+</dialog>
+<script>
+let cur = 1;
+function go(n) { cur = n; document.querySelectorAll('section').forEach(s => s.hidden = +s.dataset.step !== n);
+  document.getElementById('next').hidden = n === 4; document.getElementById('sub').hidden = n !== 4; }
+function next() {
+  if (cur === 3) {
+    const n = document.getElementById('_r_2m_').value;
+    if (!document.querySelector('[name="radio-group-_r_2h_"]:checked') || !n || n.length > 20) {
+      document.getElementById('err3').hidden = false; return; }
+  }
+  go(cur + 1);
+}
+</script>
+</body></html>

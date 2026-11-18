@@ -52,6 +52,9 @@ SCAN_JS = r"""
       t = el.getAttribute('aria-labelledby').split(/\s+/).map(i => txt(byId(el, i))).join(' ');
     if (!t && el.getAttribute('aria-label')) t = el.getAttribute('aria-label');
     if (!t) { const l = el.closest('label'); if (l) t = txt(l); }
+    if (!t && (el.type === 'radio' || el.type === 'checkbox')) {     // LinkedIn 2026: empty <label for>, text beside it
+      const w = el.closest('[role="radio"], [role="checkbox"]'); if (w) t = txt(w) || w.getAttribute('aria-label') || '';
+    }
     if (!t) {
       let c = el.parentElement;
       for (let i = 0; i < 5 && c && !t; i++) {
@@ -69,6 +72,11 @@ SCAN_JS = r"""
       if (fs.getAttribute('aria-label')) return fs.getAttribute('aria-label');
       const lb = fs.getAttribute('aria-labelledby');
       if (lb) return lb.split(/\s+/).map(i => txt(byId(el, i))).join(' ');
+      for (let n = fs, i = 0; i < 3 && n; i++, n = n.parentElement) {   // LinkedIn 2026: <p>question*</p><fieldset>
+        const prev = n.previousElementSibling;
+        if (prev && txt(prev)) { const q = prev.matches('p, label, legend, h3, h4') ? prev : prev.querySelector('p, label, legend, h3, h4');
+                                 return txt(q || prev).slice(0, 300); }
+      }
     }
     let c = el.parentElement;
     for (let i = 0; i < 6 && c; i++) {
@@ -98,7 +106,7 @@ SCAN_JS = r"""
       if (!groups[g]) { groups[g] = {jh: 'g:' + g, tag: 'radio', type: 'radio', name: g, label: groupLabel(el),
                         required: false, options: [], value: null, placeholder: ''}; out.push(groups[g]); }
       const o = {jh, text: labelOf(el) || el.value, value: el.value, checked: el.checked};
-      groups[g].options.push(o); groups[g].required = groups[g].required || required;
+      groups[g].options.push(o); groups[g].required = groups[g].required || required || /\*\s*$/.test(groups[g].label);
       if (el.checked) groups[g].value = o.text;
       continue;
     }
@@ -107,6 +115,10 @@ SCAN_JS = r"""
                combo: el.getAttribute('role') === 'combobox' || !!el.getAttribute('aria-autocomplete') ||
                       /select__input|autocomplete|typeahead/i.test(el.className || ''),
                maxlength: el.maxLength > 0 ? el.maxLength : null};
+    if (!f.maxlength && el.getAttribute('aria-describedby')) {
+      const m = el.getAttribute('aria-describedby').split(/\s+/).map(i => txt(byId(el, i))).join(' ').match(/\d+\s*(?:of|\/)\s*(\d+)\s*char/i);
+      if (m) f.maxlength = +m[1];
+    }
     if (type === 'select') { f.options = [...el.options].map(o => ({text: o.text.trim(), value: o.value}));
                              f.value = el.selectedIndex > 0 ? el.options[el.selectedIndex].text.trim() : null; }
     else if (type === 'checkbox') f.value = el.checked;
@@ -127,7 +139,7 @@ ERRORS_JS = r"""
   const msgs = [];
   deepAll(root, '[aria-invalid="true"], .artdeco-inline-feedback--error, [role="alert"], .error, .field-error, .invalid-feedback, [class*="error-message"]')
     .forEach(e => { const r = e.getBoundingClientRect(); const t = (e.innerText || '').trim();
-                    if (r.width > 0 && r.height > 0 && t && t.length < 200) msgs.push(t); });
+                    if (r.width > 0 && r.height > 0 && t && t.length < 200 && !/\bsuccess/i.test(t)) msgs.push(t); });
   return [...new Set(msgs)].slice(0, 10);
 }
 """
@@ -375,6 +387,14 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
     t = f["type"]
     sel = f'[data-jh="{f["jh"]}"]'
     already = f.get("value")
+    if a.key == "resume" and t == "radio":      # LinkedIn's "pick a resume" cards: keep the chosen one
+        pick = already or next((o["text"] for o in f["options"] if resume_path and o["text"] == resume_path.name), None)
+        if pick and not already:
+            page.locator(f'[data-jh="{next(o["jh"] for o in f["options"] if o["text"] == pick)}"]').check(force=True)
+        fill.ok, fill.chosen, fill.why = bool(pick), pick, "" if pick else "pick your resume"
+        if pick:
+            fill.answer = F.Answer(a.key, pick, "profile", "your resume")
+        return
     if a.key in ("resume", "cover_letter_file"):
         if a.key == "resume" and resume_path:
             page.set_input_files(sel, str(resume_path))
@@ -439,7 +459,10 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
         return
     value = str(a.value)
     if f.get("maxlength") and len(value) > f["maxlength"]:
-        if a.key == "phone":
+        fits = next((str(x) for x in a.alts if x and len(str(x)) <= f["maxlength"]), None)
+        if fits:                                     # your own shorter wording of the same answer
+            value = fits
+        elif a.key == "phone":
             value = value[-f["maxlength"]:]
         else:
             fill.why = "too long for field"

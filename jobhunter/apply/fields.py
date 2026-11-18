@@ -341,7 +341,11 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
     if key == "notice":
         if ftype == "date":
             return P(dt.date.today().isoformat())
-        return P(a.get("notice_period_days") if ftype == "number" else a.get("notice_period"))
+        if ftype == "number":
+            return P(a.get("notice_period_days"))
+        r_ = P(a.get("notice_period"))
+        r_.alts = tuple(x for x in (a.get("earliest_joining"),) if x)   # shorter wording, for tight fields
+        return r_
     if key == "current_ctc":
         return P(a.get("current_ctc") if ftype == "number" or not options else a.get("current_ctc_text"))
     if key == "expected_ctc":

@@ -100,6 +100,39 @@ class Browser(unittest.TestCase):
         self.assertIn("would", o.why)                    # reached the last step, not "too many steps"
         self.assertIn(self.resume.name, p.inner_text("dialog"))   # resume went in through the file picker
 
+    def _li_step(self, n):
+        p = self.browser.new_page()
+        p.goto((FX / "linkedin_sdui_steps.html").as_uri() + f"#{n}")
+        p.click("button[aria-label='Easy Apply to this job']")
+        return p
+
+    def test_linkedin_2026_radios_and_limits_read_like_a_person(self):
+        from jobhunter.apply import browser as B
+        p = self._li_step(3)                    # live: label "Yes", options "radio-group-_r_2c_"
+        f = {x["label"]: x for x in B.scan(p, flows.LI_MODAL)}
+        g = f["Are you comfortable working in an onsite setting?*"]
+        self.assertEqual([o["text"] for o in g["options"]], ["Yes", "No"])
+        self.assertTrue(g["required"])
+        self.assertEqual(f["What is your Notice Period?"]["maxlength"], 20)   # only in "0 of 20 characters"
+
+    def test_linkedin_2026_resume_step(self):
+        from jobhunter.apply import browser as B
+        p = self._li_step(2)                    # live: "radio-group-_r_28_", toast read as an error
+        [g] = B.scan(p, flows.LI_MODAL)
+        self.assertEqual((g["label"], g["value"]), ("Resume*", "Asha_K_R_Resume.pdf"))
+        self.assertEqual(B.errors(p, flows.LI_MODAL), [])
+        res = B.fill_form(p, JOB, self.resume, root=flows.LI_MODAL)
+        self.assertTrue(res.fills[0].ok, res.fills[0].why)      # the chosen resume stays, no file-input crash
+
+    def test_linkedin_2026_questions_step_passes_next(self):
+        from jobhunter.apply import browser as B
+        p = self._li_step(3)
+        B.fill_form(p, JOB, self.resume, root=flows.LI_MODAL)
+        self.assertTrue(p.is_checked("#_r_2j_"))                # onsite: Yes, from profile
+        self.assertLessEqual(len(p.input_value("#_r_2m_")), 20)  # a profile answer that fits, never cut
+        p.click("#next")
+        self.assertTrue(p.is_visible("text=Review your application"))
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search
