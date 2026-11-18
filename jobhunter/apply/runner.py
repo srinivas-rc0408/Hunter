@@ -157,12 +157,18 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                 except Exception:
                     pass
             colour = {"applied": "green", "needs_you": "yellow", "filled": "cyan"}.get(out.status, "red")
-            console.print(f"[bold {colour}]{out.status.upper()}[/] ({'auto' if out.auto else 'you'}) · {out.site} · {out.why}"
+            console.print(f"[bold {colour}]{out.status.upper()}[/]{' (sent automatically)' if out.auto else ''} · {out.site} · {out.why}"
                           + (f" · learned {out.learned} answers" if out.learned else ""))
             try:
                 url_now = page.url
             except Exception:
                 url_now = job["url"]
+            if out.status in ("failed", "needs_you") and not flows.checking():
+                try:                                   # what the bot saw, for fixing the flow (stays on this laptop)
+                    (shots / f"{job['id']}-page.html").write_text(page.content(), encoding="utf-8")
+                    console.print(f"   [dim]saved what the bot saw: {B.SNAP_PATH}[/]")
+                except Exception:
+                    pass
             if out.status in ("needs_you", "filled"):
                 from . import questions
                 nq = questions.add_from_record(job["id"], list(B.RECORD), out.site)
@@ -176,8 +182,9 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                 detail = f"site={out.site} auto={out.auto} approved={approve} why={out.why[:200]}"
                 if out.status == "applied":
                     db.set_status(job["id"], "applied", detail)
-                    notify.telegram(f"✅ <b>Applied</b>: {notify._esc(job['title'])} · {notify._esc(job['company'])}"
-                                    + (f"\n✎ learned {out.learned} correction(s) from you" if out.learned else ""))
+                    if not out.why.startswith("you already applied"):
+                        notify.telegram(f"✅ <b>Applied</b>: {notify._esc(job['title'])} · {notify._esc(job['company'])}"
+                                        + (f"\n✎ learned {out.learned} correction(s) from you" if out.learned else ""))
                 elif out.status == "needs_you":
                     db.set_status(job["id"], "needs_you", detail)
                     if not flows.checking():           # you weren't at the form: tell your phone

@@ -85,6 +85,18 @@ class Browser(unittest.TestCase):
         self.assertEqual((o.status, o.auto), ("applied", True), o.why)
         self.assertIn("application was sent", p.inner_text("body").lower())
 
+    def test_linkedin_apply_on_company_site_link_in_new_tab(self):
+        p = self.page("linkedin_external")
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=False)
+        self.assertEqual(o.status, "applied", o.why)
+        tab = p.context.pages[-1]
+        self.assertIn("thank you", tab.inner_text("body").lower())
+
+    def test_linkedin_already_applied(self):
+        o = flows.linkedin(self.page("linkedin_applied"), self.db, JOB, self.resume, None, dry=False)
+        self.assertEqual(o.status, "applied")
+        self.assertIn("already applied", o.why)
+
     def test_fill_only_mode_never_submits(self):
         from jobhunter import config
         config.cfg("search")["apply"]["mode"] = "fill_only"

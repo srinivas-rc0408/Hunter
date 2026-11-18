@@ -261,16 +261,66 @@ def single_page(page, db: DB, job: dict, resume: Path | None, cover: str | None,
 
 
 # ── LinkedIn Easy Apply ────────────────────────────────────────────────────
+APPLY_NAME = re.compile(r"^\s*(easy apply|apply)\b", re.I)
+NOT_APPLY = re.compile(r"filter|alert|save|similar|sign in|join", re.I)
+ALREADY = re.compile(r"\bapplied (?:\d+|an?) (?:second|minute|hour|day|week|month)s? ago|application submitted|"
+                     r"you applied on|application was sent", re.I)
+CLOSED = re.compile(r"no longer accepting applications|this job is no longer available|job has expired", re.I)
+WHAT_JS = r"""
+() => [...document.querySelectorAll('main button, main a, button, a[role=button]')].filter(e => {
+  const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && r.top < innerHeight * 1.5; })
+  .map(e => ((e.getAttribute('aria-label') || e.innerText || '').replace(/\s+/g, ' ').trim()).slice(0, 50))
+  .filter((t, i, a) => t && a.indexOf(t) === i).slice(0, 30)
+"""
+
+
+def apply_button(page, wait_s: int = 15):
+    """LinkedIn's Easy Apply / Apply control, found the way a person finds it: by its name.
+    (Button or link, any class name, re-checked while the page finishes loading.)"""
+    t0 = time.time()
+    while time.time() - t0 < wait_s:
+        for role in ("button", "link"):
+            loc = page.get_by_role(role, name=APPLY_NAME)
+            try:
+                n = min(loc.count(), 8)
+            except Exception:
+                n = 0
+            for i in range(n):
+                b = loc.nth(i)
+                try:
+                    name = b.get_attribute("aria-label") or b.inner_text() or ""
+                    if b.is_visible() and not NOT_APPLY.search(name):
+                        return b, name
+                except Exception:
+                    continue
+        t = B.page_text(page)
+        if ALREADY.search(t) or CLOSED.search(t):
+            return None, ""
+        page.wait_for_timeout(800)
+    return None, ""
+
+
 def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry: bool) -> Outcome:
     if "login" in page.url or "authwall" in page.url or "signup" in page.url:
         return Outcome("failed", "linkedin", why="not logged in: run `hunt login linkedin` once")
-    page.wait_for_timeout(2500)
-    btn = page.locator("button.jobs-apply-button, button[aria-label*='Easy Apply'], .jobs-apply-button--top-card button").first
-    if not btn.count():
-        if B.page_text(page).count("applied") and "application submitted" in B.page_text(page):
-            return Outcome("applied", "linkedin", why="already applied")
-        return Outcome("skipped", "linkedin", why="no apply button (closed or already applied)")
-    label = (btn.get_attribute("aria-label") or btn.inner_text() or "").lower()
+    btn, label = apply_button(page)
+    if btn is None:
+        t = B.page_text(page)
+        if ALREADY.search(t):
+            return Outcome("applied", "linkedin", why="you already applied to this job on LinkedIn")
+        if CLOSED.search(t):
+            return Outcome("skipped", "linkedin", why="LinkedIn says it no longer accepts applications")
+        if "sign in" in t[:3000] and "join now" in t[:3000]:
+            return Outcome("failed", "linkedin", why="LinkedIn shows you as logged out: run `hunt login linkedin`")
+        try:
+            seen = page.evaluate(WHAT_JS)
+        except Exception:
+            seen = []
+        console.print("   [dim]buttons on the page: " + " | ".join(seen) + "[/]")
+        return Outcome("needs_you", "linkedin", why="couldn't find LinkedIn's Apply button (buttons seen: "
+                       + ", ".join(seen[:12]) + "). Open it with `hunt browser` and press 🎯")
+    label = label.lower()
+    console.print(f"   LinkedIn button: {label[:60]!r}")
     if "easy apply" not in label:
         p2 = follow_external(page, btn)
         if p2 is None:
@@ -280,7 +330,10 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         console.print(f"   company site → {site}: {p2.url[:80]}")
         return single_page(p2, db, job, resume, cover, site, dry)
     btn.click()
-    page.wait_for_selector(LI_MODAL, timeout=12000)
+    try:
+        page.wait_for_selector(LI_MODAL, timeout=15000)
+    except Exception:
+        return Outcome("needs_you", "linkedin", why="pressed Easy Apply but its window didn't open in 15 s")
     all_fills = B.FormResult()
     if checking() and not dry:
         return _linkedin_check(page, db, job, resume, cover, all_fills)

@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LinkedIn-style job, apply on company site</title></head><body><main>
+<h1>Generative AI Engineer</h1><div>Acme · Bengaluru</div>
+<button aria-label="Save Generative AI Engineer at Acme">Save</button>
+<div id="later"></div>
+<script>  // the Apply control appears late, as a link that opens the company's site in a new tab
+setTimeout(() => { const a = document.createElement('a'); a.href = 'basic_ats.html'; a.target = '_blank';
+  a.setAttribute('role', 'button'); a.setAttribute('aria-label', 'Apply to Generative AI Engineer on company website');
+  a.textContent = 'Apply'; document.getElementById('later').appendChild(a); }, 1500);
+</script></main></body></html>
