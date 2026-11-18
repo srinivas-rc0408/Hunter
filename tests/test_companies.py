@@ -203,6 +203,15 @@ class Questions(unittest.TestCase):
         self.assertIn("Usage", handle("/answer"))
         self.assertIn("saved", handle("/answer 1 Yes"))
 
+    def test_options_that_are_the_question_are_dropped(self):
+        from jobhunter.apply import questions        # live: read mid-redraw, each option's text was the question
+        lab = "Are you comfortable with night shifts?*"
+        questions.add_from_record("y", [{"label": lab, "type": "radio", "required": True, "basic": False,
+                                         "key": "unknown", "value": None, "options": [lab.rstrip("*")]}], "linkedin")
+        row = next(r for r in questions.pending() if "night shifts" in r["label"])
+        self.assertEqual(row["options"], [])
+        self.assertEqual(questions.answer(row["key"], "Yes")["value"], "Yes")
+
     def test_known_facts_are_not_asked(self):
         from jobhunter.apply import questions
         n = questions.add_from_record("z", [{"label": "Notice period", "type": "text", "required": True, "basic": False,

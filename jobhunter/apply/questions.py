@@ -57,8 +57,9 @@ def add_from_record(job_id: str, record: list[dict], site: str = "") -> int:
                             "first_asked": iso(), "why": f.get("note") or ""}
         if not q.get(k):
             new += 1
-        if f.get("options"):
-            item["options"] = sorted(set(item["options"]) | set(f["options"]))
+        opts = {o for o in f.get("options") or [] if norm(o) != k}   # read mid-redraw: option text = the question
+        if opts:
+            item["options"] = sorted(set(item["options"]) | opts)
         if job_id not in item["jobs"]:
             item["jobs"].append(job_id)
         if site and site not in item["sites"]:
