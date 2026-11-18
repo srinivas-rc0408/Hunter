@@ -173,6 +173,16 @@ class Browser(unittest.TestCase):
         self.assertIsNone(p.evaluate("window.nexts"), "pressed Next while LinkedIn showed an error")
         self.assertTrue(all("A resume is required" in m for m in msgs), msgs)
 
+    def test_stuck_page_counter_stops_instead_of_looping(self):
+        p = self.browser.new_page()                # live: Next did nothing, "3/5 pages" stayed → "too many steps"
+        p.set_content('<main><button aria-label="Easy Apply to this job" onclick="document.querySelector(\'dialog\')'
+                      '.showModal()">Easy Apply</button></main><dialog data-testid="dialog"><span>3/5 pages</span>'
+                      '<button aria-label="Continue to next step" onclick="window.nexts=(window.nexts||0)+1">Next</button>'
+                      '</dialog>')
+        o = flows.linkedin(p, self.db, JOB, self.resume, None, dry=True)
+        self.assertEqual(p.evaluate("window.nexts"), 1, o.why)
+        self.assertIn("3/5", o.why)
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

@@ -378,13 +378,37 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
             return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
         # errors are read before each Next (above), not after: the next step may open with its own
+        before = _li_pages(page)
+        why = ""
         if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
             why = "couldn't find Next"
+        elif before and not _li_moved(page, before):
+            why = f"pressed Next but LinkedIn stayed on page {before}"
+        if why:
+            B.snap(page)
             if dry:
                 return Outcome("filled", "linkedin", why=f"dry run · step {step + 1}: would wait: {why}")
             submitted, learned = wait_for_you(page, all_fills, "linkedin", LI_MODAL)
             return Outcome("applied" if submitted else "needs_you", "linkedin", why=why, learned=learned)
     return Outcome("needs_you", "linkedin", why="too many steps")
+
+
+def _li_pages(page) -> str:
+    """LinkedIn's "N/M pages" counter in the Easy Apply window, e.g. "3/5" ("" if it has none)."""
+    try:
+        m = re.search(r"\b(\d+\s*/\s*\d+)\s*pages?", page.locator(LI_MODAL).first.inner_text(timeout=2000))
+    except Exception:
+        return ""
+    return re.sub(r"\s", "", m.group(1)) if m else ""
+
+
+def _li_moved(page, before: str, wait_ms: int = 4000) -> bool:
+    """True once the page counter leaves `before` (or the window closes / loses its counter)."""
+    for _ in range(wait_ms // 500):
+        page.wait_for_timeout(500)
+        if _li_pages(page) != before:
+            return True
+    return False
 
 
 def _li_resume(page, resume: Path | None) -> bool:
@@ -473,8 +497,11 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
             if errs:                     # never press Next over an error LinkedIn shows: you fix it first
                 msg = "Fix first. LinkedIn says: " + "; ".join(errs[:3])
                 continue
+            before = _li_pages(page)
             if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
                 msg = "I can't find Next: press LinkedIn's own Next button."
+            elif before and not _li_moved(page, before):
+                msg = f"Pressed Next but LinkedIn stayed on page {before}: check the window."
             page.wait_for_timeout(1000)
             errs = B.errors(page, LI_MODAL)
             if errs:
