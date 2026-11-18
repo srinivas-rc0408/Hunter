@@ -82,16 +82,40 @@ gh auth status
 ```
 ✅ Check: "Logged in to github.com account srinivas-rc0408".
 
-### B3. Free LLM keys (2 min, needed for cover letters/resume rewording when Ollama is off)
-- Gemini: https://aistudio.google.com/apikey → Create API key → `.env`: `GEMINI_API_KEY=...`
-- Groq (backup): https://console.groq.com/keys → `.env`: `GROQ_API_KEY=...`
-- Ollama: run `ollama list`. If your Qwen tag isn't `qwen2.5:7b-instruct`, add
-  `OLLAMA_MODEL=<exact tag, e.g. qwen2.5:7b>` to `.env`.
+### B3. LLM: NVIDIA keys + local model (5 min, for cover letters and resume rewording)
+Nothing needs an LLM (templates are the fallback), but letters and rewording are better with one.
+The bot tries **NVIDIA build → local Ollama → Gemini → Groq → templates**, per request. A bad key,
+a rate limit (HTTP 429), a retired model or a timeout just moves on to the next key, model or provider.
 
-The bot tries Ollama → Gemini → Groq → plain templates, and swaps retired model IDs for current
-ones by itself (Google retired Gemini 2.0 Flash in June 2026; Groq retired Llama 3.3 70B in August 2026).
+**NVIDIA build** (big models in the cloud):
+1. https://build.nvidia.com → sign in → your profile → **API Keys** → **Generate API Key** (starts with `nvapi-`).
+2. Put them in `.env` on ONE line, comma-separated, no spaces needed:
+   ```bash
+   nano ~/jobhunter/.env      # add or edit:  NVIDIA_API_KEYS=nvapi-AAA,nvapi-BBB,nvapi-CCC
+   ```
+   Keys live only in `.env` (gitignored). Never paste them in chat, a commit or a screenshot.
+3. Free access is for development and **rate-limited (about 40 requests/minute per key)**. NVIDIA can
+   change these terms at any time, so the local model below is your no-expiry fallback.
 
-✅ Check: `hunt doctor` shows `✓ LLM (...)`.
+**Local model** (no key, no quota, works offline):
+```bash
+cd ~/jobhunter && ./scripts/install-local-llm.sh
+```
+It installs `ollama-cuda`, starts the service at boot, picks the model that fits your GPU
+(`qwen3:4b` for a 4 GB card, ~2.5 GB) and writes `OLLAMA_MODEL` to `.env`.
+`ollama ps` should show **100% GPU** while it answers. A 7B/8B model doesn't fit in 4 GB and runs ~5x slower.
+
+**Optional extra backups:** Gemini (https://aistudio.google.com/apikey → `GEMINI_API_KEY=`),
+Groq (https://console.groq.com/keys → `GROQ_API_KEY=`).
+
+Model IDs get retired (Gemini 2.0 Flash in June 2026, Groq Llama 3.3 70B in August 2026), so each
+provider's live model list is checked and the best current model is used automatically.
+Pin one with `NVIDIA_MODEL=` / `OLLAMA_MODEL=` / `GEMINI_MODEL=` / `GROQ_MODEL=`.
+
+Privacy: cloud LLMs get your resume bullets and the job description. Your phone and email are
+replaced by `[PHONE]`/`[EMAIL]` before sending and filled back in afterwards.
+
+✅ Check: `hunt llm --test` shows ✓ for every key and a "chain answer". `hunt doctor` shows `✓ LLM`.
 
 ### B4. Gmail digest (optional, 3 min)
 Google Account → Security → 2-Step Verification (must be on) → App passwords → name it
@@ -281,7 +305,7 @@ yourself, then `hunt mark <id> applied`.
 | cloud radar, alerts, digest, morning brief, Telegram bot | no |
 | scanning, scoring, govt eligibility, dedupe | no |
 | apply bot, Review Center, learning answers | no |
-| resume tailoring + ATS score + truth check (`hunt tailor`) | no (Ollama/Gemini/Groq or none) |
+| resume tailoring + ATS score + truth check (`hunt tailor`) | no (NVIDIA/Ollama/Gemini/Groq or none) |
 | cover letters (`hunt cover`) | no (LLM optional, template fallback) |
 | hunter-* skills as slash commands | Claude Code only |
 
@@ -311,7 +335,9 @@ Without Claude Code:
 | Approve says "can't see your screen" | Run `./scripts/install-services.sh` from your desktop terminal, or `hunt apply <id> --approve` |
 | `hunt: command not found` in fish | `fish_add_path -P ~/jobhunter/.venv/bin` and open a new terminal |
 | Chromium won't start after an Arch update | `hunt update` (reinstalls Playwright's Chromium) |
-| Cover letters are generic | No LLM reachable: `hunt doctor` → set `GEMINI_API_KEY` or start Ollama |
+| Cover letters are generic | No LLM reachable: `hunt llm --test` → fix the ✗ key, or `./scripts/install-local-llm.sh` |
+| `hunt llm --test` says 429 | That key hit NVIDIA's rate limit; it rests 60 s and the next key/provider is used. Wait a minute |
+| `ollama ps` shows CPU, not GPU | Model too big for 4 GB, or `ollama` (CPU build) installed: `sudo pacman -S ollama-cuda`, use `qwen3:4b` |
 | Disk full | `rm -rf data/screens/*` (screenshots) and `data/logs/*`. The jobs database is small |
 | Company search finds no platform | Run `hunt company "<name>" --refresh`. If it still says none, the company only posts on job boards, and those results are still shown. Add its careers URL to `config/company_directory.yaml` (`careers:`) and search again |
 | Aditya Birla shows 0 listings | Chromium is needed for that site: `python -m playwright install chromium` (laptop). The cloud installs it for full scans |

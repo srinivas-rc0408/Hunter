@@ -70,8 +70,8 @@ class LLM(unittest.TestCase):
     def test_auto_falls_back_to_none(self):
         from jobhunter import llm
         os.environ["LLM_PROVIDER"] = "auto"
-        os.environ.pop("GEMINI_API_KEY", None)
-        os.environ.pop("GROQ_API_KEY", None)
+        for k in ("GEMINI_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY", "NVIDIA_API_KEYS"):
+            os.environ.pop(k, None)
         llm._PICKED.clear()
         llm.PRESETS["ollama"] = ("http://127.0.0.1:9/v1", "x")     # nothing listens on port 9
         self.assertFalse(llm.available())

@@ -16,6 +16,9 @@ def make_home() -> Path:
     os.environ["JOBHUNTER_HOME"] = str(home)
     for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SMTP_USER", "SMTP_PASS"):
         os.environ.pop(k, None)
+    for k in list(os.environ):          # never let real LLM keys reach a test
+        if k.startswith(("NVIDIA_", "GEMINI_", "GROQ_", "OPENAI_", "LLM_", "OLLAMA_")):
+            os.environ.pop(k, None)
     os.environ["LLM_PROVIDER"] = "none"
     from jobhunter import config
     config.reload()

@@ -425,6 +425,43 @@ def cmd_secrets(a):
         _console().print("Easiest: `hunt secrets --push` (uses the GitHub CLI). Values aren't printed here on purpose.")
 
 
+def cmd_llm(a):
+    """Show the LLM chain; --test sends one tiny request through every key and model."""
+    import time as _t
+
+    from . import llm
+    from rich.table import Table
+    c = _console()
+    rows = llm.status()
+    t = Table(title="LLM chain (auto tries these in order)")
+    for col in ("#", "provider", "model now", "fallbacks", "keys", "state"):
+        t.add_column(col)
+    for i, r in enumerate(rows, 1):
+        t.add_row(str(i), r["prov"], r["model"] or "-", ", ".join(r["fallbacks"]) or "-",
+                  str(r["keys"]) + (f" ({r['dead']} refused)" if r["dead"] else ""),
+                  ("[green]ready[/] " if r["ok"] else "[red]off[/] ") + r["note"])
+    c.print(t)
+    if a.models:
+        for p in llm._providers():
+            c.print(f"[bold]{p['prov']}[/] live chat models (best first): " + ", ".join(llm.ranked(p["prov"], p["ids"])[:25]))
+    if not a.test:
+        c.print("[dim]hunt llm --test  checks every key with one tiny request (uses ~1 request per key)[/]")
+        return
+    for p in llm._providers():
+        prov = p["prov"]
+        for k in (llm.keys(prov) or [None]):
+            t0 = _t.time()
+            code, text = llm._post(p, p["models"][0], k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+            dt = _t.time() - t0
+            good = code == 200 and bool(text)
+            why = {401: "key invalid", 403: "key refused / model not allowed", 404: "model not found",
+                   408: "timed out", 429: "rate-limited (wait a minute)", 0: "unreachable"}.get(code, f"HTTP {code}")
+            c.print(f"{'[green]✓[/]' if good else '[red]✗[/]'} {prov} {p['models'][0]} key {llm.mask(k)}: "
+                    + (f"{text[:20]!r} in {dt:.1f}s" if good else why))
+    out = llm.chat("Reply in one short sentence.", "Name one skill an AI/ML intern needs.", max_tokens=1500)
+    c.print(f"chain answer via {llm.LAST.get('prov', '-')} / {llm.LAST.get('model', '-')}: {out or 'none (templates will be used)'}")
+
+
 # ── setup / health ─────────────────────────────────────────────────────────
 PENDING_KEYS = ["location.pincode", "gender", "date_of_birth", "answers.expected_ctc_lpa",
                 "answers.expected_stipend_month", "sc_subgroup", "marital_status"]
@@ -453,8 +490,10 @@ def cmd_doctor(a):
             (" + resume.yaml filled" if filled else " (resume.yaml still has TODOs: tailoring uses only filled bullets)"))
     c.print(f"{ok(bool(env('TELEGRAM_BOT_TOKEN') and env('TELEGRAM_CHAT_ID')))} Telegram alerts")
     c.print(f"{ok(bool(env('SMTP_USER') and env('SMTP_PASS')))} email digest")
-    c.print(f"{ok(llm.available())} LLM ({llm.settings()[1]} @ {llm.settings()[0] or 'none reachable'}): optional, "
-            "auto = Ollama → Gemini → Groq → templates")
+    rows = llm.status()
+    c.print(f"{ok(llm.available())} LLM (optional; tried in order, templates if none): " + (" → ".join(
+        f"{r['prov']} " + (f"[green]{r['model']}[/]" + (f" ({r['keys']} keys)" if r['keys'] > 1 else "")
+                           if r["ok"] else f"[dim]{r['note']}[/]") for r in rows) or "LLM_PROVIDER=none"))
     c.print(f"{ok(bool(env('STATE_KEY')))} STATE_KEY (cloud state + backups). Keep a copy off this laptop")
     c.print(f"{ok(bool(shutil.which('gh')))} GitHub CLI (gh) for secrets and workflow control")
     if shutil.which("systemctl"):
@@ -748,6 +787,11 @@ def main(argv=None):
     s = sub.add_parser("doctor", help="check setup")
     s.add_argument("--test-alert", action="store_true")
     s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("llm", help="LLM chain: NVIDIA → Ollama → Gemini → Groq (--test checks every key)")
+    s.add_argument("--test", action="store_true", help="send one tiny request per key + one through the chain")
+    s.add_argument("--models", action="store_true", help="list the live chat models of each provider")
+    s.set_defaults(fn=cmd_llm)
 
     s = sub.add_parser("telegram-id", help="print your Telegram chat id")
     s.set_defaults(fn=cmd_telegram_id)

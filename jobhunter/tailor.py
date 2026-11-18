@@ -124,13 +124,19 @@ def cover(job: dict) -> tuple[str, dict, str]:
     p = config.cfg("profile")
     if llm.available():
         facts = resume_text()
+        # The LLM may be a cloud API: it gets placeholders, never your phone or email.
+        facts = facts.replace(str(p.get("phone", "")), "[PHONE]").replace(str(p.get("email", "")), "[EMAIL]")
+        if p.get("phone_digits"):
+            facts = facts.replace(str(p["phone_digits"]), "[PHONE]")
         user = (f"ROLE: {job['title']}\nCOMPANY: {job['company']}\nNAME: {p['name']}\n"
-                f"CONTACT: {p['phone']} · {p['email']}\n\nJOB DESCRIPTION:\n{(job.get('description') or '')[:3500]}"
+                f"CONTACT: [PHONE] · [EMAIL]   (write these two tokens exactly; they are filled in later)"
+                f"\n\nJOB DESCRIPTION:\n{(job.get('description') or '')[:3500]}"
                 f"\n\nFACTS:\n{facts[:5000]}")
         for _ in range(2):
             out = llm.chat(SYSTEM.replace("{company}", job["company"]), user)
             if not out:
                 break
+            out = out.replace("[PHONE]", str(p.get("phone", ""))).replace("[EMAIL]", str(p.get("email", "")))
             rep = verify_cover(out, job["company"], job["title"])
             if rep["ready"]:
                 return out, rep, "llm"

@@ -26,19 +26,31 @@ def data_dir() -> Path:
     return d
 
 
+_FROM_FILE: dict[str, str] = {}   # what load_env set, so runtime changes are never overwritten
+
+
 def load_env() -> None:
-    """Minimal .env loader (KEY=VALUE, # comments). Real env vars win."""
+    """Minimal .env loader (KEY=VALUE, # comments). Real env vars win.
+    The first non-empty value of a key wins, so an empty `KEY=` line copied from
+    .env.example never hides a real `KEY=value` further down."""
     f = path(".env")
     if not f.is_file():
         return
+    vals: dict[str, str] = {}
     for raw in f.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
+        if line.startswith("export "):
+            line = line[7:].strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
         k, v = k.strip(), v.strip().strip('"').strip("'")
-        if k and k not in os.environ:
+        if k and (k not in vals or (not vals[k] and v)):
+            vals[k] = v
+    for k, v in vals.items():
+        if k not in os.environ or (k in _FROM_FILE and os.environ[k] == _FROM_FILE[k]):
             os.environ[k] = v
+            _FROM_FILE[k] = v
 
 
 def env(key: str, default: str | None = None) -> str | None:

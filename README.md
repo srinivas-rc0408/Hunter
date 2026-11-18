@@ -101,7 +101,7 @@ it *would* send in the Review Center.
 1. writes `hunter/resumes/base.md` from your master resume and `<id>.jd.md` from the posting
 2. scores both with hunter-resume's published formula (`50R + 20P + 20B + 10S`)
 3. picks the 4 projects that score highest for this JD and puts the JD's skills first
-4. with an LLM (local Ollama by default), rewords bullets into the JD's own words.
+4. with an LLM (NVIDIA build → local Ollama → Gemini → Groq, first that answers), rewords bullets into the JD's own words.
    `ats.py compare` must say **CLEAN** (no invented number or skill), or the rewrite is dropped
 5. renders a one-page ATS-safe PDF, and lists what the JD asks that your resume doesn't
    show (add it to `resume.yaml → facts` **only if true**)
@@ -125,6 +125,7 @@ it *would* send in the Review Center.
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
 | `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
+| `hunt llm [--test] [--models]` | LLM chain status; `--test` checks every key and model |
 | `hunt digest` / `hunt dashboard` / `hunt export-hunter` / `hunt doctor` | digest, static HTML, hunter-skill data, health check |
 
 ## Tests
