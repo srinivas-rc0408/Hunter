@@ -14,6 +14,9 @@ echo "▸ Chromium for Playwright"
 echo "▸ hunt on your PATH"
 if command -v fish >/dev/null 2>&1; then
   fish -c "fish_add_path -U $REPO/.venv/bin" && echo "  fish: added $REPO/.venv/bin"
+  # a config.fish that does `set -gx PATH ...` wipes fish_user_paths, so add it there too
+  fcfg="$HOME/.config/fish/config.fish"
+  [ -f "$fcfg" ] && ! grep -q "jobhunter/.venv/bin" "$fcfg" && echo "fish_add_path -P $REPO/.venv/bin" >> "$fcfg" || true
 fi
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   [ -f "$rc" ] && ! grep -q "jobhunter/.venv/bin" "$rc" && echo "export PATH=\"$REPO/.venv/bin:\$PATH\"" >> "$rc" || true

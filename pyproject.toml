@@ -16,6 +16,7 @@ dependencies = [
   "beautifulsoup4>=4.12",
   "lxml>=5",
   "pdfplumber>=0.11",
+  "pypdf>=4",
   "reportlab>=4",
 ]
 
