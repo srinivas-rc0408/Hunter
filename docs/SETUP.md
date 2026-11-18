@@ -150,8 +150,16 @@ xdg-open data/resumes/Srinivas_R_C_Resume.pdf
 ```
 ✅ Check: one page, every line true.
 
-### C3. Your own resume PDF stays at `config/resume.pdf`
-It's only uploaded if you set `apply.resume: own` in `config/search.yaml`. Default is the tailored one-pager.
+### C3. The resume every application uploads
+Your own PDF, exactly as you made it (default). Set it once, in either way:
+```fish
+hunt resume --use ~/Downloads/Srinivas_RC_Resume.pdf
+```
+or **send the PDF to your Telegram bot**. It checks the file (real PDF, 1–3 pages, under 5 MB,
+has readable text) and keeps the previous one in `data/resume-history/`.
+Companies receive it as `Srinivas_R_C_Resume.pdf`. `hunt resume --show` says which file is used;
+`/resume` in Telegram sends it back to you.
+(Prefer a one-page version re-ordered per job? Set `apply.resume: tailored` in `config/search.yaml`.)
 
 ---
 
@@ -214,15 +222,30 @@ hunt scan
 hunt list --min 55
 hunt apply --dry-run --top 3
 ```
-Open the Review Center → **To review**. For each job, check every row:
-green = your fact, purple = learned from you, amber = drafted (read it), red = missing.
-Fix anything wrong in `config/private.yaml` / `config/profile.yaml`, then:
+Open the Review Center → **To review**. Each job lists every field the bot filled and where the value
+came from: **your details** (green), **learned from you** (purple), **AI draft: read it** (amber),
+**EMPTY** (red). Change anything with ✎: it's saved as your answer for every future form.
+Then apply for real:
 ```fish
-hunt apply --top 10
+hunt apply --top 5
 ```
-Basic-only forms go out by themselves. Everything else waits under **To review**, where
-**Approve & Submit** sends it. If something is still missing, the browser waits for you to type it,
-and the bot learns the answer for next time.
+**How a real application works (check mode, the default):**
+1. The bot opens the job in its browser and fills the real form.
+2. A **JobHunter panel** appears on the page. It lists every field with the value and where it
+   came from, and the same colours outline the fields on the page. Click a row to jump to that field.
+3. You read the form. Fix anything right on the page: the row turns blue, "you changed this".
+4. Press **Submit application** on the panel (or the site's own Submit). On LinkedIn every step
+   shows the panel: press **Looks right · Next step** until the last one.
+5. The bot reads the form one last time. Every value you changed or typed is saved as your answer,
+   so the same mistake never happens again. Telegram gets "✅ Applied".
+   **Skip job** hides it; **Later** keeps it under To review.
+
+Never saved as answers: files, cover letters, long essays (they're about one job), captcha/OTP,
+caste/diversity questions.
+
+Away from the laptop? `hunt apply --auto` runs without the panel: it sends only forms where every
+field is a fact you gave, and Telegram sends you the rest with the screenshot (`/form_<id>`,
+`/fix_<id> 3 new value`, `/approve_<id>`).
 
 ```fish
 hunt backup
@@ -278,7 +301,8 @@ questions are open. Never asked: captchas, OTPs, essays, and voluntary diversity
 hunt morning              # same brief + cloud health
 hunt apply --top 10       # target: 10 applications a day
 ```
-Then clear **Questions** (one answer can unblock several jobs) and **To review** (Approve & Submit, or Skip)
+Each form opens with the JobHunter panel: read it, fix anything on the page, press Submit.
+Then clear **Questions** (one answer can unblock several jobs) and **To review** (Open & check, or Skip)
 in the Review Center.
 
 **Govt:** `hunt govt`, open each notice marked `eligible`/`check` and read the official PDF's
@@ -336,6 +360,9 @@ Without Claude Code:
 | `hunt: command not found` in fish | `fish_add_path -P ~/jobhunter/.venv/bin` and open a new terminal |
 | Chromium won't start after an Arch update | `hunt update` (reinstalls Playwright's Chromium) |
 | Cover letters are generic | No LLM reachable: `hunt llm --test` → fix the ✗ key, or `./scripts/install-local-llm.sh` |
+| Bot browser: "already open (process …)" | Another `hunt apply`/`hunt login` window is open. Close it (or wait), then retry |
+| "the browser tab closed before the page loaded" | Fixed in 1.5: the bot retries with a fresh tab. If it repeats, close every bot browser window and run again |
+| A form keeps getting one field wrong | Change it on the page before Submit, or ✎ in the Review Center, or `/fix_<id> n value`: your answer wins from then on |
 | Telegram bot doesn't answer | `systemctl --user restart jobhunter-bot`, send `ping`, then `journalctl --user -u jobhunter-bot -n 30` shows every message and why a reply failed |
 | `hunt llm --test` says 429 | That key hit NVIDIA's rate limit; it rests 60 s and the next key/provider is used. Wait a minute |
 | `ollama ps` shows CPU, not GPU | Model too big for 4 GB, or `ollama` (CPU build) installed: `sudo pacman -S ollama-cuda`, use `qwen3:4b` |
@@ -358,15 +385,22 @@ hunt doctor
 
 ## Command cheat sheet
 ```
-hunt morning [--send]            today's brief          hunt apply --top 10          apply (best first)
-hunt company <name>              search a company       hunt questions               answer what forms asked
-hunt list --min 55               open jobs              hunt apply <id> --approve    finish a reviewed form
-hunt show <id>                   one job + keyword gap  hunt apply --dry-run         preview, never submit
-hunt govt / calendar / advantages                       hunt tailor <id>             tailored resume + ATS
+hunt morning [--send]            today's brief          hunt apply --top 5           apply: you check each form, press Submit
+hunt company <name>              search a company       hunt apply <id>              one job
+hunt dream add "Zoho"            new dream company      hunt apply --dry-run         preview to the Review Center, never sends
+hunt dream remove "Zoho" / list                         hunt apply --auto            no panel: basic-only forms, queue the rest
+hunt list --min 55               open jobs              hunt questions               answer what forms asked
+hunt show <id>                   one job + keyword gap  hunt resume --use FILE       the PDF every application uploads
+hunt govt / calendar / advantages                       hunt rescore                 re-score jobs with current rules
 hunt mark <id> applied|interview|offer|rejected|skipped hunt cover <id>              verified cover letter
 hunt review                      Review Center          hunt sync                    pull cloud results
-hunt doctor [--test-alert]       health check           hunt update                  pull + reinstall
+hunt doctor [--test-alert]       health check           hunt llm --test              check the AI keys/models
 hunt backup / restore <file>     encrypted backups      hunt secrets --push          update GitHub secrets
-Telegram: /brief /top /govt /review /questions /answer <n> <text> /company <name> /watch <name> /stats /scan
-          /show_<id> /skip_<id> /queue_<id> /applied_<id> /interview_<id>
+Telegram (words work without the slash):
+  /brief /top /review /govt /stats /scan /ping /help
+  /form_<id>  every field filled     /fix_<id> 3 new value  correct field 3 (remembered)
+  /approve_<id>  send as shown       /check_<id>  open on the laptop with the panel
+  /show_<id> /skip_<id> /queue_<id> /applied_<id> /interview_<id> /rejected_<id> /offer_<id>
+  /dream Zoho  /undream Zoho  /dreams      /company <name>  /watch <name>
+  /questions  /answer 1 Yes              send a PDF = new resume · /resume = get it back
 ```

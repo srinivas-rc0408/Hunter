@@ -29,7 +29,7 @@ just drives the same commands.
 4. `hunt govt` + `hunt calendar`: govt notices with eligibility, plus deadlines.
 5. Review Center http://localhost:8765 (`hunt review`): every form the bot filled, field by
    field with the source of each value, a screenshot, the tailored resume (ATS before → after)
-   and the cover letter. **Approve & Submit** sends a queued form.
+   and the cover letter. **Open & check** shows the real form with the JobHunter panel; you press Submit.
 6. `hunt advantages`: his reservation / Karnataka / GATE advantages checklist (private file).
 
 ## Rules you must keep

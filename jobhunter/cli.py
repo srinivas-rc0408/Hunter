@@ -109,8 +109,11 @@ def cmd_apply(a):
     from .apply.runner import apply
     if a.sync:
         cmd_sync(argparse.Namespace(quiet=True))
+    if a.auto:
+        from . import config as _c
+        _c.cfg("search").setdefault("apply", {})["mode"] = "basic_auto"
     apply(ids=a.ids or None, top=a.top, min_score=a.min, dry=a.dry_run, headless=a.headless or None,
-          with_cover=not a.no_cover, approve=a.approve)
+          with_cover=not a.no_cover, approve=a.approve or a.submit, submit_now=a.submit)
 
 
 def cmd_login(a):
@@ -132,6 +135,16 @@ def cmd_cover(a):
 
 def cmd_resume(a):
     from . import resume_pdf
+    if a.use:
+        from .resumes import use
+        ok, msg = use(Path(a.use).expanduser())
+        _console().print(("[green]✓[/] " if ok else "[red]✗[/] ") + msg)
+        return
+    if a.show:
+        from .apply.runner import my_resume
+        r = my_resume()
+        _console().print(f"applications upload: {r}" if r else "no config/resume.pdf yet: hunt resume --use FILE")
+        return
     out = resume_pdf.build(Path(a.out) if a.out else resume_pdf.pdf_path(None))
     resume_pdf.write_base()
     _console().print(f"one-page master resume: {out}\nhunter-resume base: hunter/resumes/base.md")
@@ -427,29 +440,28 @@ def cmd_secrets(a):
 
 def cmd_rescore(a):
     """Re-score every open job with the current rules (after an update or a profile change)."""
-    from .db import DB, Job
-    from .score import score
-    db = DB()
-    fields = set(Job.__dataclass_fields__)
-    dropped, changed = [], 0
-    for r in db.query(status=["new", "alerted", "queued", "filtered"], limit=100000):
-        j = Job(**{k: r[k] for k in fields if k in r and k not in ("score", "reasons", "flags", "dream", "status")})
-        old_score, old_status = r["score"], r["status"]
-        j = score(j)
-        if j.status == "filtered" and old_status != "filtered":
-            db.c.execute("UPDATE jobs SET status='filtered', score=0, reasons=? WHERE id=?",
-                         (__import__("json").dumps(j.reasons), r["id"]))
-            dropped.append((r["title"], r["company"], j.reasons[0]))
-        else:
-            db.set_score(r["id"], j.score, j.reasons, j.flags, j.dream)
-            if old_status == "filtered" and j.status != "filtered":
-                db.c.execute("UPDATE jobs SET status='new' WHERE id=?", (r["id"],))
-        changed += j.score != old_score
-    db.c.commit()
+    from .rescore import rescore
+    r = rescore()
     c = _console()
-    for t, co, why in dropped[:40]:
+    for t, co, why in r["dropped"][:40]:
         c.print(f"[red]✗[/] {t[:60]} · {co} → {why}")
-    c.print(f"re-scored; {changed} scores changed, {len(dropped)} jobs dropped by the new rules")
+    c.print(f"re-scored {r['total']} jobs; {r['changed']} scores changed, {len(r['dropped'])} dropped by the new rules")
+
+
+def cmd_dream(a):
+    from . import dreams
+    c = _console()
+    if a.action == "list" or not a.name:
+        ds = dreams.names()
+        c.print("★ dream companies: " + (", ".join(ds) if ds else "none") +
+                "\nadd one: hunt dream add \"Company\"   remove: hunt dream remove \"Company\"")
+        return
+    name = " ".join(a.name)
+    ok, msg = (dreams.add if a.action == "add" else dreams.remove)(name)
+    c.print(("[green]✓[/] " if ok else "[yellow]·[/] ") + msg)
+    if ok:
+        for n in dreams.after_change(name, a.action == "add", push=not a.no_push):
+            c.print("  " + n)
 
 
 def cmd_llm(a):
@@ -527,6 +539,14 @@ def cmd_doctor(a):
     filled = "TODO" not in config.path("config", "resume.yaml").read_text()
     c.print(f"{ok(resume_ok or filled)} resume: " + ("config/resume.pdf" if resume_ok else "") +
             (" + resume.yaml filled" if filled else " (resume.yaml still has TODOs: tailoring uses only filled bullets)"))
+    ap = config.cfg("search").get("apply", {})
+    if ap.get("resume", "own") == "own":
+        from .apply.runner import my_resume
+        r = my_resume()
+        c.print(f"{ok(bool(r))} applications upload: " + (f"{r.name} (your own PDF)" if r else
+                "nothing yet: hunt resume --use FILE, or send the PDF to the Telegram bot"))
+    c.print(f"{ok(True)} apply mode: {ap.get('mode', 'check')}"
+            + (" (you read each filled form and press Submit; fixes are learned)" if ap.get("mode", "check") == "check" else ""))
     c.print(f"{ok(bool(env('TELEGRAM_BOT_TOKEN') and env('TELEGRAM_CHAT_ID')))} Telegram alerts")
     c.print(f"{ok(bool(env('SMTP_USER') and env('SMTP_PASS')))} email digest")
     rows = llm.status()
@@ -724,7 +744,11 @@ def main(argv=None):
     s.add_argument("--no-cover", action="store_true", help="skip cover-letter drafting")
     s.add_argument("--sync", action="store_true", help="pull the cloud radar's jobs first")
     s.add_argument("--approve", action="store_true",
-                   help="you reviewed these jobs: submit drafted answers too, wait in the browser for anything missing")
+                   help="you reviewed these jobs: allow drafted answers; the check panel still shows before sending")
+    s.add_argument("--submit", action="store_true",
+                   help="you reviewed these jobs (Review Center / Telegram): submit without the panel if nothing is missing")
+    s.add_argument("--auto", action="store_true",
+                   help="no check panel: auto-submit only all-basic forms, queue the rest (old basic_auto mode)")
     s.set_defaults(fn=cmd_apply)
 
     s = sub.add_parser("login", help="log in once to a site in the bot's browser")
@@ -741,8 +765,10 @@ def main(argv=None):
     s.add_argument("id")
     s.set_defaults(fn=cmd_cover)
 
-    s = sub.add_parser("resume", help="build your one-page master resume PDF + hunter base.md")
-    s.add_argument("--out")
+    s = sub.add_parser("resume", help="your resume: --use FILE sets the PDF every application uploads")
+    s.add_argument("--use", metavar="PDF", help="use this PDF for every application (old one kept in data/resume-history)")
+    s.add_argument("--show", action="store_true", help="which file applications upload")
+    s.add_argument("--out", help="(no --use) build the one-page master PDF here")
     s.set_defaults(fn=cmd_resume)
 
     s = sub.add_parser("tailor", help="tailor your resume to a job (hunter-resume ATS score + truth check)")
@@ -826,6 +852,12 @@ def main(argv=None):
     s = sub.add_parser("doctor", help="check setup")
     s.add_argument("--test-alert", action="store_true")
     s.set_defaults(fn=cmd_doctor)
+
+    s = sub.add_parser("dream", help="dream companies: hunt dream add \"Zoho\" · remove · list")
+    s.add_argument("action", choices=["add", "remove", "list"], nargs="?", default="list")
+    s.add_argument("name", nargs="*")
+    s.add_argument("--no-push", action="store_true", help="don't git push the change")
+    s.set_defaults(fn=cmd_dream)
 
     s = sub.add_parser("rescore", help="re-score open jobs with the current rules")
     s.set_defaults(fn=cmd_rescore)

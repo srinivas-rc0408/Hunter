@@ -256,6 +256,10 @@ class DB:
             out.append(r)
         return out
 
+    def set_app_fields(self, n: int, fields: list) -> None:
+        self.c.execute("UPDATE applications SET fields=? WHERE n=?", (json.dumps(fields, default=str), n))
+        self.c.commit()
+
     # ── events / runs ───────────────────────────────────────────────────────
     def event(self, jid: str, kind: str, detail: str = "") -> None:
         self.c.execute("INSERT INTO events VALUES (?,?,?,?)", (jid, iso(), kind, detail))

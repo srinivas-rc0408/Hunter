@@ -18,6 +18,7 @@ from ..db import DB
 from ..util import console
 from . import browser as B
 from . import fields as F
+from . import panel as PN
 
 LI_MODAL = '.jobs-easy-apply-modal, [data-test-modal-id="easy-apply-modal"], div[role="dialog"]:has(form)'
 
@@ -48,11 +49,23 @@ def site_of(url: str) -> str:
     return "generic"
 
 
+SUBMIT_NAMES = ["Submit application", "Submit Application", "Submit", "Send application", "Apply"]
+
+
+def checking() -> bool:
+    """Check mode: the bot fills, you read the real form, fix anything, and press Submit.
+    Off for dry runs, hidden browsers, and 'submit now' approvals (from Telegram / Review Center)."""
+    mode = config.cfg("search").get("apply", {}).get("mode", "check")
+    return (mode == "check" or (APPROVED and not SUBMIT_NOW)) and VISIBLE and not SUBMIT_NOW
+
+
 def gate(db: DB, site: str, job: dict, res: B.FormResult, problems: list[str]) -> tuple[bool, str]:
     s = config.cfg("search").get("apply", {})
     if site in s.get("never_auto_submit_on", []):
         return False, f"{site}: you always submit this site yourself"
-    if APPROVED:      # you reviewed the values in the Review Center
+    if checking():
+        return False, "you read the form and press Submit"
+    if APPROVED:      # you reviewed the values (Review Center / Telegram) and said submit
         if res.blockers:
             return False, "; ".join(res.blockers)
         if res.missing:
@@ -89,18 +102,64 @@ def _stdin_ready() -> bool:
         return False
 
 
-# Set by the runner: True when you clicked "Approve & Submit" in the Review Center
-# (you've seen every value, and you're at the laptop to finish anything missing).
+# Set by the runner: True when you approved this job (Review Center / Telegram).
 APPROVED = False
+SUBMIT_NOW = False     # approved with "submit now": no check panel, submit if nothing is missing
+VISIBLE = True         # False when the browser is headless (nobody can check a hidden window)
+TITLE = ""             # "role · company" shown on the check panel
 
 
 def wait_for_you(page, res: B.FormResult | None, site: str, root: str | None = None) -> tuple[bool, int]:
     """Hand a form over to you. In 'queue' mode (default) the bot records the form for the
     Review Center and moves on; in 'wait' mode, or after you approved, it waits in the browser."""
     B.snap(page)
+    if checking():
+        act, saved = PN.hand_over(page, res.fills if res else [], site, TITLE, root, final=True,
+                                  msg="Finish anything the bot couldn't do, then press the site's own Submit.")
+        PN.say_learned(saved)
+        if act == "submit":
+            page.wait_for_timeout(2500)
+        return act == "submitted" or (act == "submit" and B.succeeded(page)), len(saved)
     if config.cfg("search").get("apply", {}).get("on_needs_you", "queue") == "queue" and not APPROVED:
         return False, 0
     return _wait_in_browser(page, res, site, root)
+
+
+def check_form(page, db: DB, job: dict, res: B.FormResult, site: str, resume: Path | None,
+               cover: str | None) -> Outcome:
+    """Check mode for one-page and multi-page forms: you read, fix and submit; the bot learns."""
+    fills, saved_all, msg = list(res.fills), [], ""
+    for _ in range(12):
+        act, saved = PN.hand_over(page, fills, site, TITLE, final=True, msg=msg)
+        saved_all += saved
+        PN.say_learned(saved)
+        if act == "submitted":
+            return Outcome("applied", site, why="you submitted it", learned=len(saved_all))
+        if act == "moved":                       # next page of a multi-page form: fill it too
+            page.wait_for_timeout(1500)
+            nxt = B.fill_form(page, job, resume, cover_text=cover)
+            _report(nxt)
+            fills, msg = nxt.fills, ""
+            continue
+        if act == "submit":
+            B.snap(page)                         # the form exactly as you approved it
+            if not B.click_button(page, SUBMIT_NAMES):
+                msg = "I can't find this site's Submit button. Press it yourself; I'll notice."
+                continue
+            page.wait_for_timeout(4000)
+            if B.succeeded(page) or not B.scan(page):
+                return Outcome("applied", site, why="submitted after your check", learned=len(saved_all))
+            errs = B.errors(page)
+            msg = ("The site says: " + "; ".join(errs[:3])) if errs else \
+                "Pressed Submit but saw no confirmation. Check the page, then press Submit again or Later."
+            continue
+        if act == "skip":
+            return Outcome("skipped", site, why="you skipped it", learned=len(saved_all))
+        why = {"later": "you chose Later", "timeout": "no answer in time", "close": "preview closed"}.get(
+            act, "the form was closed before it was sent")
+        return Outcome("needs_you", site, why=why, learned=len(saved_all),
+                       missing=[m.field["label"] for m in res.missing])
+    return Outcome("needs_you", site, why="too many tries", learned=len(saved_all))
 
 
 def _wait_in_browser(page, res: B.FormResult | None, site: str, root: str | None = None) -> tuple[bool, int]:
@@ -177,14 +236,18 @@ def single_page(page, db: DB, job: dict, resume: Path | None, cover: str | None,
     res = B.fill_form(page, job, resume, cover_text=cover)
     _report(res)
     if not res.fills:
-        return Outcome("needs_you", site, why="no form found on the page")
+        if checking() and not dry:
+            return check_form(page, db, job, res, site, resume, cover)
+        return Outcome("needs_you", site, why="no application form on this page (it may be a listing that links elsewhere)")
     problems = B.verify(page, res)
     ok, why = gate(db, site, job, res, problems)
     B.snap(page)
+    if checking() and not dry:
+        return check_form(page, db, job, res, site, resume, cover)
     if dry:
         return Outcome("filled", site, why=f"dry run · would {'AUTO-SUBMIT' if ok else 'wait'}: {why}",
                        missing=[m.field["label"] for m in res.missing])
-    if ok and B.click_button(page, ["Submit application", "Submit Application", "Submit", "Send application", "Apply"]):
+    if ok and B.click_button(page, SUBMIT_NAMES):
         page.wait_for_timeout(4000)
         if B.succeeded(page) or not B.scan(page):
             return Outcome("applied", site, auto=True, why=why)
@@ -218,6 +281,8 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
     btn.click()
     page.wait_for_selector(LI_MODAL, timeout=12000)
     all_fills = B.FormResult()
+    if checking() and not dry:
+        return _linkedin_check(page, db, job, resume, cover, all_fills)
     for step in range(15):
         page.wait_for_timeout(1200)
         # untick "follow company" (it's on by default)
@@ -267,6 +332,65 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
     return Outcome("needs_you", "linkedin", why="too many steps")
 
 
+def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | None, all_fills: B.FormResult) -> Outcome:
+    """Easy Apply in check mode: every step is filled, shown on the panel, and moves on only when you say."""
+    seen: set[str] = set()
+    saved_all: list[dict] = []
+    msg = ""
+    for _ in range(25):
+        page.wait_for_timeout(1200)
+        if not page.locator(LI_MODAL).count():
+            return Outcome("applied" if B.succeeded(page) else "needs_you", "linkedin",
+                           why="sent" if B.succeeded(page) else "the Easy Apply window was closed",
+                           learned=len(saved_all))
+        try:
+            fc = _in(page, LI_MODAL, "input#follow-company-checkbox")
+            if fc.count() and fc.is_checked():
+                _in(page, LI_MODAL, "label[for='follow-company-checkbox']").click()
+        except Exception:
+            pass
+        res = B.fill_form(page, job, resume, root=LI_MODAL, cover_text=cover, skip_jh=seen)
+        seen |= {f.field["jh"] for f in res.fills}
+        all_fills.fills += res.fills
+        _report(res)
+        here = {f["jh"] for f in B.scan(page, LI_MODAL)}
+        step = [f for f in all_fills.fills if f.field["jh"] in here]
+        sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
+        is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
+        B.snap(page)
+        act, saved = PN.hand_over(page, step, "linkedin", TITLE, root=LI_MODAL, final=is_last, msg=msg)
+        saved_all += saved
+        PN.say_learned(saved)
+        msg = ""
+        if act == "submitted":
+            B.click_button(page, ["Dismiss", "Done"], dry=False)
+            return Outcome("applied", "linkedin", why="you submitted it", learned=len(saved_all))
+        if act == "moved":
+            continue
+        if act == "next":
+            if not B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"], root=LI_MODAL):
+                msg = "I can't find Next: press LinkedIn's own Next button."
+            page.wait_for_timeout(1000)
+            errs = B.errors(page, LI_MODAL)
+            if errs:
+                msg = "LinkedIn says: " + "; ".join(errs[:3])
+            continue
+        if act == "submit":
+            if B.click_button(page, ["Submit application"], root=LI_MODAL):
+                page.wait_for_timeout(4000)
+                if B.succeeded(page) or not _in(page, LI_MODAL, "button[aria-label*='Submit application']").count():
+                    B.click_button(page, ["Dismiss", "Done"], dry=False)
+                    return Outcome("applied", "linkedin", why="submitted after your check", learned=len(saved_all))
+            errs = B.errors(page, LI_MODAL)
+            msg = ("LinkedIn says: " + "; ".join(errs[:3])) if errs else "No confirmation yet: check the window."
+            continue
+        if act == "skip":
+            return Outcome("skipped", "linkedin", why="you skipped it", learned=len(saved_all))
+        return Outcome("needs_you", "linkedin", learned=len(saved_all),
+                       why={"later": "you chose Later", "timeout": "no answer in time"}.get(act, "closed before sending"))
+    return Outcome("needs_you", "linkedin", why="too many steps", learned=len(saved_all))
+
+
 # ── Naukri ─────────────────────────────────────────────────────────────────
 NAUKRI_BOT = ".chatbot_DrawerContentWrapper, [class*='chatbot_Drawer'], .chatbot_MessageContainer"
 
@@ -290,7 +414,16 @@ def naukri(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry:
         return Outcome("failed", "naukri", why="not logged in: run `hunt login naukri` once")
     if dry:
         return Outcome("filled", "naukri", why="dry run · Naukri one-click apply uses your Naukri profile (basic)")
-    ok, why = gate(db, "naukri", job, B.FormResult(), [])
+    if checking():
+        act, _ = PN.hand_over(page, [], "naukri", TITLE, final=True,
+                              msg="Naukri sends your Naukri profile and resume. Check them on Naukri, then press Submit.")
+        if act == "submitted":
+            return Outcome("applied", "naukri", why="you applied on Naukri")
+        if act != "submit":
+            return Outcome("skipped" if act == "skip" else "needs_you", "naukri", why=f"you chose {act}")
+        ok, why = True, "you checked it"
+    else:
+        ok, why = gate(db, "naukri", job, B.FormResult(), [])
     if not ok:
         submitted, learned = wait_for_you(page, None, "naukri")
         return Outcome("applied" if submitted else "needs_you", "naukri", why=why)
@@ -299,7 +432,7 @@ def naukri(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry:
     # Naukri may open a recruiter questionnaire in a chat drawer
     for _ in range(12):
         if B.succeeded(page) or "applied" in (btn.inner_text() or "").lower():
-            return Outcome("applied", "naukri", auto=True, why="one-click apply with your Naukri profile")
+            return Outcome("applied", "naukri", auto=not checking(), why="one-click apply with your Naukri profile")
         if not page.locator(NAUKRI_BOT).count():
             page.wait_for_timeout(1500)
             continue
@@ -340,6 +473,8 @@ def run(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry: bo
     site = site_of(url)
     if site == "govt":
         return Outcome("skipped", "govt", why="govt portals need OTR/OTP/fee: apply yourself from the alert")
+    global TITLE
+    TITLE = f"{job.get('title', '')} · {job.get('company', '')}"
     page.goto(url, wait_until="domcontentloaded", timeout=45000)
     page.wait_for_timeout(1500)
     if site == "linkedin":
@@ -351,6 +486,8 @@ def run(page, db: DB, job: dict, resume: Path | None, cover: str | None, dry: bo
         _report(res)
         if dry:
             return Outcome("filled", site, why=f"dry run · {site} always waits for you")
+        if checking():
+            return check_form(page, db, job, res, site, resume, cover)
         submitted, learned = wait_for_you(page, res, site)
         return Outcome("applied" if submitted else "needs_you", site, why=f"{site}: you submit", learned=learned)
     return single_page(page, db, job, resume, cover, site, dry)

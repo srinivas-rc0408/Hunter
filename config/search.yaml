@@ -70,17 +70,20 @@ scoring:
   digest_top_n: 20
 
 apply:
-  # basic_auto:   fill everything; auto-submit ONLY when every field is a fact
-  #               you gave (private.yaml / profile.yaml / answers.yaml).
-  # review_first: fill + record everything, submit NOTHING until you press
-  #               "Approve & Submit" in the Review Center (http://localhost:8765).
-  mode: basic_auto
-  # When a form needs you: "queue" records it for the Review Center and moves on
-  # to the next job (fast); "wait" keeps the browser open until you finish it.
+  # check:        (default) the bot fills the real form, then a JobHunter panel on the page
+  #               lists every field and where it came from. You read it, fix anything on the
+  #               page, and press Submit. Every fix is remembered and wins next time.
+  # basic_auto:   no panel: auto-submits ONLY when every field is a fact you gave;
+  #               anything else is recorded for the Review Center (`hunt apply --auto`).
+  # review_first: fill + record everything, submit nothing until you approve it.
+  mode: check
+  # When a form needs you and you're not checking (basic_auto / review_first):
+  # "queue" records it for the Review Center and moves on; "wait" keeps the browser open.
   on_needs_you: queue
-  # Resume to upload: "tailored" = one-page PDF per job (hunter-resume ATS + truth
-  # check); "own" = config/resume.pdf exactly as you made it.
-  resume: tailored
+  # Resume to upload: "own" = your PDF exactly as you made it (config/resume.pdf, set with
+  # `hunt resume --use FILE` or by sending the PDF to your Telegram bot), uploaded as
+  # First_Last_Resume.pdf. "tailored" = a one-page PDF re-ordered for each job.
+  resume: own
   sites_allowed_auto: [greenhouse, lever, ashby, linkedin, naukri, generic]
   never_auto_submit_on: [workday, indeed, govt]   # account creation / captcha / fees
   max_auto_submits_per_day: 25                    # all sites together
@@ -90,7 +93,7 @@ apply:
   typing_delay_ms: [30, 90]
   browser_profile_dir: data/browser-profile       # log in to LinkedIn/Naukri here once
   headless: false
-  wait_for_you_sec: 600                           # how long a paused form waits for your click
+  wait_for_you_sec: 900                           # how long the check panel waits for you (15 min)
 
 schedule:
   light_minutes: 60

@@ -161,18 +161,81 @@ class FormResult:
         return not self.blockers and not self.missing and not self.non_basic_filled
 
 
+class BrowserBusy(RuntimeError):
+    """The bot's browser profile is already open in another window."""
+
+
+def _profile_lock(prof_dir: Path) -> int | None:
+    """PID holding the Chromium profile, or None. Removes a lock left by a crashed browser."""
+    import os
+    lock = prof_dir / "SingletonLock"
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        return None
+    try:
+        pid = int(target.rsplit("-", 1)[-1])
+        os.kill(pid, 0)
+        return pid
+    except (ValueError, ProcessLookupError, PermissionError):
+        for n in ("SingletonLock", "SingletonSocket", "SingletonCookie"):
+            try:
+                (prof_dir / n).unlink()
+            except OSError:
+                pass
+        return None
+
+
+def _calm_profile(prof_dir: Path) -> None:
+    """Start clean: no "restore pages?" bubble, no restored tabs that close our work tab."""
+    import json
+    pref = prof_dir / "Default" / "Preferences"
+    try:
+        d = json.loads(pref.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    d.setdefault("profile", {}).update(exit_type="Normal", exited_cleanly=True)
+    d.setdefault("session", {})["restore_on_startup"] = 5          # 5 = open the New Tab page
+    try:
+        pref.write_text(json.dumps(d), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def launch(headless: bool | None = None):
     """Persistent Chromium profile: you log in to LinkedIn/Naukri once, it stays logged in."""
     from playwright.sync_api import sync_playwright
     s = config.cfg("search").get("apply", {})
     prof_dir = config.path(s.get("browser_profile_dir", "data/browser-profile"))
     prof_dir.mkdir(parents=True, exist_ok=True)
+    pid = _profile_lock(prof_dir)
+    if pid:
+        raise BrowserBusy(f"the bot's browser is already open (process {pid}): close that window "
+                          "(or wait for the other `hunt` run to finish), then try again")
+    _calm_profile(prof_dir)
     pw = sync_playwright().start()
-    ctx = pw.chromium.launch_persistent_context(
-        str(prof_dir), headless=s.get("headless", False) if headless is None else headless,
-        viewport={"width": 1280, "height": 860}, locale="en-IN", timezone_id="Asia/Kolkata",
-        args=["--disable-blink-features=AutomationControlled"])
+    try:
+        ctx = pw.chromium.launch_persistent_context(
+            str(prof_dir), headless=s.get("headless", False) if headless is None else headless,
+            viewport={"width": 1280, "height": 860}, locale="en-IN", timezone_id="Asia/Kolkata",
+            args=["--disable-blink-features=AutomationControlled", "--no-first-run",
+                  "--disable-session-crashed-bubble", "--hide-crash-restore-bubble"])
+    except Exception:
+        pw.stop()
+        raise
     return pw, ctx
+
+
+def work_page(ctx):
+    """One fresh tab to work in; extra start-up tabs are closed so none can steal or close it."""
+    page = ctx.new_page()
+    for p in list(ctx.pages):
+        if p is not page:
+            try:
+                p.close()
+            except Exception:
+                pass
+    return page
 
 
 def human_pause(a: float = 0.3, b: float = 1.1) -> None:
@@ -240,7 +303,7 @@ def snap(page) -> None:
 
 def record(fill: "Fill", page_url: str) -> None:
     f, a = fill.field, fill.answer
-    RECORD.append({"label": f.get("label"), "type": f.get("type"), "required": bool(f.get("required")),
+    RECORD.append({"jh": f.get("jh"), "label": f.get("label"), "type": f.get("type"), "required": bool(f.get("required")),
                    "value": fill.chosen if fill.ok else None, "basis": a.basis if fill.ok else "none",
                    "basic": bool(fill.ok and (a.basic or a.key in ("resume", "marketing"))),
                    "key": a.key, "note": fill.why or a.note, "url": page_url,

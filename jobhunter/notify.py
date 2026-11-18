@@ -60,6 +60,59 @@ def telegram(text: str) -> bool:
     return False
 
 
+SRC_WORDS = {"profile": "your details", "consent": "consent", "learned": "learned from you", "you": "you changed it",
+             "drafted": "AI draft: read it", "none": "EMPTY"}
+
+
+def form_lines(fields: list[dict], limit: int = 40) -> list[str]:
+    """Numbered, plain-words list of what was filled: '3. Notice period → Immediate (your details)'."""
+    out = []
+    for i, f in enumerate(fields or [], 1):
+        if i > limit:
+            out.append(f"… and {len(fields) - limit} more (Review Center)")
+            break
+        v = f.get("value")
+        v = "✓ ticked" if v is True else "unticked" if v is False else ("—" if v in (None, "") else clip(str(v), 70))
+        src = SRC_WORDS.get(f.get("basis") or "none", f.get("basis") or "")
+        if f.get("basis") == "none" and not f.get("required"):
+            src = "optional, empty"
+        warn = "❗" if (f.get("required") and (f.get("basis") or "none") == "none") else ""
+        out.append(f"{i}. {warn}{_esc(clip(str(f.get('label') or f.get('key') or '?'), 60))} → <b>{_esc(v)}</b> <i>({_esc(src)})</i>")
+    return out
+
+
+def telegram_photo(path, caption: str = "") -> bool:
+    tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
+    if not tok or not chat or not path:
+        return False
+    try:
+        with open(path, "rb") as fh:
+            r = requests.post(f"https://api.telegram.org/bot{tok}/sendPhoto", timeout=60,
+                              data={"chat_id": chat, "caption": caption[:1000]}, files={"photo": fh})
+        if not r.ok:          # very tall full-page shots are refused as photos: send as a file
+            with open(path, "rb") as fh:
+                r = requests.post(f"https://api.telegram.org/bot{tok}/sendDocument", timeout=60,
+                                  data={"chat_id": chat, "caption": caption[:1000]}, files={"document": fh})
+        return r.ok
+    except (OSError, requests.RequestException):
+        return False
+
+
+def review_needed(job: dict, why: str, fields: list[dict], shot=None) -> None:
+    """The bot stopped on a form while you were away: what it filled, what's missing, the screenshot."""
+    jid = job["id"][:8]
+    head = (f"✋ <b>Check needed</b>: {_esc(job['title'])} · {_esc(job['company'])}\n<i>{_esc(clip(why, 200))}</i>\n")
+    body = "\n".join(form_lines(fields, 25)) or "No form fields were filled."
+    tail = (f"\n\nFix a field: <code>/fix_{jid} 3 your answer</code>\n"
+            f"Send as shown: /approve_{jid} · open on laptop to check: /check_{jid} · /skip_{jid}")
+    telegram(head + body + tail)
+    try:
+        if shot and str(shot) and __import__("os").path.exists(str(shot)):
+            telegram_photo(shot, f"{job['title']} · {job['company']}: the filled form")
+    except OSError:
+        pass
+
+
 def alert_jobs(jobs: list[dict]) -> int:
     """One Telegram message per job (so each is tappable). Returns count sent."""
     sent = 0

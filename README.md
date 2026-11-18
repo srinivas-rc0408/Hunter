@@ -35,8 +35,9 @@ apply bot runs on your laptop. Claude Code is optional (`/jobhunter` plus the 11
 | **Fresher fit** | Senior/lead/manager titles and posts asking 2+ years are dropped (dream companies kept with a penalty). |
 | **Pay floors** | Full-time below **₹6 LPA** dropped (target 8+ ranks higher). Internships below ₹15k/month dropped (₹30k+ ranks higher). Unlisted pay kept. Govt exempt. |
 | **Dream companies** | Aditya Birla Group (all businesses) and Birlasoft: +15 score, lower alert bar, front of the apply queue, career pages watched directly. |
-| **Basic-only auto-submit** | Submits only if *every* field is a fact you gave (`config/private.yaml`, `config/profile.yaml`, or an answer you typed once). An essay, an unknown question, a captcha or a missing value means the form is **recorded and queued for your review** instead. |
-| **Review before submit** | Every attempt is saved field by field, with its source, a screenshot, the resume and the cover letter, in the Review Center. **Approve & Submit** sends it. |
+| **You check, then submit** | The bot fills the real form, then a JobHunter panel on the page lists every field, its value and its source. You fix anything on the page and press Submit. Nothing is sent before that. (`hunt apply --auto`: no panel, auto-sends only forms where every field is a fact you gave.) |
+| **Learns your fixes** | Every value you change on the form (or with ✎ in the Review Center, or `/fix` in Telegram) is saved as your answer and wins over the bot's own choice on every future form. |
+| **Everything recorded** | Every attempt is saved field by field, with its source, a screenshot, the resume and the cover letter, in the Review Center and in Telegram (`/form_<id>`). |
 | **Asks, never guesses** | An unknown required field becomes a *question* (terminal, Review Center or Telegram). Your answer is saved and reused, and jobs waiting on it re-queue. |
 | **It learns** | Answers you type in a paused form go to `data/answers.yaml` and count as facts next time. |
 | **No invented facts** | Tailored resumes pass hunter-resume's truth check (`ats.py compare`: no new numbers or skills), and cover letters pass hunter-cover's verifier. Anything that fails is discarded. |
@@ -125,6 +126,8 @@ it *would* send in the Review Center.
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
 | `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
+| `hunt dream add/remove/list "Name"` | dream companies (+15, watched, pushed to the cloud radar); Telegram `/dream Name` |
+| `hunt resume --use FILE` | the PDF every application uploads (or send it to the Telegram bot) |
 | `hunt llm [--test] [--models]` | LLM chain status; `--test` checks every key and model |
 | `hunt digest` / `hunt dashboard` / `hunt export-hunter` / `hunt doctor` | digest, static HTML, hunter-skill data, health check |
 

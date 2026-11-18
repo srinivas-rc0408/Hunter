@@ -37,28 +37,37 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
 
 
 KNOWN = {"start", "help", "menu", "brief", "top", "govt", "review", "stats", "show", "scan", "company", "watch",
-         "questions", "answer", "ping", *STATUS_CMDS}
+         "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
+         *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter bot</b>
-<b>Daily</b>
-/brief · morning brief now
+<b>Every day</b>
+/brief · morning summary now
 /top · best open jobs  (<code>/top 20</code> for more)
-/govt · govt notices + deadlines
-/review · forms waiting for your approval
-/stats · pipeline numbers
+/review · forms waiting for you
+/govt · govt notices and last dates
+/stats · your numbers
 <b>One job</b> (tap the links in alerts)
-/show_&lt;id&gt; · why it matched + link
+/show_&lt;id&gt; · why it matched, link
+/form_&lt;id&gt; · every field the bot filled, numbered
+/fix_&lt;id&gt; 3 15 days · change field 3 (remembered for every future form)
+/approve_&lt;id&gt; · send it as shown (laptop submits it)
+/check_&lt;id&gt; · open it on the laptop to read and submit yourself
 /skip_&lt;id&gt; · /queue_&lt;id&gt; · hide it / apply to it first
 /applied_&lt;id&gt; · /interview_&lt;id&gt; · /rejected_&lt;id&gt; · /offer_&lt;id&gt;
 <b>Companies</b>
-<code>/company Aditya Birla</code> · open listings with links
-<code>/watch Zoho</code> · include it in every scan
+<code>/dream Zoho</code> · make it a dream company (★, +15, watched)
+<code>/undream Zoho</code> · /dreams · list them
+<code>/company Aditya Birla</code> · its open jobs with links
+<code>/watch Bosch</code> · include it in every scan
+<b>Your resume</b>
+Send the PDF here: every application uses it from then on
+/resume · get the current one
 <b>Questions forms asked</b>
 /questions · then <code>/answer 1 Yes</code>
 <b>Other</b>
-/scan · scan now on the laptop · /ping · is the bot alive
-Words work too: <i>help</i>, <i>top 5</i>, <i>stats</i>.
-Applying stays on the laptop (hunt apply / Review Center): nothing here submits a form."""
+/scan · scan now · /ping · is the bot alive
+Words work too: <i>help</i>, <i>top 5</i>, <i>dream Zoho</i>."""
 
 
 def _e(s) -> str:
@@ -84,6 +93,55 @@ def handle(text: str, db: DB | None = None) -> str:
     jid = inline_id or (arg.split()[0] if arg else "")
     if cmd in ("start", "help", "menu"):
         return HELP
+    if cmd in ("dream", "undream", "dreams"):
+        from . import dreams
+        if cmd == "dreams" or not arg:
+            ds = dreams.names()
+            return ("<b>★ Dream companies</b>\n" + ("\n".join("• " + _e(d) for d in ds) or "none yet") +
+                    "\nAdd: <code>/dream Company</code> · remove: <code>/undream Company</code>")
+        ok, msg = (dreams.add if cmd == "dream" else dreams.remove)(arg)
+        if not ok:
+            return "· " + _e(msg)
+        notes = dreams.after_change(arg, cmd == "dream")
+        return "✓ " + _e(msg) + "\n" + "\n".join("• " + _e(n) for n in notes)
+    if cmd == "form":
+        from .apply.fixes import latest
+        from .notify import form_lines
+        j, app = latest(db, jid)
+        if not j:
+            return "Usage: /form_&lt;id&gt;"
+        if not app:
+            return f"{_e(j['title'])} · {_e(j['company'])}: not filled yet. /check_{j['id'][:8]} fills it on the laptop."
+        head = (f"<b>{_e(j['title'])}</b> · {_e(j['company'])}\n"
+                f"{'preview' if app.get('dry') else app.get('outcome')} · {_e(app.get('site'))} · {_e((app.get('at') or '')[:16])}\n"
+                f"<i>{_e((app.get('why') or '')[:200])}</i>\n")
+        body = "\n".join(form_lines(app.get("fields") or [])) or "No form fields were recorded."
+        return head + body + (f"\n\nChange one: <code>/fix_{j['id'][:8]} 3 new value</code>\n"
+                              f"Send as shown: /approve_{j['id'][:8]} · read it on the laptop: /check_{j['id'][:8]}")
+    if cmd == "fix":
+        from .apply.fixes import fix
+        rest = arg.split(None, 1) if inline_id else (arg.split(None, 1)[1].split(None, 1) if len(arg.split(None, 1)) > 1 else [])
+        if not jid or len(rest) < 2 or not rest[0].isdigit():
+            return "Usage: <code>/fix_&lt;id&gt; 3 your answer</code> (the number from /form)"
+        ok, msg = fix(db, jid, int(rest[0]), rest[1])
+        return ("✓ " if ok else "✗ ") + _e(msg)
+    if cmd in ("approve", "check"):
+        j = db.get(jid) if jid else None
+        if not j:
+            return f"Usage: /{cmd}_&lt;id&gt;"
+        import os
+        if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            return ("The bot service can't see the laptop screen, so it can't open the browser. On the laptop run "
+                    "<code>scripts/install-services.sh</code> once from your desktop session.")
+        args = ["apply", j["id"], "--submit" if cmd == "approve" else "--approve"]
+        subprocess.Popen([sys.executable, "-m", "jobhunter.cli", *args], cwd=str(config.home()),
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+                         env={**os.environ, "JH_NOTIFY": "1"})
+        return (f"⏳ Sending <b>{_e(j['title'])}</b> · {_e(j['company'])} from the laptop with the values in /form. "
+                "You'll get ✅ Applied, or ✋ if the site asks something new." if cmd == "approve" else
+                f"⏳ Opening <b>{_e(j['title'])}</b> on the laptop. Read the form there and press Submit on the panel.")
+    if cmd == "resume":
+        return "__RESUME__"
     if cmd == "ping":
         return f"🟢 alive · {time.strftime('%d %b %H:%M')} · {db.count('1=1')} jobs tracked"
     if cmd == "questions":
@@ -172,7 +230,7 @@ def handle(text: str, db: DB | None = None) -> str:
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"brief", "company", "watch", "scan", "top", "govt"}
+SLOW = {"brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check"}
 
 
 def log(msg: str) -> None:
@@ -194,6 +252,42 @@ def send(api: str, chat: str, text: str) -> bool:
     return False
 
 
+def _send_resume(api: str, chat: str) -> None:
+    from .apply.runner import my_resume
+    r = my_resume()
+    if not r:
+        send(api, chat, "No resume yet. Send me your PDF and every application will use it.")
+        return
+    try:
+        with open(r, "rb") as fh:
+            requests.post(f"{api}/sendDocument", timeout=60, data={"chat_id": chat,
+                          "caption": f"Every application uploads this ({r.name}). Send a new PDF to replace it."},
+                          files={"document": (r.name, fh, "application/pdf")})
+    except (OSError, requests.RequestException) as exc:
+        send(api, chat, f"couldn't send it: {type(exc).__name__}")
+
+
+def _document(api: str, tok: str, chat: str, doc: dict) -> None:
+    """A PDF you send becomes the resume every application uploads."""
+    from .resumes import use
+    name = doc.get("file_name") or "file"
+    if doc.get("mime_type") != "application/pdf" and not name.lower().endswith(".pdf"):
+        send(api, chat, "Send your resume as a PDF to make it the one every application uses.")
+        return
+    if (doc.get("file_size") or 0) > 5 * 1024 * 1024:
+        send(api, chat, "That PDF is over 5 MB: most job sites refuse it. Export a smaller one.")
+        return
+    try:
+        info = requests.get(f"{api}/getFile", params={"file_id": doc["file_id"]}, timeout=20).json()
+        data = requests.get(f"https://api.telegram.org/file/bot{tok}/{info['result']['file_path']}", timeout=60).content
+    except (requests.RequestException, KeyError, ValueError) as exc:
+        send(api, chat, f"couldn't download it ({type(exc).__name__}). Send it again.")
+        return
+    ok, msg = use(data=data)
+    send(api, chat, ("✓ Resume " if ok else "✗ Not saved: ") + _e(msg))
+    log(f"resume upload {name}: {'saved' if ok else msg}")
+
+
 def _reply(api: str, chat: str, text: str) -> None:
     cmd = (text or "").strip().lstrip("/").split("_")[0].split()[0].split("@")[0].lower() if text else ""
     if cmd in SLOW:
@@ -207,6 +301,10 @@ def _reply(api: str, chat: str, text: str) -> None:
     except Exception as exc:                 # never let one bad command kill the bot
         log(f"handler error on {text[:40]!r}: {exc!r}")
         reply = f"⚠️ error: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}"
+    if reply == "__RESUME__":
+        _send_resume(api, chat)
+        log(f"{text[:40]!r} → resume sent")
+        return
     ok = send(api, chat, reply)
     log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} in {time.time() - t0:.1f}s")
 
@@ -260,6 +358,9 @@ def run() -> None:
             if str(msg.get("chat", {}).get("id")) != chat:
                 log(f"ignored a message from another chat ({str(msg.get('chat', {}).get('id'))[-4:]})")
                 continue                     # not you: ignore
+            if msg.get("document"):
+                pool.submit(_document, api, tok, chat, msg["document"])
+                continue
             text = msg.get("text") or ""
             if not text:
                 continue

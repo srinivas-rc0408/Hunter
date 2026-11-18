@@ -1,7 +1,10 @@
 """`hunt apply`: open your browser and work through the queue, best jobs first."""
 from __future__ import annotations
 
+import os
 import random
+import re
+import shutil
 import time
 from pathlib import Path
 
@@ -20,20 +23,95 @@ def queue(db: DB, ids: list[str] | None, top: int, min_score: int) -> list[dict]
     return jobs[:top]
 
 
+def my_resume() -> Path | None:
+    """Your own resume PDF (config/resume.pdf), sent under a clean name: First_Last_Resume.pdf."""
+    own = config.path("config", "resume.pdf")
+    if not own.is_file():
+        return None
+    name = re.sub(r"[^A-Za-z0-9]+", "_", str(config.cfg("profile").get("name") or "My")).strip("_") + "_Resume.pdf"
+    up = config.data_dir() / "upload"
+    up.mkdir(exist_ok=True)
+    out = up / name
+    if not out.exists() or out.stat().st_mtime < own.stat().st_mtime or out.read_bytes() != own.read_bytes():
+        shutil.copyfile(own, out)
+    return out
+
+
+class _Lock:
+    """One apply run at a time: they share one browser profile."""
+    def __enter__(self):
+        import fcntl
+        self.f = open(config.data_dir() / "apply.lock", "w")
+        try:
+            fcntl.flock(self.f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self.f.close()
+            raise B.BrowserBusy("another apply run is using the bot's browser right now "
+                                "(started from the terminal, Review Center or Telegram). Wait for it to finish.")
+        return self
+
+    def __exit__(self, *a):
+        try:
+            self.f.close()
+        except OSError:
+            pass
+
+
+def _fresh(pw, ctx, page, headless):
+    """A working tab: the same one if it's alive, a new tab, or a relaunched browser."""
+    try:
+        if not page.is_closed():
+            page.evaluate("1")
+            return pw, ctx, page
+    except Exception:
+        pass
+    try:
+        return pw, ctx, B.work_page(ctx)
+    except Exception:
+        try:
+            ctx.close()
+        except Exception:
+            pass
+        try:
+            pw.stop()
+        except Exception:
+            pass
+        console.print("[yellow]browser closed: opening it again[/]")
+        pw, ctx = B.launch(headless=headless)
+        return pw, ctx, B.work_page(ctx)
+
+
 def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry: bool = False,
-          headless: bool | None = None, with_cover: bool = True, approve: bool = False) -> list[tuple[dict, flows.Outcome]]:
-    """approve=True: you reviewed this job's values in the Review Center. Drafted answers are
-    allowed, and the bot waits for you in the browser for anything still missing."""
+          headless: bool | None = None, with_cover: bool = True, approve: bool = False,
+          submit_now: bool = False) -> list[tuple[dict, flows.Outcome]]:
+    """approve=True: you reviewed this job's values (Review Center / Telegram).
+    submit_now=True: submit without the check panel if nothing is missing."""
+    try:
+        with _Lock():
+            return _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now)
+    except B.BrowserBusy as exc:
+        console.print(f"[red]Can't start:[/] {exc}")
+        if os.environ.get("JH_NOTIFY"):
+            notify.telegram(f"⚠️ Can't start on the laptop: {notify._esc(str(exc))}")
+        return []
+
+
+def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
     db = DB()
-    flows.APPROVED = approve
+    flows.APPROVED, flows.SUBMIT_NOW = approve, submit_now
     jobs = queue(db, ids, top, min_score)
     if not jobs:
         console.print("Nothing in the queue. Run `hunt scan` first, or lower --min-score.")
         return []
     s = config.cfg("search").get("apply", {})
+    hidden = s.get("headless", False) if headless is None else headless
+    flows.VISIBLE = not hidden
+    if flows.checking() and not dry:
+        console.print("[bold]Check mode:[/] the bot fills each form, then a JobHunter panel on the page lists every "
+                      "field. Read it, fix anything on the page, press Submit. Your fixes are remembered.")
     lo, hi = s.get("pause_range_sec", [35, 90])
-    pw, ctx = B.launch(headless=headless)
-    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    pw, ctx = B.launch(headless=hidden)
+    page = B.work_page(ctx)
     done: list[tuple[dict, flows.Outcome]] = []
     try:
         for n, job in enumerate(jobs, 1):
@@ -44,28 +122,40 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
             B.SNAP_PATH = shots / f"{job['id']}-{int(time.time())}.png"
             resume, rrep = None, None
             try:
-                mode = s.get("resume", "tailored")
-                if mode == "own" and config.path("config", "resume.pdf").is_file():
-                    resume = config.path("config", "resume.pdf")
+                mode = s.get("resume", "own")
+                if mode == "own" and my_resume():
+                    resume = my_resume()
+                    console.print(f"   resume: your own PDF ({resume.name})")
                 else:
                     rrep = resume_pdf.tailor_job(job, use_llm=True)
                     resume = Path(rrep["pdf"])
                     console.print(f"   resume: ATS {rrep['before']} → {rrep['after']} ({rrep['how']})")
             except Exception as exc:
-                own = config.path("config", "resume.pdf")
-                resume = own if own.is_file() else None
+                resume = my_resume()
                 console.print(f"[yellow]tailoring failed ({exc}); using {resume}[/]")
             cover = None
             if with_cover:
                 cover, rep, how = tailor.cover(job)
                 (config.data_dir() / "covers").mkdir(exist_ok=True)
                 (config.data_dir() / "covers" / f"{job['id']}.txt").write_text(cover, encoding="utf-8")
-            try:
-                out = flows.run(page, db, job, resume, cover, dry)
-            except Exception as exc:
-                out = flows.Outcome("failed", flows.site_of(job["url"]), why=f"{type(exc).__name__}: {str(exc)[:160]}")
+            out = None
+            for attempt in (1, 2):
+                pw, ctx, page = _fresh(pw, ctx, page, hidden)
+                B.RECORD.clear()
+                try:
+                    out = flows.run(page, db, job, resume, cover, dry)
+                    break
+                except Exception as exc:
+                    closed = "closed" in str(exc).lower() or "TargetClosed" in type(exc).__name__
+                    out = flows.Outcome("failed", flows.site_of(job["url"]), why=_plain(exc))
+                    if not (closed and attempt == 1):
+                        break
+                    console.print("[yellow]the browser tab closed: retrying this job once[/]")
             if not B.SNAP_PATH.exists():
-                B.snap(page)
+                try:
+                    B.snap(page)
+                except Exception:
+                    pass
             colour = {"applied": "green", "needs_you": "yellow", "filled": "cyan"}.get(out.status, "red")
             console.print(f"[bold {colour}]{out.status.upper()}[/] ({'auto' if out.auto else 'you'}) · {out.site} · {out.why}"
                           + (f" · learned {out.learned} answers" if out.learned else ""))
@@ -86,10 +176,12 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
                 detail = f"site={out.site} auto={out.auto} approved={approve} why={out.why[:200]}"
                 if out.status == "applied":
                     db.set_status(job["id"], "applied", detail)
+                    notify.telegram(f"✅ <b>Applied</b>: {notify._esc(job['title'])} · {notify._esc(job['company'])}"
+                                    + (f"\n✎ learned {out.learned} correction(s) from you" if out.learned else ""))
                 elif out.status == "needs_you":
                     db.set_status(job["id"], "needs_you", detail)
-                    notify.telegram(f"✋ <b>Review needed</b>: {job['title']} · {job['company']}\n{out.why[:300]}\n"
-                                    f"Open the Review Center: http://localhost:8765/#{job['id'][:8]}")
+                    if not flows.checking():           # you weren't at the form: tell your phone
+                        notify.review_needed(job, out.why, list(B.RECORD), B.SNAP_PATH)
                 elif out.status == "skipped":
                     db.set_status(job["id"], "skipped", detail)
                 else:
@@ -97,7 +189,7 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
             else:
                 db.event(job["id"], "dry_run", out.why[:200])
             done.append((job, out))
-            if n < len(jobs) and not dry and out.status == "applied":
+            if n < len(jobs) and not dry and out.status == "applied" and not flows.checking():
                 wait = random.uniform(lo, hi)
                 console.print(f"[dim]pausing {wait:.0f}s (human pace)…[/]")
                 time.sleep(wait)
@@ -108,20 +200,39 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
                 except Exception:
                     pass
     finally:
-        flows.APPROVED = False
-        ctx.close()
-        pw.stop()
+        flows.APPROVED = flows.SUBMIT_NOW = False
+        for closer in (ctx.close, pw.stop):
+            try:
+                closer()
+            except Exception:
+                pass
     a = sum(1 for _, o in done if o.status == "applied")
     w = sum(1 for _, o in done if o.status == "needs_you")
     console.print(f"\n[bold]Applied {a} · waiting for you {w} · other {len(done) - a - w}[/]")
     return done
 
 
+def _plain(exc: Exception) -> str:
+    """Errors in plain words."""
+    t, m = type(exc).__name__, str(exc)
+    if "closed" in m.lower() or "TargetClosed" in t:
+        return "the browser tab closed before the page loaded (fixed by a retry; if it repeats, close other bot windows)"
+    if "Timeout" in t:
+        return "the page took too long to load (site slow or down)"
+    if "net::ERR" in m:
+        return "couldn't reach the site (" + m.split("net::")[1].split()[0] + ")"
+    return f"{t}: {m[:160]}"
+
+
 def login(site: str) -> None:
     urls = {"linkedin": "https://www.linkedin.com/login", "naukri": "https://www.naukri.com/nlogin/login",
             "indeed": "https://secure.indeed.com/auth", "internshala": "https://internshala.com/login"}
-    pw, ctx = B.launch(headless=False)
-    page = ctx.pages[0] if ctx.pages else ctx.new_page()
+    try:
+        pw, ctx = B.launch(headless=False)
+    except B.BrowserBusy as exc:
+        console.print(f"[red]Can't start:[/] {exc}")
+        return
+    page = B.work_page(ctx)
     page.goto(urls.get(site, site))
     console.print(f"Log in to {site} in the window, then press Enter here. The session is saved in data/browser-profile.")
     try:

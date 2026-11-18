@@ -4,7 +4,7 @@
     Each shows every field, the value it typed, and where that value came from
     (your fact / learned from you / drafted, check it / missing), the screenshot of the
     filled form, the tailored resume (with its ATS before→after score) and the cover letter.
-    "Approve & Submit" re-opens the job in your browser, refills it, and submits.
+    "Open & check" re-opens the job in the bot browser with the check panel; "Submit as shown" sends it as recorded.
     If something is still missing, the browser waits for you to type it (and learns it).
   • Applied: every submitted application with the exact details that were sent.
   • Jobs, Govt: the full tracker with filters.
@@ -172,6 +172,21 @@ class H(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "msg": str(exc)})
             return self._json({"ok": True, "msg": f"saved: {res['label'][:50]} → {res['value']}"
                                + (f" · {len(res['requeued'])} job(s) back in the queue" if res["requeued"] else "")})
+        if parts == ["api", "fix"]:
+            from .apply.fixes import fix
+            try:
+                ok, msg = fix(DB(), str(body.get("job", "")), int(body.get("n", 0)), str(body.get("value", "")))
+            except (TypeError, ValueError):
+                ok, msg = False, "bad request"
+            return self._json({"ok": ok, "msg": msg})
+        if parts == ["api", "dream"]:
+            from . import dreams
+            name, add = str(body.get("name", "")).strip(), body.get("action", "add") == "add"
+            ok, msg = (dreams.add if add else dreams.remove)(name)
+            if ok:
+                threading.Thread(target=dreams.after_change, args=(name, add), daemon=True).start()
+                msg += " · re-scoring, watching its careers site and pushing in the background"
+            return self._json({"ok": ok, "msg": msg})
         if parts == ["api", "company", "watch"]:
             from . import companies
             info = companies.resolve(body.get("name", ""), body.get("domain"), body.get("wikidata"))
@@ -197,12 +212,16 @@ class H(BaseHTTPRequestHandler):
             j = db.get(jid)
             if not j and act != "scan":
                 return self._json({"ok": False, "msg": "no such job"}, 404)
-            if act in ("approve", "dry", "fill") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            if act in ("approve", "submitnow", "dry", "fill") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
                 return self._json({"ok": False, "msg": "This service can't see your screen, so it can't open the browser. "
                                    f"Run in a terminal: hunt apply {jid[:8]}{' --approve' if act == 'approve' else ''}"
                                    " (or re-run scripts/install-services.sh from your desktop session)"})
             if act == "approve":
-                ok, msg = _start(f"approve {jid[:8]}", ["apply", jid, "--approve"])
+                ok, msg = _start(f"check {jid[:8]} in the browser", ["apply", jid, "--approve"])
+                return self._json({"ok": ok, "msg": (msg + " · read the form in the bot's browser window and press "
+                                                     "Submit on the JobHunter panel") if ok else msg})
+            if act == "submitnow":
+                ok, msg = _start(f"submit {jid[:8]}", ["apply", jid, "--submit"])
                 return self._json({"ok": ok, "msg": msg})
             if act == "dry":
                 ok, msg = _start(f"preview {jid[:8]}", ["apply", jid, "--dry-run"])
@@ -288,7 +307,11 @@ pre{white-space:pre-wrap;font-size:12.5px;background:var(--bg);padding:10px;bord
 <script>
 const TOKEN="__TOKEN__"; let S=null, TAB=localStorage.getItem('jh_tab')||'review', Q='';
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const SRC={profile:'your fact',consent:'consent',learned:'learned from you',drafted:'drafted, check it',none:'missing',opt:'optional, left empty'};
+const SRC={profile:'your details',consent:'consent',learned:'learned from you',you:'you changed it',drafted:'AI draft: read it',none:'EMPTY',opt:'optional, empty'};
+async function fixField(jid,n){ const el=document.getElementById('fx'+jid.slice(0,8)+'_'+n); const v=(el.value||'').trim(); if(!v){toast('type the new value');return;}
+  const j=await post('/api/fix',{job:jid,n:n,value:v}); toast(j.msg); if(j.ok) load(); }
+function editRow(jid,n){ const c=document.getElementById('ed'+jid.slice(0,8)+'_'+n); c.style.display=c.style.display==='none'?'':'none'; }
+async function dream(name,action){ const j=await post('/api/dream',{name,action:action||'add'}); toast(j.msg); load(); }
 const TABS=[['review','To review'],['questions','Questions'],['companies','Companies'],['applied','Applied'],['active','Jobs'],['govt','Govt'],['all','Everything']];
 let QS=[], CO=null, CQ='', CSUG=[], CF={ka:true,fit:false,t:''}, CSEL=new Set(), CBUSY='';
 async function loadQ(){ QS=await (await fetch('/api/questions')).json(); if(TAB==='questions') render(); }
@@ -325,7 +348,7 @@ function companiesView(){ let h=`<div style="position:relative;max-width:640px">
     <div class="m">${[c.description,c.employees?('~'+c.employees+' employees'):'',c.founded?('founded '+c.founded):''].filter(Boolean).map(esc).join(' · ')}</div>
     <div class="m">platform: <b>${(c.boards||[]).map(b=>esc(b.type)).join(', ')||'none found'}</b>${c.careers_url?` · <a href="${esc(c.careers_url)}" target="_blank" rel="noopener">careers page ↗</a>`:''}${c.website?` · <a href="${esc(c.website)}" target="_blank" rel="noopener">website ↗</a>`:''}</div>
     ${(c.notes||[]).map(n=>`<div class="m" style="color:var(--warn)">${esc(n)}</div>`).join('')}</div>
-    <div><button class="b" onclick="coWatch()">★ Watch company</button></div></div>
+    <div><button class="b" onclick="coWatch()">👁 Watch company</button> <button class="b p" onclick="dream(CO.company.name)">★ Make it a dream company</button></div></div>
     <div class="stats" style="margin-top:8px"><span class="stat"><b>${k.total}</b> listings</span><span class="stat"><b>${k.karnataka}</b> Karnataka/remote</span><span class="stat"><b>${k.fit}</b> fit your rules</span><span class="stat"><b>${k.new_24h}</b> new in 24 h</span></div>
     <details style="margin-top:8px"><summary>Referrals & research: REVA alumni there, recruiters, reviews, salaries</summary>
     <div class="acts">${Object.entries(CO.links||{}).filter(([a,b])=>b).map(([a,b])=>`<a class="b" href="${esc(b)}" target="_blank" rel="noopener" style="text-decoration:none">${esc(a)} ↗</a>`).join('')}</div></details></div>
@@ -354,13 +377,16 @@ async function poll(){ const t=await (await fetch('/api/task')).json(); if(!t.la
   $('#task').style.display='block'; $('#tl').textContent=(t.running?'⏳ ':'✓ ')+t.label+(t.running?'':' (finished)'); $('#tt').textContent=t.tail||'';
   $('#tt').scrollTop=1e9; if(t.running) setTimeout(poll,2000); else load(); }
 function zoom(src){ $('#zimg').src=src; $('#zoom').style.display='flex'; }
-function fieldsTable(fs){ if(!fs||!fs.length) return '<p class="m">No form fields were recorded (one-click apply, or the page had no form).</p>';
-  return `<table><tr><th>Field</th><th>What the bot entered</th><th>Source</th></tr>${fs.map(f=>{
-    const miss=f.required&&!f.basic&&f.basis!=='drafted'; const v=f.value===true?'✓ ticked':f.value===false?'left unticked':(f.value??'');
-    const opt=!f.required&&(f.value===null||f.value===''); const basis=opt?'opt':f.basis;
-    return `<tr class="${miss?'miss':''}"><td>${esc(String(f.label||'').replace(/\s*\*\s*$/,''))}${f.required?' <span class=m>*</span>':''}</td>
-    <td class="v">${v===''?`<span class=m>${esc(f.note||'(empty)')}</span>`:esc(String(v).slice(0,400))}</td>
-    <td><span class="src ${esc(basis)}">${SRC[basis]||esc(basis)}</span></td></tr>`}).join('')}</table>`; }
+function fieldsTable(fs,jid){ if(!fs||!fs.length) return '<p class="m">Nothing was filled on this try (the page didn\'t load, or it had no form). Press <b>Fill again (preview)</b>.</p>';
+  return `<p class="m">✎ = change a value. Your change is saved as your answer and used on every future form.</p><table><tr><th>#</th><th>Field</th><th>What the bot entered</th><th>From</th><th></th></tr>${fs.map((f,i)=>{
+    const n=i+1, miss=f.required&&!f.basic&&!['drafted','you'].includes(f.basis); const v=f.value===true?'✓ ticked':f.value===false?'left unticked':(f.value??'');
+    const opt=!f.required&&(f.value===null||f.value===''); const basis=opt?'opt':f.basis; const id=jid.slice(0,8)+'_'+n;
+    const input=(f.options&&f.options.length)?`<select id="fx${id}"><option value="">choose…</option>${f.options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`:
+      f.type==='checkbox'?`<select id="fx${id}"><option>Yes</option><option>No</option></select>`:`<input id="fx${id}" value="${esc(typeof v==='string'?v:'')}" style="min-width:200px" onkeydown="if(event.key==='Enter')fixField('${jid}',${n})">`;
+    return `<tr class="${miss?'miss':''}"><td class="m">${n}</td><td>${esc(String(f.label||'').replace(/\s*\*\s*$/,''))}${f.required?' <span class=m>*</span>':''}</td>
+    <td class="v">${v===''?`<span class=m>${esc(f.note||'(empty)')}</span>`:esc(String(v).slice(0,400))}${basis==='you'&&f.note?`<div class="m">${esc(f.note)}</div>`:''}
+      <div id="ed${id}" style="display:none;margin-top:4px">${input} <button class="b p" onclick="fixField('${jid}',${n})">Save</button></div></td>
+    <td><span class="src ${esc(basis)}">${SRC[basis]||esc(basis)}</span></td><td>${f.type==='file'?'':`<button class="b" title="change this value" onclick="editRow('${jid}',${n})">✎</button>`}</td></tr>`}).join('')}</table>`; }
 function appCard(j){ const a=(j.apps||[])[0]; const rr=a&&a.resume_report||{};
   const missing=a?(a.fields||[]).filter(f=>f.required&&!f.basic&&f.basis!=='drafted').length:0;
   return `<div class="card" id="j${j.id.slice(0,8)}"><div class="ch"><div>
@@ -368,18 +394,20 @@ function appCard(j){ const a=(j.apps||[])[0]; const rr=a&&a.resume_report||{};
     <div class="m">${esc(j.company)} · ${esc(j.location)} · score ${j.score} · <a href="${esc(j.url)}" target="_blank" rel="noopener">job page ↗</a></div>
     ${a?`<div class="why"><b>${a.dry?'Preview (dry run)':a.outcome==='applied'?(a.auto?'Submitted automatically':'Submitted'):'Waiting for you'}</b> · ${esc(a.site)} · ${esc(a.at.slice(0,16).replace('T',' '))}<br><span class="m">${esc(a.why)}</span></div>`:''}
     </div><div class="st s-${j.status}">${esc(j.status.replace('_',' '))}</div></div>
-    ${a?`<div class="grid"><div>${fieldsTable(a.fields)}
-      ${missing?`<p class="m" style="color:var(--bad)">${missing} required field(s) missing. Approve & Submit opens your browser; type them there and the bot learns them for next time.</p>`:''}</div>
+    ${a?`<div class="grid"><div>${fieldsTable(a.fields,j.id)}
+      ${missing?`<p class="m" style="color:var(--bad)">${missing} required field(s) EMPTY. Fill them with ✎ here, or press <b>Open &amp; check</b> and type them on the real form: the bot learns them either way.</p>`:''}</div>
       <div>${a.screenshot?`<img class="shot" loading="lazy" src="${file(a.screenshot)}" onclick="zoom(this.src)" alt="filled form">`:'<p class="m">No screenshot.</p>'}
       ${a.resume?`<p class="ats">Resume: <a href="${file(a.resume)}" target="_blank">${esc(a.resume.split('/').pop())}</a>${rr.after!=null?`<br>ATS (hunter-resume formula): full resume ${rr.before} → one-page tailored <b>${rr.after}</b> · ${esc(rr.how||'')} ${rr.clean===false?'<span style="color:var(--bad)">truth check FAILED</span>':'· truth check clean'}`:''}
         ${rr.missing&&rr.missing.length?`<br><span class=m>JD asks, resume lacks: ${esc(rr.missing.join(', '))}</span>`:''}</p>`:''}
       ${a.cover?`<details><summary>Cover letter used</summary><pre>${esc(a.cover)}</pre></details>`:''}</div></div>`:
       `<p class="m">Not filled yet.</p>`}
     <div class="acts">
-      ${['applied','offer','interview','rejected'].includes(j.status)?'':`<button class="b p" onclick="act('approve','${j.id}')" title="Re-opens the job in your browser, refills it with these values and submits. Waits for you if something is missing.">Approve &amp; Submit</button>
+      ${['applied','offer','interview','rejected'].includes(j.status)?'':`${a&&a.fields&&a.fields.length?`<button class="b p" onclick="act('approve','${j.id}')" title="Opens the real form in the bot's browser, filled with these values, with the JobHunter panel. You read it and press Submit.">Open &amp; check, then submit</button>
+      <button class="b" onclick="if(confirm('Send it with exactly these values, without opening it?'))act('submitnow','${j.id}')" title="Submits with these values if nothing is missing (no panel).">Submit as shown</button>`:''}
       <button class="b" onclick="act('dry','${j.id}')">Fill again (preview)</button>
       <button class="b" onclick="act('mark','${j.id}','applied')">I submitted it myself</button>
       <button class="b" onclick="act('mark','${j.id}','skipped')">Skip</button>`}
+      ${j.dream?'':`<button class="b" onclick="dream(${esc(JSON.stringify(j.company))})" title="+15 score, alerts sooner, its careers site watched">★ Dream company</button>`}
       <button class="b" onclick="act('mark','${j.id}','interview')">Got interview</button>
       <button class="b" onclick="act('mark','${j.id}','rejected')">Rejected</button>
       <details style="width:100%"><summary>Why it matched · description</summary><pre>${esc((j.reasons||[]).join('\n'))}\n\n${esc(j.description)}</pre></details></div></div>`; }
@@ -399,7 +427,7 @@ function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).ma
   if(TAB==='questions'){ html+=questionsView(); $('#main').innerHTML=html; return; }
   if(TAB==='companies'){ html+=companiesView(); $('#main').innerHTML=html; drawSug(); const e=$('#cq'); if(e&&!CO&&!CBUSY) e.focus(); return; }
   if(TAB==='review'){ const L=J.filter(j=>j.kind!=='govt'&&(j.status==='needs_you'||(j.apps&&j.apps.length&&j.apps[0].dry&&!['applied','skipped','rejected'].includes(j.status))));
-    html+=L.length?L.map(appCard).join(''):'<div class="empty">Nothing to review. Forms the bot fills but doesn\'t submit land here.</div>'; }
+    html+=(L.length?'<p class="m">Each card shows every field the bot filled and where it came from. <b>Open &amp; check</b> shows the real form with a JobHunter panel: read it, fix anything, press Submit. Any change you make is remembered.</p>'+L.map(appCard).join(''):'<div class="empty">Nothing to review. Forms the bot fills but doesn\'t submit land here.</div>'); }
   else if(TAB==='applied'){ const L=J.filter(j=>['applied','interview','offer','rejected'].includes(j.status)).sort((a,b)=>(b.status_at||'').localeCompare(a.status_at||''));
     html+=L.length?L.map(appCard).join(''):'<div class="empty">No applications yet.</div>'; }
   else if(TAB==='active'){ html+=J.filter(j=>j.kind!=='govt'&&['new','alerted','queued'].includes(j.status)).slice(0,300).map(jobRow).join('')||'<div class="empty">No open jobs. Run a scan.</div>'; }

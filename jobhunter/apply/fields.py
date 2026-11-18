@@ -156,13 +156,16 @@ def load_bank() -> dict:
     return yaml.safe_load(f.read_text(encoding="utf-8")) or {}
 
 
-def learn(label: str, value: Any, site: str = "") -> None:
-    """Save an answer you typed during a paused application."""
+def learn(label: str, value: Any, site: str = "", override: bool = False) -> None:
+    """Save an answer you typed. override=True: you corrected the bot on this exact question,
+    so your answer wins over the bot's own choice on every future form."""
     key = norm(label)
     if not key or value in (None, "") or classify(label) in ("captcha", "otp", "cover_letter", "diversity"):
         return
     bank = load_bank()
-    bank[key] = {"answer": value, "label": label, "site": site, "learned_at": iso()}
+    old = bank.get(key) or {}
+    bank[key] = {"answer": value, "label": label, "site": site, "learned_at": iso(),
+                 "override": bool(override or old.get("override"))}
     _bank_path().write_text(yaml.safe_dump(bank, allow_unicode=True, sort_keys=True), encoding="utf-8")
 
 
@@ -214,6 +217,11 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
 
     def P(v, note=""):
         return Answer(key, v, "profile" if v not in (None, "") else "none", note)
+
+    if key not in ("captcha", "otp", "diversity", "resume", "cover_letter", "cover_letter_file", "marketing"):
+        fix = load_bank().get(norm(label)) or {}
+        if fix.get("override") and fix.get("answer") not in (None, ""):
+            return Answer(key, fix["answer"], "learned", "you corrected this before")
 
     if key == "unknown":
         v = from_bank(label)

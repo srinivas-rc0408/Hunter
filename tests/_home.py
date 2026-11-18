@@ -28,6 +28,7 @@ def make_home() -> Path:
     d["apply"]["typing_delay_ms"] = [0, 1]        # fast tests
     d["apply"]["headless"] = True
     d["apply"]["pause_range_sec"] = [0, 0]
+    d["apply"]["mode"] = "basic_auto"            # most tests check the auto rules; check mode has its own tests
     sp.write_text(yaml.safe_dump(d))
     config.reload()
     from jobhunter.apply import browser
