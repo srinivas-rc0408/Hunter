@@ -44,7 +44,9 @@ MODEL_ENV = {"nvidia": "NVIDIA_MODEL", "ollama": "OLLAMA_MODEL", "gemini": "GEMI
 PREFER = {   # best first; used when the configured model is gone, and for fallback models
     "nvidia": [r"^deepseek-ai/deepseek-v4-flash$", r"^qwen/qwen3-next-80b-a3b-instruct$",
                r"^moonshotai/kimi-k2-instruct$", r"^meta/llama-3\.3-70b-instruct$",
-               r"^mistralai/mistral-nemotron$", r"^openai/gpt-oss-120b$", r"instruct$"],
+               r"^mistralai/mistral-nemotron$", r"^z-ai/glm-?5", r"^openai/gpt-oss-120b$",
+               r"^nvidia/nemotron-3", r"^nvidia/llama-3\.3-nemotron-super", r"instruct",
+               r"deepseek|qwen|kimi|glm|llama|mistral|nemotron|gemma|gpt-oss|minimax|step"],
     "ollama": [r"^qwen3", r"^phi4", r"^qwen", r"^llama", r"^gemma", r"^mistral", r"."],
     "gemini": [r"^gemini-\d+(\.\d+)?-flash$", r"^gemini-\d+(\.\d+)?-flash-lite$", r"flash"],
     "groq": [r"^openai/gpt-oss-120b$", r"^qwen/qwen3", r"^openai/gpt-oss-20b$", r"."],
@@ -55,6 +57,7 @@ SKIP = ("preview", "exp", "embed", "tts", "audio", "image", "vision", "guard", "
 TIMEOUT = {"ollama": 240, "nvidia": 90}      # first Ollama call loads the model; NVIDIA free tier can queue
 FALLBACK_MODELS = 2                           # extra models tried per provider before moving on
 
+_GONE: set[str] = set()    # models that answered 404/410 this run
 _PICKED: list = []          # cache: [{prov: resolved or None}]
 _DEAD: set[str] = set()     # keys refused with 401/403 this run
 _REST: dict[str, float] = {}  # key -> time it may be used again (after 429)
@@ -161,7 +164,7 @@ def _resolve(prov: str) -> dict | None:
     if ids is None:
         return None
     first = pick_model(prov, model, ids)
-    order = [first] + [m for m in ranked(prov, ids) if m != first][:FALLBACK_MODELS]
+    order = [first] + [m for m in ranked(prov, ids) if m != first][:FALLBACK_MODELS + 2]
     return {"prov": prov, "base": base, "models": order, "ids": ids}
 
 
@@ -259,7 +262,7 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
     """Reply text, or None if every key, model and provider failed."""
     for p in _providers():
         prov = p["prov"]
-        for model in p["models"]:
+        for model in [m for m in p["models"] if m not in _GONE]:
             ks = _usable(prov) if prov != "ollama" else [None]
             if prov != "ollama" and not ks:
                 break                                   # every key dead or resting: next provider
@@ -276,7 +279,9 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                 if code == 429 and k:
                     _REST[k] = time.time() + 60         # rate-limited: rest this key, try the next
                     continue
-                next_model = True                       # 404 model gone, 5xx, timeout, empty reply
+                if code in (404, 410):
+                    _GONE.add(model)                    # listed but retired (410 Gone): never again this run
+                next_model = True                       # 404/410 model gone, 5xx, timeout, empty reply
                 break
             if not next_model and prov != "ollama" and not _usable(prov):
                 break

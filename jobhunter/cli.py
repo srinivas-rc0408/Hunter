@@ -449,14 +449,23 @@ def cmd_llm(a):
         return
     for p in llm._providers():
         prov = p["prov"]
+        model = p["models"][0]
         for k in (llm.keys(prov) or [None]):
             t0 = _t.time()
-            code, text = llm._post(p, p["models"][0], k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+            code, text = llm._post(p, model, k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+            if code in (404, 410):                 # retired model: find the first live one for this key
+                for alt in p["models"][1:]:
+                    c2, t2 = llm._post(p, alt, k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+                    c.print(f"  [dim]{model} retired (HTTP {code}); {alt}: {'works' if c2 == 200 and t2 else c2}[/]")
+                    if c2 == 200 and t2:
+                        code, text, model = c2, t2, alt
+                        break
             dt = _t.time() - t0
             good = code == 200 and bool(text)
             why = {401: "key invalid", 403: "key refused / model not allowed", 404: "model not found",
+                   410: "model retired (Gone)",
                    408: "timed out", 429: "rate-limited (wait a minute)", 0: "unreachable"}.get(code, f"HTTP {code}")
-            c.print(f"{'[green]✓[/]' if good else '[red]✗[/]'} {prov} {p['models'][0]} key {llm.mask(k)}: "
+            c.print(f"{'[green]✓[/]' if good else '[red]✗[/]'} {prov} {model} key {llm.mask(k)}: "
                     + (f"{text[:20]!r} in {dt:.1f}s" if good else why))
     out = llm.chat("Reply in one short sentence.", "Name one skill an AI/ML intern needs.", max_tokens=1500)
     c.print(f"chain answer via {llm.LAST.get('prov', '-')} / {llm.LAST.get('model', '-')}: {out or 'none (templates will be used)'}")

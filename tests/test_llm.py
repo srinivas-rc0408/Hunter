@@ -21,6 +21,7 @@ class Fake(BaseHTTPRequestHandler):
     models = ["deepseek-ai/deepseek-v4-flash", "qwen/qwen3-next-80b-a3b-instruct", "nvidia/llama-guard-safety",
               "gone/model", "meta/llama-3.3-70b-instruct"]
     reply = "<think>planning…</think>Hello from the model"
+    retire_ds = False
 
     def log_message(self, *a):
         pass
@@ -46,6 +47,8 @@ class Fake(BaseHTTPRequestHandler):
             return self._send(429, {"error": "rate limit"})
         if body["model"] == "gone/model":
             return self._send(404, {"error": "model not found"})
+        if body["model"] == "deepseek-ai/deepseek-v4-flash" and Fake.retire_ds:
+            return self._send(410, {"error": "gone"})
         self._send(200, {"choices": [{"message": {"content": Fake.reply}}]})
 
 
@@ -66,7 +69,7 @@ class Chain(unittest.TestCase):
         for k in ("NVIDIA_API_KEY", "NVIDIA_API_KEYS", "NVIDIA_API_KEY_2", "NVIDIA_API_KEY_3", "NVIDIA_MODEL",
                   "GEMINI_API_KEY", "GROQ_API_KEY"):
             os.environ.pop(k, None)
-        llm._PICKED.clear(); llm._DEAD.clear(); llm._REST.clear(); llm._TURN.clear(); llm.LAST.clear()
+        llm._PICKED.clear(); llm._DEAD.clear(); llm._REST.clear(); llm._TURN.clear(); llm.LAST.clear(); llm._GONE.clear(); Fake.retire_ds = False
         self.saved = dict(llm.PRESETS)
         llm.PRESETS["nvidia"] = (self.base, "deepseek-ai/deepseek-v4-flash")
         llm.PRESETS["ollama"] = ("http://127.0.0.1:9/v1", "qwen3:4b")      # nothing listens on port 9
@@ -119,6 +122,16 @@ class Chain(unittest.TestCase):
             self.assertFalse(st["ollama"]["ok"])
         finally:
             Fake.models = old
+
+    def test_listed_but_retired_410_moves_on_and_remembers(self):
+        os.environ["NVIDIA_API_KEYS"] = "good,good2"
+        Fake.retire_ds = True
+        self.assertEqual(self.llm.chat("s", "u"), "Hello from the model")
+        self.assertEqual([m for _, m, _ in Fake.log][:2],
+                         ["deepseek-ai/deepseek-v4-flash", "qwen/qwen3-next-80b-a3b-instruct"])
+        Fake.log.clear()
+        self.llm.chat("s", "again")
+        self.assertEqual([m for _, m, _ in Fake.log], ["qwen/qwen3-next-80b-a3b-instruct"])
 
     def test_unclosed_think_is_no_answer(self):
         self.assertEqual(self.llm.clean("<think>still thinking"), "")
