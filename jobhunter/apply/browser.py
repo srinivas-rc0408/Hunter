@@ -29,7 +29,8 @@ DEEP_JS = r"""
 SCAN_JS = r"""
 (rootSel) => {
 """ + DEEP_JS + r"""
-  const root = rootSel ? (deepOne(rootSel) || document) : document;
+  const root = rootSel ? deepOne(rootSel) : document;      // asked-for window missing: touch nothing
+  if (!root) return [];
   const shown = el => { if (!el) return false; const r = el.getBoundingClientRect(); const s = getComputedStyle(el);
     return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none'; };
   const vis = el => {
@@ -121,7 +122,8 @@ SCAN_JS = r"""
 ERRORS_JS = r"""
 (rootSel) => {
 """ + DEEP_JS + r"""
-  const root = rootSel ? (deepOne(rootSel) || document) : document;
+  const root = rootSel ? deepOne(rootSel) : document;      // asked-for window missing: touch nothing
+  if (!root) return [];
   const msgs = [];
   deepAll(root, '[aria-invalid="true"], .artdeco-inline-feedback--error, [role="alert"], .error, .field-error, .invalid-feedback, [class*="error-message"]')
     .forEach(e => { const r = e.getBoundingClientRect(); const t = (e.innerText || '').trim();

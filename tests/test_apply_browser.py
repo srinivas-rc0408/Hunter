@@ -100,6 +100,13 @@ class Browser(unittest.TestCase):
         self.assertIn("would", o.why)                    # reached the last step, not "too many steps"
         self.assertIn(self.resume.name, p.inner_text("dialog"))   # resume went in through the file picker
 
+    def test_missing_window_never_fills_the_page_behind_it(self):
+        from jobhunter.apply import browser as B
+        p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search
+        res = B.fill_form(p, JOB, self.resume, root=flows.LI_MODAL)
+        self.assertEqual(res.fills, [])
+        self.assertEqual(p.input_value("#first_name"), "")
+
     def test_linkedin_already_applied(self):
         o = flows.linkedin(self.page("linkedin_applied"), self.db, JOB, self.resume, None, dry=False)
         self.assertEqual(o.status, "applied")
