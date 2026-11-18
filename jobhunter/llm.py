@@ -54,7 +54,7 @@ PREFER = {   # best first; used when the configured model is gone, and for fallb
 }
 SKIP = ("preview", "exp", "embed", "tts", "audio", "image", "vision", "guard", "safety", "reward",
         "rerank", "translate", "pii", "jailbreak", "coder", "code", "parse", "retriever", "clip")
-TIMEOUT = {"ollama": 240, "nvidia": 90}      # first Ollama call loads the model; NVIDIA free tier can queue
+TIMEOUT = {"ollama": 240, "nvidia": 45}      # first Ollama call loads the model; NVIDIA free tier can queue
 FALLBACK_MODELS = 2                           # extra models tried per provider before moving on
 
 _GONE: set[str] = set()    # models that answered 404/410 this run
@@ -235,13 +235,13 @@ def _system_for(prov: str, model: str, system: str) -> str:
 
 
 def _post(p: dict, model: str, key: str | None, system: str, user: str, temperature: float,
-          max_tokens: int) -> tuple[int, str | None]:
+          max_tokens: int, timeout: float | None = None) -> tuple[int, str | None]:
     headers = {"Content-Type": "application/json"}
     if key:
         headers["Authorization"] = f"Bearer {key}"
     try:
         r = requests.post(p["base"].rstrip("/") + "/chat/completions", headers=headers,
-                          timeout=TIMEOUT.get(p["prov"], 120), json={
+                          timeout=timeout or TIMEOUT.get(p["prov"], 120), json={
                               "model": model, "temperature": temperature, "max_tokens": max_tokens,
                               "stream": False,
                               "messages": [{"role": "system", "content": _system_for(p["prov"], model, system)},

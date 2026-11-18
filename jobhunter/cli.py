@@ -452,10 +452,11 @@ def cmd_llm(a):
         model = p["models"][0]
         for k in (llm.keys(prov) or [None]):
             t0 = _t.time()
-            code, text = llm._post(p, model, k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+            c.print(f"[dim]… {prov} key {llm.mask(k)} ({model}), up to 30 s[/]")
+            code, text = llm._post(p, model, k, "Reply with exactly: OK", "Say OK.", 0, 2000, timeout=30)
             if code in (404, 410):                 # retired model: find the first live one for this key
                 for alt in p["models"][1:]:
-                    c2, t2 = llm._post(p, alt, k, "Reply with exactly: OK", "Say OK.", 0, 2000)
+                    c2, t2 = llm._post(p, alt, k, "Reply with exactly: OK", "Say OK.", 0, 2000, timeout=30)
                     c.print(f"  [dim]{model} retired (HTTP {code}); {alt}: {'works' if c2 == 200 and t2 else c2}[/]")
                     if c2 == 200 and t2:
                         code, text, model = c2, t2, alt

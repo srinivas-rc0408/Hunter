@@ -38,21 +38,26 @@ def format_job(j: dict) -> str:
     for r in (j.get("reasons") or [])[:3]:
         lines.append("• " + _esc(clip(r, 110)))
     if j.get("url"):
-        lines.append(f'<a href="{_esc(j["url"])}">Open</a> · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
+        lines.append(f'<a href="{html.escape(j["url"], quote=True)}">Open</a> · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
     return "\n".join(lines)
 
 
 def telegram(text: str) -> bool:
+    """Send as HTML; if Telegram rejects the markup (or it was cut mid-tag), resend it as plain text."""
     tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         return False
-    try:
-        r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
-                          json={"chat_id": chat, "text": text[:4000], "parse_mode": "HTML",
-                                "disable_web_page_preview": True}, timeout=20)
-        return r.ok
-    except requests.RequestException:
-        return False
+    import re
+    for payload in ({"parse_mode": "HTML", "text": text[:4000]},
+                    {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
+        try:
+            r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
+                              json={"chat_id": chat, "disable_web_page_preview": True, **payload}, timeout=20)
+            if r.ok:
+                return True
+        except requests.RequestException:
+            pass
+    return False
 
 
 def alert_jobs(jobs: list[dict]) -> int:

@@ -36,6 +36,31 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
+KNOWN = {"start", "help", "menu", "brief", "top", "govt", "review", "stats", "show", "scan", "company", "watch",
+         "questions", "answer", "ping", *STATUS_CMDS}
+
+HELP = """<b>🎯 JobHunter bot</b>
+<b>Daily</b>
+/brief · morning brief now
+/top · best open jobs  (<code>/top 20</code> for more)
+/govt · govt notices + deadlines
+/review · forms waiting for your approval
+/stats · pipeline numbers
+<b>One job</b> (tap the links in alerts)
+/show_&lt;id&gt; · why it matched + link
+/skip_&lt;id&gt; · /queue_&lt;id&gt; · hide it / apply to it first
+/applied_&lt;id&gt; · /interview_&lt;id&gt; · /rejected_&lt;id&gt; · /offer_&lt;id&gt;
+<b>Companies</b>
+<code>/company Aditya Birla</code> · open listings with links
+<code>/watch Zoho</code> · include it in every scan
+<b>Questions forms asked</b>
+/questions · then <code>/answer 1 Yes</code>
+<b>Other</b>
+/scan · scan now on the laptop · /ping · is the bot alive
+Words work too: <i>help</i>, <i>top 5</i>, <i>stats</i>.
+Applying stays on the laptop (hunt apply / Review Center): nothing here submits a form."""
+
+
 def _e(s) -> str:
     return html.escape(str(s or ""), quote=False)
 
@@ -50,13 +75,17 @@ def handle(text: str, db: DB | None = None) -> str:
     """Pure command handler (unit-tested): text in, HTML reply out."""
     db = db or DB()
     t = (text or "").strip()
+    if t and not t.startswith("/") and t.split()[0].lower() in KNOWN:
+        t = "/" + t                                    # "help", "top 5", "stats" work without the slash
     m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t, re.S)
     if not m:
-        return "Send /help for commands."
+        return "Send /help (or just <i>help</i>) for commands."
     cmd, inline_id, arg = m.group(1).lower(), m.group(2), (m.group(3) or "").strip()
     jid = inline_id or (arg.split()[0] if arg else "")
-    if cmd in ("start", "help"):
-        return "<b>JobHunter bot</b>\n" + "\n".join(l.strip() for l in __doc__.splitlines()[4:22])
+    if cmd in ("start", "help", "menu"):
+        return HELP
+    if cmd == "ping":
+        return f"🟢 alive · {time.strftime('%d %b %H:%M')} · {db.count('1=1')} jobs tracked"
     if cmd == "questions":
         from .apply.questions import pending
         rows = pending()
@@ -94,7 +123,7 @@ def handle(text: str, db: DB | None = None) -> str:
                 f"{res['counts']['karnataka']} Karnataka/remote · {res['counts']['new_24h']} new in 24 h")
         lines = [f"{'🔥' if r['hot'] else '•'} {_e(r['title'][:70])} · {_e((r.get('location') or '')[:30])}"
                  f" · {('%dd' % r['days_ago']) if r.get('days_ago') is not None else '?'}"
-                 f" · <a href=\"{_e(r.get('apply_url') or r['url'])}\">open</a>" for r in rows]
+                 f" · <a href=\"{html.escape(r.get('apply_url') or r['url'] or '', quote=True)}\">open</a>" for r in rows]
         others = [x["name"] for x in sug[1:4] if x["source"] != "as typed"]
         return head + "\n" + "\n".join(lines) + (f"\n\nDid you mean: {_e(', '.join(others))}?" if others else "") + \
             "\nFull list + apply: hunt company on the laptop, or Review Center → Companies"
@@ -129,7 +158,7 @@ def handle(text: str, db: DB | None = None) -> str:
             return "Usage: /show &lt;id&gt;"
         rs = "\n".join("• " + _e(r[:140]) for r in (j.get("reasons") or [])[:8])
         return (f"{_line(j)}\n{_e(j.get('location'))} · status <b>{_e(j['status'])}</b>\n{rs}\n"
-                f"<a href=\"{_e(j['url'])}\">Open posting</a>\n/skip_{j['id'][:8]} · /queue_{j['id'][:8]}")
+                f"<a href=\"{html.escape(j['url'] or '', quote=True)}\">Open posting</a>\n/skip_{j['id'][:8]} · /queue_{j['id'][:8]}")
     if cmd in STATUS_CMDS:
         j = db.get(jid) if jid else None
         if not j:
@@ -140,44 +169,98 @@ def handle(text: str, db: DB | None = None) -> str:
         subprocess.Popen([sys.executable, "-m", "jobhunter.cli", "scan"], cwd=str(config.home()),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         return "Scan started on the laptop. New matches will arrive as alerts."
-    return "Unknown command. /help"
+    return f"Unknown command /{_e(cmd)}. Send /help"
+
+
+SLOW = {"brief", "company", "watch", "scan", "top", "govt"}
+
+
+def log(msg: str) -> None:
+    print(time.strftime("%H:%M:%S"), msg, flush=True)          # → journalctl --user -u jobhunter-bot
+
+
+def send(api: str, chat: str, text: str) -> bool:
+    """HTML first; if Telegram rejects the HTML, send the same text plain so nothing is ever lost."""
+    for payload in ({"parse_mode": "HTML", "text": text[:4000]},
+                    {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
+        try:
+            r = requests.post(f"{api}/sendMessage", timeout=20, json={
+                "chat_id": chat, "disable_web_page_preview": True, **payload})
+            if r.ok:
+                return True
+            log(f"sendMessage {r.status_code}: {r.text[:200]}")
+        except requests.RequestException as exc:
+            log(f"sendMessage failed: {type(exc).__name__}")
+    return False
+
+
+def _reply(api: str, chat: str, text: str) -> None:
+    cmd = (text or "").strip().lstrip("/").split("_")[0].split()[0].split("@")[0].lower() if text else ""
+    if cmd in SLOW:
+        try:
+            requests.post(f"{api}/sendChatAction", timeout=10, json={"chat_id": chat, "action": "typing"})
+        except requests.RequestException:
+            pass
+    t0 = time.time()
+    try:
+        reply = handle(text)
+    except Exception as exc:                 # never let one bad command kill the bot
+        log(f"handler error on {text[:40]!r}: {exc!r}")
+        reply = f"⚠️ error: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}"
+    ok = send(api, chat, reply)
+    log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} in {time.time() - t0:.1f}s")
 
 
 def run() -> None:
+    from concurrent.futures import ThreadPoolExecutor
     tok, chat = env("TELEGRAM_BOT_TOKEN"), str(env("TELEGRAM_CHAT_ID") or "")
     if not tok or not chat:
         sys.exit("Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env first.")
     api = f"https://api.telegram.org/bot{tok}"
     from .morning import load_state, save_state
     offset = load_state().get("tg_offset", 0)
-    try:   # command menu in Telegram's "/" list
+    try:
+        me = requests.get(f"{api}/getMe", timeout=20).json()
+        if not me.get("ok"):
+            sys.exit(f"Telegram refused the token: {me.get('description')}. Fix TELEGRAM_BOT_TOKEN in .env.")
+        requests.post(f"{api}/deleteWebhook", timeout=20, json={"drop_pending_updates": False})  # webhooks block polling
         requests.post(f"{api}/setMyCommands", timeout=20, json={"commands": [
             {"command": c, "description": d} for c, d in [
                 ("brief", "morning brief now"), ("top", "best open jobs"), ("govt", "govt notices + deadlines"),
                 ("review", "forms waiting for approval"), ("questions", "questions only you can answer"),
                 ("company", "a company's open listings"), ("stats", "pipeline numbers"), ("scan", "scan now"),
-                ("help", "all commands")]]})
-    except requests.RequestException:
-        pass
-    print("JobHunter bot running (Ctrl+C to stop)")
+                ("ping", "is the bot alive"), ("help", "all commands")]]})
+        log(f"bot @{me['result'].get('username')} running for chat {chat[-4:].rjust(4, '*')}")
+    except requests.RequestException as exc:
+        log(f"startup: Telegram unreachable ({type(exc).__name__}); retrying in the loop")
+    pool = ThreadPoolExecutor(max_workers=3)   # a slow /company never blocks /help
+    fails = 0
     while True:
         try:
             r = requests.get(f"{api}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60).json()
-        except (requests.RequestException, ValueError):
-            time.sleep(10)
+        except (requests.RequestException, ValueError) as exc:
+            fails += 1
+            log(f"getUpdates failed ({type(exc).__name__}); retry in {min(60, 5 * fails)}s")
+            time.sleep(min(60, 5 * fails))
             continue
+        if not r.get("ok"):
+            fails += 1
+            log(f"getUpdates refused: {r.get('error_code')} {r.get('description')}")
+            if r.get("error_code") == 401:
+                sys.exit("Token revoked or wrong: fix TELEGRAM_BOT_TOKEN in .env, then restart the bot.")
+            if r.get("error_code") == 409:   # another `hunt bot` or a webhook is polling the same token
+                requests.post(f"{api}/deleteWebhook", timeout=20, json={})
+            time.sleep(min(60, 5 * fails))
+            continue
+        fails = 0
         for u in r.get("result", []):
             offset = u["update_id"] + 1
             save_state(tg_offset=offset)
-            msg = u.get("message") or {}
+            msg = u.get("message") or u.get("edited_message") or {}
             if str(msg.get("chat", {}).get("id")) != chat:
-                continue                     # not you: ignore silently
-            try:
-                reply = handle(msg.get("text", ""))
-            except Exception as exc:         # never let one bad command kill the bot
-                reply = f"error: {_e(type(exc).__name__)}"
-            try:
-                requests.post(f"{api}/sendMessage", timeout=20, json={
-                    "chat_id": chat, "text": reply[:4000], "parse_mode": "HTML", "disable_web_page_preview": True})
-            except requests.RequestException:
-                pass
+                log(f"ignored a message from another chat ({str(msg.get('chat', {}).get('id'))[-4:]})")
+                continue                     # not you: ignore
+            text = msg.get("text") or ""
+            if not text:
+                continue
+            pool.submit(_reply, api, chat, text)

@@ -66,6 +66,57 @@ class Bot(unittest.TestCase):
         self.assertIn("Usage", handle("/show", db))
 
 
+TG_TAGS = {"b", "i", "u", "s", "a", "code", "pre"}
+
+
+def assert_telegram_html(tc, text):
+    """What Telegram's HTML parse mode accepts: only its tags, every < and & escaped, tags balanced."""
+    import re as _re
+    stack = []
+    for m in _re.finditer(r"<(/?)([a-zA-Z]*)([^>]*)>|<|&(?!(?:lt|gt|amp|quot|#\d+);)", text):
+        if m.group(0) in ("<", "&") or m.group(2) not in TG_TAGS:
+            tc.fail(f"invalid Telegram HTML {m.group(0)!r} in: {text[max(0, m.start() - 40):m.end() + 40]!r}")
+        if m.group(1):
+            tc.assertEqual(stack.pop() if stack else None, m.group(2))
+        else:
+            stack.append(m.group(2))
+    tc.assertEqual(stack, [], "unclosed tag")
+
+
+class BotHTML(unittest.TestCase):
+    def test_every_reply_is_valid_telegram_html(self):
+        from jobhunter.bot import handle
+        db = DB(HOME / "data" / "html.db")
+        j = seed(db, "ML <Intern> & R&D", "A&B <Labs>")
+        for cmd in ("/help", "help", "/start", "top 5", "/top", "/stats", "/govt", "/review", "/ping", "/questions",
+                    f"/show_{j.id[:8]}", "/show", "/answer", "/answer x", "/company", "/nope", "hello", "",
+                    f"/queue {j.id[:8]}", "/skip"):
+            out = handle(cmd, db)
+            self.assertTrue(out.strip(), cmd)
+            assert_telegram_html(self, out)
+        self.assertIn("JobHunter bot", handle("help", db))
+        self.assertIn("alive", handle("ping", db))
+
+    def test_brief_is_valid_html(self):
+        from jobhunter.morning import as_telegram, build
+        db = DB(HOME / "data" / "html2.db")
+        seed(db, "Data <Scientist> & co", "X&Y")
+        assert_telegram_html(self, as_telegram(build(db=db, heartbeat=False)))
+
+    def test_send_falls_back_to_plain_text(self):
+        from unittest import mock
+
+        from jobhunter import bot
+        calls = []
+
+        def post(url, timeout, json):
+            calls.append(json)
+            return mock.Mock(ok="parse_mode" not in json, status_code=400, text="can't parse entities")
+        with mock.patch.object(bot.requests, "post", post):
+            self.assertTrue(bot.send("http://x", "1", "<b>hi</b> &lt;id&gt;"))
+        self.assertEqual(calls[1]["text"], "hi <id>")
+
+
 class LLM(unittest.TestCase):
     def test_auto_falls_back_to_none(self):
         from jobhunter import llm

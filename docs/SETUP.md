@@ -336,6 +336,7 @@ Without Claude Code:
 | `hunt: command not found` in fish | `fish_add_path -P ~/jobhunter/.venv/bin` and open a new terminal |
 | Chromium won't start after an Arch update | `hunt update` (reinstalls Playwright's Chromium) |
 | Cover letters are generic | No LLM reachable: `hunt llm --test` → fix the ✗ key, or `./scripts/install-local-llm.sh` |
+| Telegram bot doesn't answer | `systemctl --user restart jobhunter-bot`, send `ping`, then `journalctl --user -u jobhunter-bot -n 30` shows every message and why a reply failed |
 | `hunt llm --test` says 429 | That key hit NVIDIA's rate limit; it rests 60 s and the next key/provider is used. Wait a minute |
 | `ollama ps` shows CPU, not GPU | Model too big for 4 GB, or `ollama` (CPU build) installed: `sudo pacman -S ollama-cuda`, use `qwen3:4b` |
 | Disk full | `rm -rf data/screens/*` (screenshots) and `data/logs/*`. The jobs database is small |
