@@ -158,9 +158,10 @@ def parse_zoho(html_text: str, host: str, company: str = "") -> list[dict]:
         if o.get("Publish") is False:
             continue
         out.append(L(title=o.get("Posting_Title"), company=company,
-                     location=", ".join(x for x in [o.get("City"), o.get("State"), o.get("Country")] if x),
+                     location=", ".join(x for x in [o.get("City"), o.get("State"), o.get("Country") or o.get("Country1")] if x),
                      url=f"https://{host}/jobs/Careers/{o.get('id')}", posted=_day(o.get("Date_Opened")),
-                     job_type=_jtype(o.get("Job_Type")), remote=bool(o.get("Remote_Job")), source="zohorecruit"))
+                     job_type=_jtype(o.get("Job_Type")), remote=bool(o.get("Remote_Job")), source="zohorecruit",
+                     description=_text(o.get("Job_Description"))))
     return out
 
 
@@ -357,7 +358,10 @@ def detect_boards(html_text: str, page_url: str = "") -> list[dict]:
                 b = {"type": "workday", "tenant": m.group(1), "host": f"{m.group(1)}.{m.group(2)}.myworkdayjobs.com",
                      "site": m.group(3), "token": m.group(1)}
             elif kind in ("darwinbox", "zohorecruit"):
-                b = {"type": kind, "host": m.group(1).lower(), "token": m.group(1).split(".")[0].lower()}
+                h = m.group(1).lower()
+                if kind == "zohorecruit" and h.split(".")[0] in SKIP_TOKENS and host:
+                    h = host                  # "careers.zohorecruit.com/…/rss" on careers.zohocorp.com: the board is this page
+                b = {"type": kind, "host": h, "token": h.split(".")[0]}
             else:
                 tok = m.group(1).strip(".")
                 if tok.lower() in SKIP_TOKENS:

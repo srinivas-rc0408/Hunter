@@ -47,8 +47,13 @@ def cname(s: str | None) -> str:
     return " ".join(SUFFIX.sub(" ", norm(s)).split())
 
 
+def _main_name(s: str | None) -> str:
+    """'Zodopt Technology | Zoho Premium Partner' → 'Zodopt Technology': a partner tag isn't the company."""
+    return re.split(r"\s[|(\[]|\s[-–]\s.*\bpartner\b", s or "", flags=re.I)[0]
+
+
 def same_company(a: str | None, b: str | None) -> bool:
-    x, y = cname(a), cname(b)
+    x, y = cname(_main_name(a)), cname(_main_name(b))
     if not x or not y:
         return False
     return x == y or (len(x) >= 4 and (x in y.split() or f" {x} " in f" {y} ")) or \
@@ -380,19 +385,91 @@ def to_job(l: dict) -> Job:
                pay_estimate=l.get("pay_estimate"), deadline=l.get("deadline"))
 
 
-def listings(info: dict, boards_search: bool = True, today: dt.date | None = None) -> dict:
+def live(name: str, domain: str | None = None, wikidata: str | None = None, budget: float = 22.0) -> tuple[dict, list[dict], list[str]]:
+    """Careers site + LinkedIn + Naukri + Indeed at once; whatever answers inside `budget` seconds counts.
+    Returns (info, rows, errors); a board still searching at the deadline is named in errors."""
+    import time
+    end = time.time() + budget
+    errors: list[str] = []
+    ex = cf.ThreadPoolExecutor(max_workers=5)
+    boards = {s: ex.submit(_boards_search, name, errors, (s,)) for s in ("linkedin", "naukri", "indeed")}
+    try:
+        info = ex.submit(resolve, name, domain, wikidata, False, True, False).result(timeout=min(12, budget / 2))
+    except cf.TimeoutError:
+        info = {"name": name, "domain": domain, "wikidata": wikidata, "boards": [], "jsonld": [], "notes": [],
+                "website": None, "careers_url": None}
+        errors.append("careers site: still looking it up (cached for next time)")
+    site = ex.submit(_board_listings, info, errors)
+    rows = []
+    for label, f in [("careers site", site), *boards.items()]:
+        try:
+            rows += f.result(timeout=max(0.1, end - time.time()))
+        except cf.TimeoutError:
+            errors.append(f"{label}: no answer in {budget:.0f} s, not included")
+    ex.shutdown(wait=False, cancel_futures=True)
+    return info, rows, errors
+
+
+def news(name: str, days: int = 30, n: int = 5) -> list[dict]:
+    """Up to n dated, linked headlines about the company from the last `days` days (Google News RSS, no key)."""
+    import email.utils
+    import xml.etree.ElementTree as ET
+    try:
+        r = requests.get("https://news.google.com/rss/search", timeout=8, headers={"User-Agent": "Mozilla/5.0"},
+                         params={"q": f'"{name}" when:{days}d', "hl": "en-IN", "gl": "IN", "ceid": "IN:en"})
+        items = ET.fromstring(r.content).iter("item")
+    except (requests.RequestException, ET.ParseError):
+        return []
+    cut = dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=days)
+    out = []
+    for it in items:
+        try:
+            when = email.utils.parsedate_to_datetime(it.findtext("pubDate") or "")
+        except (TypeError, ValueError):
+            continue
+        title = it.findtext("title") or ""
+        src = it.findtext("source") or ""
+        if when >= cut and title:
+            out.append({"date": when.date().isoformat(), "title": title.removesuffix(f" - {src}") if src else title,
+                        "source": src, "url": it.findtext("link") or ""})
+    return sorted(out, key=lambda x: x["date"], reverse=True)[:n]
+
+
+def names_of(name: str) -> list[str]:
+    """The name plus its directory aliases ("ISRO" → "Indian Space Research Organisation")."""
+    return [name] + next((d.get("aliases") or [] for d in directory() if same_company(d["name"], name)), [])
+
+
+def about(info: dict) -> dict:
+    """What it does + size from Wikidata (by its id, else the best-matching name), or {} when unknown."""
+    if info.get("description") or info.get("employees"):
+        return {k: info.get(k) for k in ("description", "employees", "founded", "website")}
+    want = {cname(n) for n in names_of(info["name"])}           # exact names only: "ISRO's mission to Venus" ≠ ISRO
+    qid = info.get("wikidata") or next((w["wikidata"] for w in wikidata_search(info["name"], 6)
+                                        if cname(w["name"]) in want), None)
+    return wikidata_details(qid) if qid else {}
+
+
+def listings(info: dict, boards_search: bool = True, today: dt.date | None = None,
+             rows: list[dict] | None = None) -> dict:
+    """Every listing for the company: `rows` already fetched (see live()), else fetched here; plus the DB's."""
     today = today or dt.date.today()
     errors: list[str] = []
-    rows = _board_listings(info, errors)
-    if boards_search:
-        rows += _boards_search(info["name"], errors)
+    if rows is None:
+        rows = _board_listings(info, errors)
+        if boards_search:
+            rows += _boards_search(info["name"], errors)
+    rows = list(rows)
     db = DB()
-    for j in db.query(kind="private", limit=500, order="found_at DESC"):
-        if same_company(j["company"], info["name"]):
+    names = names_of(info["name"])
+    for j in db.query(limit=100000, order="found_at DESC"):
+        if any(same_company(j["company"], n) for n in names):
             rows.append(ats_more.L(title=j["title"], company=j["company"], location=j["location"], url=j["url"],
                                    posted=j.get("posted_at") or j["found_at"][:10], job_type=j.get("job_type"),
                                    remote=j.get("is_remote"), description=j.get("description") or "",
-                                   source=",".join(j.get("sources") or []) or "db"))
+                                   source=",".join(j.get("sources") or []) or "db", pay_min=j.get("pay_min"),
+                                   pay_max=j.get("pay_max"), currency=j.get("currency"), pay_period=j.get("pay_period"),
+                                   pay_estimate=j.get("pay_estimate"), deadline=j.get("deadline")))
     merged: dict[str, dict] = {}
     for r in rows:
         if not r.get("title"):

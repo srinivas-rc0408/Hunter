@@ -328,3 +328,66 @@ class Today(unittest.TestCase):
             self.assertLessEqual(len(p), 3900)
             self.assertTrue(p.startswith("<b>📰"))
         self.assertIn("page 2/", p2)
+
+
+class CompanySearch(unittest.TestCase):
+    """/company <name>, "company x", or just the name: numbered choices, every open role as a card, then news,
+    what it does, Bengaluru office, your applications and dream status. Live lookups are stubbed here."""
+
+    def setUp(self):
+        from unittest import mock
+
+        from jobhunter import bot, companies
+        self.db = DB(HOME / "data" / "co.db")
+        bot._PICK.clear()
+        bot._COMPANY_PAGES.clear()
+        rows = [companies.ats_more.L(title=f"AI Engineer {k} <R&D>", company="Acme & Co", location="Bengaluru, Karnataka",
+                                     url=f"https://acme.example/j/{k}", posted=str(dt.date.today()), source="greenhouse",
+                                     description="Python LLMs freshers 0-1 years")
+                for k in ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+                          "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel")]
+        info = {"name": "Acme & Co", "boards": [], "careers_url": "https://acme.example/careers", "website": None}
+        self.p = [mock.patch.object(companies, "live", lambda n, d=None, w=None, budget=22: (dict(info, name=n), rows if "Acme" in n else [], [])),
+                  mock.patch.object(companies, "news", lambda n: [{"date": "2026-11-18", "title": "Acme <raises> & grows",
+                                                                   "source": "ET", "url": "https://news.example/a?x=1&y=2"}]),
+                  mock.patch.object(companies, "about", lambda i: {"description": "AI <lab>", "employees": "1200"}),
+                  mock.patch.object(companies, "suggest", lambda q, online=True, limit=12: [
+                      x for x in [{"name": "Acme & Co", "source": "directory"}, {"name": "Acme Capital", "source": "your jobs", "hint": "3 job(s)"},
+                                  {"name": "Nadaco", "source": "wikidata"}, {"name": q, "source": "as typed"}]
+                      if x["name"].lower().startswith(q.lower()[:4]) or x["source"] == "as typed"])]
+        for x in self.p:
+            x.start()
+
+    def tearDown(self):
+        for x in self.p:
+            x.stop()
+
+    def test_choices_then_number_then_cards_and_about(self):
+        from jobhunter.bot import handle
+        out = handle("acme", self.db)                                       # just the name, no slash
+        assert_telegram_html(self, out)
+        self.assertIn("1. Acme &amp; Co", out)
+        self.assertIn("2. Acme Capital", out)
+        self.assertNotIn("Nadaco", out)
+        main, info = handle("1", self.db)
+        for part in (main, info):
+            assert_telegram_html(self, part)
+        self.assertRegex(main, r"20 open roles · checked \d{1,2}:\d\d [ap]m IST")
+        for f in CARD_FIELDS:
+            self.assertIn(f, main)
+        self.assertIn("More: /company Acme &amp; Co 2", main)
+        self.assertIn("page 2/", handle("/company Acme & Co 2", self.db))   # page 2 from the cache, no new search
+        for want in ("What it does: AI &lt;lab&gt;", "Size: 1,200 employees", "Bengaluru office: yes, 20",
+                     "Dream: no", "none yet", "18 Nov", 'href="https://news.example/a?x=1&amp;y=2"',
+                     "Careers: <a"):
+            self.assertIn(want, info)
+
+    def test_exact_name_goes_straight_and_zero_offers_watch(self):
+        from jobhunter.bot import handle
+        main, _ = handle("/company Acme & Co", self.db)
+        self.assertIn("20 open roles", main)
+        out, _ = handle("company Zzzcorp", self.db)
+        assert_telegram_html(self, out)
+        self.assertIn("0 open roles", out)
+        self.assertIn("/watch Zzzcorp", out)
+        self.assertIn("/help", handle("hello there", self.db))             # not a company: the help hint

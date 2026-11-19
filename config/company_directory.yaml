@@ -163,6 +163,7 @@ companies:
   domain: zoho.com
   aliases:
   - Zoho Corporation
+  careers: https://careers.zohocorp.com/jobs/Careers
 - name: Chargebee
   domain: chargebee.com
 - name: Darwinbox

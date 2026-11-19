@@ -119,12 +119,129 @@ def _today(db: DB, page: int = 1) -> str:
     return _paged(head, blocks, "/today", page)
 
 
+_PICK: dict = {}                                        # numbered company choices waiting for "2"
+_COMPANY_PAGES: dict[str, tuple[float, str, list[str]]] = {}   # company key → (when, header, cards): pages 2, 3 …
+
+
+def _clock_ist() -> str:
+    from .util import now
+    t = now()
+    return f"{t:%I:%M}".lstrip("0") + (" am" if t.hour < 12 else " pm") + " IST"
+
+
+def _choices(q: str, online: bool = True) -> list[dict]:
+    """Companies whose name holds every word typed (so 'Chairperson of …' and unrelated Wikidata hits drop out)."""
+    from . import companies
+    from .util import norm
+    words = norm(q).split()
+    return [x for x in companies.suggest(q, online=online) if x["source"] != "as typed"
+            and all(w in norm(x["name"]).split() or any(t.startswith(w) for t in norm(x["name"]).split()) for w in words)]
+
+
+def _company_cmd(arg: str, db: DB, watch: bool = False) -> str | list[str]:
+    """/company <name> (page 2: /company <name> 2) · /watch <name>. Several matches → numbered choices."""
+    from . import companies
+    from .util import norm
+    page = 1
+    m = re.match(r"^(.*\S)\s+(\d{1,2})$", arg)
+    if m and companies.cname(m.group(1)) in _COMPANY_PAGES:
+        arg, page = m.group(1), int(m.group(2))
+    hit = _COMPANY_PAGES.get(companies.cname(arg))
+    if page > 1 and hit and time.time() - hit[0] < 1800:
+        return _paged(hit[1], hit[2], f"/company {_e(arg)}", page)
+    cands = _choices(arg)
+    exact = [c for c in cands if norm(c["name"]) == norm(arg)]
+    if exact or len(cands) <= 1:
+        pick = (exact or cands or [{"name": arg, "source": "as typed"}])[0]
+    else:
+        _PICK.update(at=time.time(), cmd="watch" if watch else "company", items=cands[:8])
+        return (f"<b>Which {_e(arg)}?</b>\n" + "\n".join(f"{i}. {_e(c['name'])} <i>({_e(c.get('hint') or c['source'])})</i>"
+                                                        for i, c in enumerate(cands[:8], 1)) + "\nReply with the number.")
+    return _company_report(pick, db, watch)
+
+
+def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
+    from . import companies, dreams
+    from .score import score
+    from .util import parse_iso
+    name = pick["name"]
+    if watch:
+        info = companies.resolve(name, pick.get("domain"), pick.get("wikidata"))
+        return (f"✓ watching {_e(info['name'])}: every scan includes it" if companies.watch(info)
+                else f"{_e(info['name'])}: already watched, or no platform/careers page found")
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as ex:                 # news + about run while the boards are searched
+        f_news = ex.submit(companies.news, name)
+        info, rows, errors = companies.live(name, pick.get("domain"), pick.get("wikidata"))
+        f_about = ex.submit(companies.about, info)
+        res = companies.listings(info, rows=rows)
+        today = str(dt.date.today())
+        cards, fit = [], 0
+        rows = sorted(res["listings"], key=lambda r: r.get("posted") or "", reverse=True)       # newest first …
+        for r in sorted(rows, key=lambda r: (not r["fit"], -r["score"])):                     # … fit and best on top
+            if (r.get("deadline") or "9999") < today or r.get("status") in ("expired", "rejected"):
+                continue
+            j = db.get(r["id"])
+            if not j:                                             # new to us: store it (scored) so /check works
+                db.upsert(score(companies.to_job(r)))
+                j = db.get(r["id"])
+            if not j:
+                continue
+            fit += r["fit"]
+            cards.append(job_card(j, db) + ("" if r["fit"] else f"\n<i>outside your filters: {_e(r['why'][:90])}</i>"))
+        try:
+            news, ab = f_news.result(timeout=10), f_about.result(timeout=10)
+        except Exception:
+            news, ab = [], {}
+    when = _clock_ist()
+    missed = [e for e in errors if "not included" in e or "still" in e]
+    head = (f"<b>🏢 {_e(info['name'])}</b> · {len(cards)} open roles · checked {when}"
+            + (f"\n{fit} fit your filters" if cards else "")
+            + (f"\n<i>{_e('; '.join(missed))}</i>" if missed else ""))
+    if not cards:
+        main = (f"<b>🏢 {_e(info['name'])}</b> · 0 open roles · checked {when}\n"
+                f"Nothing open on its careers site, LinkedIn, Naukri or Indeed right now."
+                + (f"\n<i>{_e('; '.join(missed))}</i>" if missed else "")
+                + f"\nGet it in every scan: <code>/watch {_e(info['name'])}</code>")
+    else:
+        _COMPANY_PAGES[companies.cname(name)] = (time.time(), head, cards)
+        main = _paged(head, cards, f"/company {_e(name)}", 1)
+    # second message: news, what it does, Bengaluru office, your applications, dream status
+    blr = sum(1 for r in res["listings"] if re.search(r"bengaluru|bangalore", r.get("location") or "", re.I))
+    mine = [j for j in db.query(status=["applied", "interview", "offer", "rejected"], limit=100000)
+            if companies.same_company(j["company"], info["name"])]
+    apps = [f"• {_e(j['title'][:60])} · <b>{j['status']}</b>" + (f" · applied {parse_iso(on):%d %b}" if (on := db.applied_on(j['id'])) else "")
+            for j in mine[:8]]
+    size = ab.get("employees")
+    lines = [f"<b>ℹ️ {_e(info['name'])}</b>",
+             f"What it does: {_e(ab.get('description') or info.get('description') or 'unknown')}",
+             f"Size: {_e(f'{int(float(size)):,} employees' if size and str(size).replace('.', '').isdigit() else 'unknown')}"
+             + (f" · founded {_e(ab['founded'])}" if ab.get("founded") else ""),
+             f"Bengaluru office: {'yes, ' + str(blr) + ' open role(s) there' if blr else 'unknown'}",
+             f"Dream: {'★ yes' if dreams.find(info['name']) else 'no · <code>/dream ' + _e(info['name']) + '</code>'}",
+             "<b>Your applications</b>", *(apps or ["none yet"]),
+             f"<b>News, last 30 days</b>"]
+    lines += [f"• {n['date'][8:]} {dt.date.fromisoformat(n['date']):%b} · <a href=\"{html.escape(n['url'], quote=True)}\">"
+              f"{_e(n['title'][:110])}</a> <i>({_e(n['source'])})</i>" for n in news] or ["none found"]
+    for label, site in (("Careers", info.get("careers_url")), ("Website", not info.get("careers_url") and info.get("website"))):
+        if site:
+            lines.append(f"{label}: <a href=\"{html.escape(site, quote=True)}\">{_e(site[:60])}</a>")
+    return [main, "\n".join(lines)]
+
+
 def handle(text: str, db: DB | None = None) -> str | list[str]:
     """Pure command handler (unit-tested): text in, HTML reply out (a list = several whole messages)."""
     db = db or DB()
     t = (text or "").strip()
+    if t.isdigit() and _PICK.get("items") and time.time() - _PICK.get("at", 0) < 900:
+        items = _PICK["items"]
+        if not 1 <= int(t) <= len(items):
+            return f"Pick 1 to {len(items)}."
+        return _company_report(items[int(t) - 1], db, watch=_PICK.get("cmd") == "watch")
     if t and not t.startswith("/") and t.split()[0].lower() in KNOWN:
         t = "/" + t                                    # "help", "top 5", "stats" work without the slash
+    elif t and not t.startswith("/") and len(t) >= 3 and _choices(t, online=False):
+        return _company_cmd(t, db)                     # just a company name: "Zoho", "aditya birla"
     m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t, re.S)
     if not m:
         return "Send /help (or just <i>help</i>) for commands."
@@ -204,26 +321,8 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
                 (f"\n{len(res['requeued'])} job(s) back in the apply queue" if res["requeued"] else ""))
     if cmd in ("company", "watch"):
         if not arg:
-            return f"Usage: /{cmd} &lt;company name&gt;"
-        from . import companies
-        sug = [x for x in companies.suggest(arg) if x["source"] != "as typed"] or companies.suggest(arg)
-        pick = sug[0]
-        info = companies.resolve(pick["name"], pick.get("domain"), pick.get("wikidata"))
-        if cmd == "watch":
-            return (f"✓ watching {_e(info['name'])}: every scan includes it" if companies.watch(info)
-                    else f"{_e(info['name'])}: already watched, or no platform/careers page found")
-        res = companies.listings(info, boards_search=False)
-        rows = sorted(res["listings"], key=lambda r: (not r["karnataka"], not r["fit"], -(r.get("days_ago") is not None),
-                                                      r.get("days_ago") or 999))[:12]
-        plats = ", ".join(b["type"] for b in info.get("boards", [])) or "no public platform"
-        head = (f"<b>{_e(info['name'])}</b> · {plats}\n{res['counts']['total']} listings · "
-                f"{res['counts']['karnataka']} Karnataka/remote · {res['counts']['new_24h']} new in 24 h")
-        lines = [f"{'🔥' if r['hot'] else '•'} {_e(r['title'][:70])} · {_e((r.get('location') or '')[:30])}"
-                 f" · {('%dd' % r['days_ago']) if r.get('days_ago') is not None else '?'}"
-                 f" · <a href=\"{html.escape(r.get('apply_url') or r['url'] or '', quote=True)}\">open</a>" for r in rows]
-        others = [x["name"] for x in sug[1:4] if x["source"] != "as typed"]
-        return head + "\n" + "\n".join(lines) + (f"\n\nDid you mean: {_e(', '.join(others))}?" if others else "") + \
-            "\nFull list + apply: hunt company on the laptop, or Review Center → Companies"
+            return f"Usage: <code>/{cmd} Zoho</code>"
+        return _company_cmd(arg, db, watch=cmd == "watch")
     if cmd == "brief":
         from .morning import as_telegram_pages, build
         return as_telegram_pages(build(db=db, heartbeat=False))
@@ -336,18 +435,27 @@ def _document(api: str, tok: str, chat: str, doc: dict) -> None:
 
 
 def _reply(api: str, chat: str, text: str) -> None:
-    cmd = (text or "").strip().lstrip("/").split("_")[0].split()[0].split("@")[0].lower() if text else ""
-    if cmd in SLOW:
-        try:
-            requests.post(f"{api}/sendChatAction", timeout=10, json={"chat_id": chat, "action": "typing"})
-        except requests.RequestException:
-            pass
+    import threading
+    cmd = (text or "").strip().lstrip("/").split("_")[0].split()[0].split("@")[0].lower() if text.strip() else ""
+    done = threading.Event()
+
+    def typing():                            # Telegram shows "typing…" for ~5 s: repeat until the reply is ready
+        while not done.is_set():
+            try:
+                requests.post(f"{api}/sendChatAction", timeout=10, json={"chat_id": chat, "action": "typing"})
+            except requests.RequestException:
+                pass
+            done.wait(4)
+    if cmd in SLOW or cmd not in KNOWN:      # live searches, and a bare company name or a numbered pick
+        threading.Thread(target=typing, daemon=True).start()
     t0 = time.time()
     try:
         reply = handle(text)
     except Exception as exc:                 # never let one bad command kill the bot
         log(f"handler error on {text[:40]!r}: {exc!r}")
         reply = f"⚠️ error: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}"
+    finally:
+        done.set()
     if reply == "__RESUME__":
         _send_resume(api, chat)
         log(f"{text[:40]!r} → resume sent")

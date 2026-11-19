@@ -73,6 +73,9 @@ class Parsers(unittest.TestCase):
         for want in [("greenhouse", "acmecorp", None), ("lever", "acme-corp", None), ("keka", "acme", None),
                      ("smartrecruiters", "AcmeCorp", None), ("darwinbox", "acme", "acme.darwinbox.in")]:
             self.assertIn(want, kinds)
+        zc = ats_more.detect_boards('<a href="https://careers.zohorecruit.com/jobs/Careers/rss">Rss</a>',
+                                    "https://careers.zohocorp.com/jobs/Careers")       # Zoho's own custom domain
+        self.assertEqual(zc, [{"type": "zohorecruit", "host": "careers.zohocorp.com", "token": "careers"}])
         wd = next(b for b in ats_more.detect_boards(html) if b["type"] == "workday")
         self.assertEqual((wd["host"], wd["site"]), ("acme.wd3.myworkdayjobs.com", "Acme_Careers"))
 
@@ -97,6 +100,10 @@ class Suggest(unittest.TestCase):
         self.assertTrue(companies.same_company("Sarvam AI Pvt Ltd", "Sarvam AI"))
         self.assertTrue(companies.same_company("Aditya Birla Capital", "Aditya Birla Capital Limited"))
         self.assertFalse(companies.same_company("Birla Institute of Technology", "Birlasoft"))
+        self.assertFalse(companies.same_company("Zodopt Technology | Zoho Premium Partner", "Zoho"))      # live, 19 Nov
+        self.assertFalse(companies.same_company("AGSuite Technologies (Top Oracle NetSuite & Zoho Partner)", "Zoho"))
+        self.assertFalse(companies.same_company("Acme - Zoho Authorised Partner", "Zoho"))
+        self.assertTrue(companies.same_company("Zoho Corporation", "Zoho"))
         self.assertFalse(companies.same_company("Acme", "Acme Bank Holdings Something Else Entirely"[:0]))
 
 
