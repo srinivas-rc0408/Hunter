@@ -360,7 +360,7 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
         all_fills.blockers += res.blockers
         _report(res)
         problems = B.verify(page, res, LI_MODAL)          # includes errors the page shows
-        sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
+        sub = _li_submit(page)
         is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
         if res.missing or problems or res.blockers or (res.non_basic_filled and not APPROVED):
             ok, why = gate(db, "linkedin", job, res, problems)
@@ -377,7 +377,7 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
                 return Outcome("filled", "linkedin", why=f"dry run · would {'AUTO-SUBMIT' if ok else 'wait'}: {why}")
             if ok and B.click_button(page, ["Submit application"], root=LI_MODAL):
                 page.wait_for_timeout(4000)
-                if B.succeeded(page) or not _in(page, LI_MODAL, "button[aria-label*='Submit application']").count():
+                if B.succeeded(page) or not _li_submit(page).count():
                     B.click_button(page, ["Dismiss", "Done"], dry=False)
                     return Outcome("applied", "linkedin", auto=True, why=why)
                 why = "clicked Submit but LinkedIn showed no confirmation"
@@ -409,6 +409,11 @@ def _li_ready(page, wait_ms: int = 5000) -> bool:
             b = page.locator(LI_MODAL).first.get_by_role("button", name=LI_STEP_BTN)
             if any(b.nth(i).is_visible() for i in range(b.count())):
                 return True
+def _li_submit(page):
+    """LinkedIn's Submit button(s), found by name: the 2026 Review page's button has no aria-label."""
+    return page.locator(LI_MODAL).first.get_by_role("button", name="Submit application")
+
+
         except Exception:
             pass
         page.wait_for_timeout(500)
@@ -499,7 +504,7 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
         _report(res)
         here = {f["jh"] for f in B.scan(page, LI_MODAL)}
         step = [f for f in all_fills.fills if f.field["jh"] in here]
-        sub = _in(page, LI_MODAL, "button[aria-label*='Submit application']")
+        sub = _li_submit(page)
         is_last = any(sub.nth(i).is_visible() for i in range(sub.count()))
         errs = B.errors(page, LI_MODAL)
         msg = msg or ("LinkedIn says: " + "; ".join(errs[:3]) if errs else "")
@@ -533,7 +538,7 @@ def _linkedin_check(page, db: DB, job: dict, resume: Path | None, cover: str | N
         if act == "submit":
             if B.click_button(page, ["Submit application"], root=LI_MODAL):
                 page.wait_for_timeout(4000)
-                if B.succeeded(page) or not _in(page, LI_MODAL, "button[aria-label*='Submit application']").count():
+                if B.succeeded(page) or not _li_submit(page).count():
                     B.click_button(page, ["Dismiss", "Done"], dry=False)
                     return Outcome("applied", "linkedin", why="submitted after your check", learned=len(saved_all))
             errs = B.errors(page, LI_MODAL)

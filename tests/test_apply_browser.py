@@ -98,6 +98,7 @@ class Browser(unittest.TestCase):
         self.assertNotIn("didn't open", o.why)
         self.assertEqual(p.get_attribute("#ea", "data-tel"), "9000000001")   # step 1 filled before Next
         self.assertIn("would", o.why)                    # reached the last step, not "too many steps"
+        self.assertNotIn("couldn't find Next", o.why)    # live 19 Nov: Review's Submit has no aria-label
         self.assertIn(self.resume.name, p.inner_text("dialog"))   # resume went in through the file picker
 
     def _li_step(self, n):

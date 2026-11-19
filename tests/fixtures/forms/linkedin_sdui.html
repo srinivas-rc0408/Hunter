@@ -23,7 +23,7 @@ ea.addEventListener('click', ev => {
   } else if (b.dataset.viewName === 'continue-unify') {
     if (step === 1) { ea.dataset.tel = ea.querySelector('input[type=tel]').value; ea.innerHTML = document.getElementById('s2').innerHTML; step = 2; }
     else if (step === 2 && chosen) { ea.innerHTML = '<h2>Review your application</h2><p>Resume: ' + chosen +
-      '</p><button type="button" aria-label="Submit application">Submit application</button>'; step = 3; }
+      '</p><button type="button">Submit application</button>'; step = 3; }
   }
 });
 </script>
