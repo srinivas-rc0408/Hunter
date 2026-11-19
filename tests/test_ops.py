@@ -100,11 +100,14 @@ class BotHTML(unittest.TestCase):
         j = seed(db, "ML <Intern> & R&D", "A&B <Labs>")
         for cmd in ("/help", "help", "/start", "top 5", "/top", "/stats", "/govt", "/review", "/ping", "/questions",
                     f"/show_{j.id[:8]}", "/show", "/answer", "/answer x", "/company", "/nope", "hello", "",
-                    f"/queue {j.id[:8]}", "/skip"):
+                    f"/queue {j.id[:8]}", "/skip", "/search", "search ml intern", "search <x&y>", "/search a&b 2",
+                    "stats", "/deadlines", "/eligible", "govt karnataka", "govt central", "govt all"):
             out = handle(cmd, db)
             self.assertTrue(out.strip(), cmd)
             assert_telegram_html(self, out)
-        self.assertIn("JobHunter bot", handle("help", db))
+        self.assertIn("JobHunter", handle("help", db))
+        self.assertIn("ML &lt;Intern&gt;", handle("search intern", db))
+        self.assertIn("Response rate", handle("stats", db))
         self.assertIn("alive", handle("ping", db))
 
     def test_brief_is_valid_html(self):

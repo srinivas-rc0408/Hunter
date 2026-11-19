@@ -38,39 +38,39 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
-KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "review", "stats", "show", "scan", "company", "watch",
+KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "review", "stats", "show", "scan", "company", "watch",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
          *STATUS_CMDS}
 
-HELP = """<b>🎯 JobHunter bot</b>
-<b>Every day</b>
-/brief · morning summary now
-/today · jobs posted in the last 3 days  (next page <code>/today 2</code>)
-/top · best open jobs  (<code>/top 5</code>, <code>/top 10</code>, next page <code>/top 10 2</code>)
-/review · forms waiting for you
-/govt · govt notices and last dates
-/stats · your numbers
-<b>One job</b> (tap the links in alerts)
-/show_&lt;id&gt; · why it matched, link
-/form_&lt;id&gt; · every field the bot filled, numbered
-/fix_&lt;id&gt; 3 15 days · change field 3 (remembered for every future form)
-/approve_&lt;id&gt; · send it as shown (laptop submits it)
-/check_&lt;id&gt; · open it on the laptop to read and submit yourself
-/skip_&lt;id&gt; · /queue_&lt;id&gt; · hide it / apply to it first
-/applied_&lt;id&gt; · /interview_&lt;id&gt; · /rejected_&lt;id&gt; · /offer_&lt;id&gt;
-<b>Companies</b>
-<code>/dream Zoho</code> · make it a dream company (★, +15, watched)
-<code>/undream Zoho</code> · /dreams · list them
-<code>/company Aditya Birla</code> · its open jobs with links
-<code>/watch Bosch</code> · include it in every scan
-<b>Your resume</b>
-Send the PDF here: every application uses it from then on
-/resume · get the current one
-<b>Questions forms asked</b>
-/questions · then <code>/answer 1 Yes</code>
-<b>Other</b>
-/scan · scan now · /ping · is the bot alive
-Words work too: <i>help</i>, <i>top 5</i>, <i>dream Zoho</i>."""
+HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
+
+<b>Jobs</b>
+/today · posted in the last 3 days · <code>today 2</code> next page
+/top · best open jobs · <code>top 5</code>
+/search · any open job by role, skill or company · <code>search python intern</code>
+/company · one company: every open role, news, your applications · <code>company Zoho</code>
+/deadlines · every last date in the next 14 days
+/brief · the morning brief now
+
+<b>Govt</b>
+/govt · open notices, eligible first · <code>govt karnataka</code>, <code>govt central</code>, <code>govt all</code>
+/eligible · posts you can apply to now
+
+<b>One job</b> (tap the links on a card)
+/show_&lt;id&gt; · why it matched · /form_&lt;id&gt; · every filled field
+/fix_&lt;id&gt; · change a field · <code>/fix_ab12cd34 3 15 days</code>
+/approve_&lt;id&gt; · submit as shown · /check_&lt;id&gt; · open it on the laptop
+/skip_&lt;id&gt; · /queue_&lt;id&gt; · /applied_&lt;id&gt; · /interview_&lt;id&gt; · /offer_&lt;id&gt;
+
+<b>You</b>
+/stats · applied today, this week, total, interviews, offers, response rate
+/review · forms waiting for you · /questions · then <code>answer 1 Yes</code>
+/dream · <code>dream Zoho</code> (★ +15, watched) · /dreams · <code>undream Zoho</code>
+/watch · add a company to every scan · <code>watch Bosch</code>
+/resume · the current resume (send a PDF to replace it)
+
+<b>System</b>
+/scan · scan now · /ping · alive?"""
 
 
 def _e(s) -> str:
@@ -117,6 +117,28 @@ def _today(db: DB, page: int = 1) -> str:
         blocks += [f"<b>🏛 Govt ({len(gov)})</b>"] + [job_card(j, db) for j in gov]
     head = f"<b>📰 {len(priv)} new in 3 days · {sum(1 for j in priv if j['dream'])} ★</b>"
     return _paged(head, blocks, "/today", page)
+
+
+def _stats(db: DB) -> str:
+    """Applied today / this week / total, interviews, offers, and how many applications got any answer."""
+    today = dt.date.today()
+    week = today - dt.timedelta(days=today.weekday())
+    q = lambda sql, *a: db.c.execute(sql, a).fetchone()[0]                           # noqa: E731
+    applied = "SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='applied'"
+    total = q(applied) or db.count("status IN ('applied','interview','offer','rejected')")
+    ever = lambda k: q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind=?", k) or db.count("status=?", (k,))  # noqa: E731
+    answered = q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind IN ('interview','offer','rejected') AND job_id IN "
+                 "(SELECT job_id FROM events WHERE kind='applied')")
+    answered = max(answered, db.count("status IN ('interview','offer','rejected')"))     # status set by hand, no event
+    total = max(total, answered)
+    rate = f"{answered / total:.0%} ({answered} of {total} answered: interview, offer or rejection)" if total else "no applications yet"
+    opened = db.count("kind='private' AND status IN ('new','alerted','queued') AND score >= 40")
+    govt_open = db.count("kind='govt' AND status IN ('new','alerted') AND (deadline IS NULL OR deadline >= ?)", (str(today),))
+    return (f"<b>📊 Your numbers</b>\n"
+            f"Applied: today {q(applied + ' AND at >= ?', str(today))} · this week {q(applied + ' AND at >= ?', str(week))} · total {total}\n"
+            f"Interviews {ever('interview')} · Offers {ever('offer')} · Rejected {ever('rejected')}\n"
+            f"Response rate: {rate}\n"
+            f"Open matches {opened} · tracked {db.count()} · waiting for you {db.count('status=?', ('needs_you',))} · govt open {govt_open}")
 
 
 def _deadlines(db: DB, days: int = 14, page: int = 1) -> str:
@@ -384,13 +406,23 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         return (f"<b>Waiting for approval: {len(jobs)}</b>\n" + "\n".join(_line(j) for j in jobs)
                 + "\nApprove them at localhost:8765 on your laptop.") if jobs else "Nothing waiting. ✅"
     if cmd == "stats":
-        n = {k: db.count(w) for k, w in {
-            "tracked": "1=1", "open": "status IN ('new','alerted','queued')", "waiting": "status='needs_you'",
-            "applied": "status='applied'", "interviews": "status='interview'", "offers": "status='offer'",
-            "rejected": "status='rejected'"}.items()}
-        return (f"<b>Pipeline</b>\ntracked {n['tracked']} · open {n['open']} · waiting {n['waiting']}\n"
-                f"applied {n['applied']} · interviews {n['interviews']} · offers {n['offers']} · "
-                f"rejected {n['rejected']}\napplied today {db.applied_today()}")
+        return _stats(db)
+    if cmd == "search":
+        if not arg:
+            return "Usage: <code>/search python intern</code> (role, skill or company)"
+        words = [w for w in re.split(r"\s+", arg.lower()) if w and not w.isdigit()]
+        page = int(next((w for w in arg.split() if w.isdigit()), 1))
+        sql = ("SELECT * FROM jobs WHERE status IN ('new','alerted','queued','needs_you') AND (deadline IS NULL OR deadline >= ?)"
+               + "".join(" AND LOWER(title || ' ' || company || ' ' || COALESCE(description, '')) LIKE ?" for _ in words)
+               + " ORDER BY (LOWER(title || ' ' || company) LIKE ?) DESC, dream DESC, score DESC LIMIT 60")
+        from .db import _row
+        rows = [_row(r) for r in db.c.execute(sql, (str(dt.date.today()), *[f"%{w}%" for w in words], f"%{words[0]}%"))]
+        if not rows:
+            return f"<b>🔎 {_e(arg)}</b>\nno open jobs match. Try fewer words, or <code>company {_e(arg)}</code> for a live check."
+        from .notify import govt_card
+        cards = [govt_card(j) if j["kind"] == "govt" else job_card(j, db) for j in rows]
+        return _paged(f"<b>🔎 {_e(' '.join(words))}: {len(rows)}{'+' if len(rows) == 60 else ''} open</b>", cards,
+                      f"/search {' '.join(words)}", page)
     if cmd == "show":
         j = db.get(jid) if jid else None
         if not j:
@@ -515,9 +547,11 @@ def run() -> None:
         requests.post(f"{api}/deleteWebhook", timeout=20, json={"drop_pending_updates": False})  # webhooks block polling
         requests.post(f"{api}/setMyCommands", timeout=20, json={"commands": [
             {"command": c, "description": d} for c, d in [
-                ("brief", "morning brief now"), ("today", "jobs posted in the last 3 days"), ("top", "best open jobs"), ("govt", "govt notices + deadlines"),
-                ("review", "forms waiting for approval"), ("questions", "questions only you can answer"),
-                ("company", "a company's open listings"), ("stats", "pipeline numbers"), ("scan", "scan now"),
+                ("today", "jobs posted in the last 3 days"), ("top", "best open jobs"), ("search", "search open jobs: search python"),
+                ("company", "a company: every open role + news"), ("govt", "govt notices, eligible first"),
+                ("eligible", "govt posts you can apply to"), ("deadlines", "last dates in the next 14 days"),
+                ("brief", "morning brief now"), ("review", "forms waiting for approval"),
+                ("questions", "questions only you can answer"), ("stats", "applied, interviews, response rate"), ("scan", "scan now"),
                 ("ping", "is the bot alive"), ("help", "all commands")]]})
         log(f"bot @{me['result'].get('username')} running for chat {chat[-4:].rjust(4, '*')}")
     except requests.RequestException as exc:
