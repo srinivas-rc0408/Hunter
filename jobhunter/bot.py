@@ -64,6 +64,7 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 
 <b>You</b>
 /stats · applied today, this week, total, interviews, offers, response rate
+/applied · every application with its date
 /review · forms waiting for you · /questions · then <code>answer 1 Yes</code>
 /dream · <code>dream Zoho</code> (★ +15, watched) · /dreams · <code>undream Zoho</code>
 /watch · add a company to every scan · <code>watch Bosch</code>
@@ -433,6 +434,16 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         rs = "\n".join("• " + _e(r[:140]) for r in (j.get("reasons") or [])[:8])
         return (f"{_line(j)}\n{_e(j.get('location'))} · status <b>{_e(j['status'])}</b>\n{rs}\n"
                 f"<a href=\"{html.escape(j['url'] or '', quote=True)}\">Open posting</a>\n/skip_{j['id'][:8]} · /queue_{j['id'][:8]}")
+    if cmd == "applied" and not jid:                   # bare "applied": your applications, newest first
+        rows = db.query(status=["applied", "interview", "offer", "rejected"], limit=100000)
+        rows = sorted(((db.applied_on(j["id"]) or j.get("status_at") or "", j) for j in rows), key=lambda x: x[0], reverse=True)
+        if not rows:
+            return "<b>Your applications</b>\nnone yet. Mark one: <code>/applied_&lt;id&gt;</code>"
+        mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "applied": "·"}
+        lines = [f"{mark[j['status']]} {_e(on[:10])} · {_e(j['title'][:60])} · {_e(j['company'])} /show_{j['id'][:8]}"
+                 for on, j in rows]
+        page = int(arg) if arg.isdigit() else 1
+        return _paged(f"<b>Your applications: {len(rows)}</b>", lines, "/applied", page)
     if cmd in STATUS_CMDS:
         j = db.get(jid) if jid else None
         if not j:

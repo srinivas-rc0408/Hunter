@@ -101,7 +101,7 @@ class BotHTML(unittest.TestCase):
         for cmd in ("/help", "help", "/start", "top 5", "/top", "/stats", "/govt", "/review", "/ping", "/questions",
                     f"/show_{j.id[:8]}", "/show", "/answer", "/answer x", "/company", "/nope", "hello", "",
                     f"/queue {j.id[:8]}", "/skip", "/search", "search ml intern", "search <x&y>", "/search a&b 2",
-                    "stats", "/deadlines", "/eligible", "govt karnataka", "govt central", "govt all"):
+                    "stats", "applied", "/applied 2", "/deadlines", "/eligible", "govt karnataka", "govt central", "govt all"):
             out = handle(cmd, db)
             self.assertTrue(out.strip(), cmd)
             assert_telegram_html(self, out)
