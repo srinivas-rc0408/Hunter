@@ -47,6 +47,16 @@ def backup(keep: int = 8) -> Path:
         with tarfile.open(tar, "w:gz") as tf:
             for rel in INCLUDE:
                 p = home / rel
+                if rel == "data/jobs.db" and p.exists():      # a consistent copy even while the bot/scan writes
+                    import sqlite3
+                    snap = Path(td) / "jobs.db"
+                    src, dst = sqlite3.connect(p, timeout=60), sqlite3.connect(snap)
+                    try:
+                        src.backup(dst)
+                    finally:
+                        src.close()
+                        dst.close()
+                    p = snap
                 if p.exists():
                     tf.add(p, arcname=rel)
         _openssl(["-salt", "-in", str(tar), "-out", str(out)], key)
