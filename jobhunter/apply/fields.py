@@ -187,6 +187,26 @@ def from_bank(label: str) -> Any:
 
 
 # ── answering ──────────────────────────────────────────────────────────────
+_NEVER_GUESS = {"captcha", "otp", "consent", "marketing", "cover_letter", "resume", "diversity"}
+_UNDERSTOOD: dict[str, str] = {}
+
+
+def _understand(label: str, options: list[str] | None) -> str:
+    """The LLM only says WHICH known question this is (one key); the value still comes from your profile.
+    Anything else it says, or no reply, leaves the question unknown → asked of you."""
+    k = norm(label)
+    if k not in _UNDERSTOOD:
+        from jobhunter import llm
+        keys = sorted({r for r, _ in RULES} - _NEVER_GUESS)
+        reply = llm.chat("You classify job-application form questions. Reply with exactly one key from the "
+                         "list, or 'unknown' if none clearly fits. Never answer the question.",
+                         f"Question: {label}\nOptions: {options or []}\nKeys: {', '.join(keys)}",
+                         temperature=0, max_tokens=10) or ""
+        reply = reply.strip().strip("'\"`.").lower()
+        _UNDERSTOOD[k] = reply if reply in keys else "unknown"
+    return _UNDERSTOOD[k]
+
+
 def _degree_yes_no(label: str, edu: dict) -> str | None:
     """Yes/No about your bachelor's, from its end year in your profile. None = can't tell: ask you."""
     lab, end, now = label.lower(), edu.get("end"), dt.date.today().year
@@ -239,6 +259,9 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
         fix = load_bank().get(norm(label)) or {}
         if fix.get("override") and fix.get("answer") not in (None, ""):
             return Answer(key, fix["answer"], "learned", "you corrected this before")
+
+    if key == "unknown" and from_bank(label) in (None, ""):
+        key = _understand(label, options)
 
     if key in ("degree", "unknown") and options and pick_option("Yes", options) and pick_option("No", options):
         v = _degree_yes_no(label, edu)

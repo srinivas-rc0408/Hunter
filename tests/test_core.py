@@ -179,6 +179,22 @@ class Fields(unittest.TestCase):
             self.assertEqual(a.basis, "profile" if want else "none", label)
         self.assertEqual(answer("Highest degree", "select", "", ["B.Tech", "M.Tech"]).value, "B.Tech")
 
+    def test_llm_only_names_the_question_never_the_answer(self):
+        from unittest import mock
+        from jobhunter.apply import fields
+        label = "Would you be open to moving base for this role?"     # no rule matches it
+        self.assertEqual(classify(label, "radio"), "unknown")
+        prof = config.cfg("profile")["answers"]["willing_to_relocate"]
+        with mock.patch("jobhunter.llm.chat", return_value="relocate") as m:
+            a = answer(label, "radio", "", ["Yes", "No"])
+        self.assertIn(label, m.call_args.args[1])
+        self.assertEqual((a.key, a.value, a.basis), ("relocate", prof, "profile"))
+        for reply in ("Yes", "I think yes, relocate", None, "captcha", "consent"):   # an answer, chatter, nothing, unsafe key
+            fields._UNDERSTOOD.clear()
+            with mock.patch("jobhunter.llm.chat", return_value=reply):
+                a = answer(label, "radio", "", ["Yes", "No"])
+            self.assertEqual((a.value, a.basis), (None, "none"), reply)
+
     def test_not_basic(self):
         for label in ("Expected CTC", "Why do you want to join us?", "Gender",
                       "How many years of experience do you have with Kubernetes?", "Caste category"):
