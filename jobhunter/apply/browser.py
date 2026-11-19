@@ -386,9 +386,11 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
             continue
         try:
             _fill_one(page, f, a, fill, resume_path, cover_text)
-            if not fill.ok and fill.why.startswith("no option matches"):
-                # read mid-redraw (options still empty): wait, find the question again, try once more
-                page.wait_for_timeout(800)
+            for _ in range(10):
+                if fill.ok or not fill.why.startswith("no option matches"):
+                    break
+                # read mid-redraw (option text blank or the question's own): wait, find it again, retry, up to 4 s
+                page.wait_for_timeout(400)
                 f = _same_field(scan(page, root), f0)
                 if f:
                     a = F.answer(f0["label"], f0["type"], f0.get("placeholder", ""),
