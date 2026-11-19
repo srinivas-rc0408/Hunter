@@ -105,12 +105,15 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
         if 0 <= (d - today).days <= 10:
             soon.append((d, j))
     soon.sort(key=lambda x: x[0])
+    from .notify import govt_open
+    govt_top = govt_open([j for j in db.query(kind="govt", limit=1000)
+                          if "eligibility:ineligible" not in (j.get("flags") or [])], today)[:3]
     applied_today = db.applied_today()
     hb = cloud_heartbeat() if heartbeat else ("", None)
     from .apply.questions import pending
     qs = pending()
     return {"date": today.isoformat(), "since": since, "new": new, "open": open_q, "waiting": waiting,
-            "govt_soon": soon, "applied_today": applied_today, "goal": DAILY_GOAL,
+            "govt_soon": soon, "govt_top": govt_top, "applied_today": applied_today, "goal": DAILY_GOAL,
             "interviews": db.query(status=["interview"], limit=20), "heartbeat": hb,
             "gate": gate_countdown(today), "next_event": next_event(today), "questions": qs}
 
@@ -134,9 +137,15 @@ def as_telegram_pages(b: dict) -> list[str]:
         q = b["questions"]
         blocks.append(f"<b>❓ {len(q)} question(s) only you can answer</b> (unblocks "
                       f"{len({j for r in q for j in r.get('jobs', [])})} job(s)): /questions")
-    if b["govt_soon"]:
-        blocks.append("<b>🏛 Govt deadlines (10 days)</b>")
-        blocks += [job_card(j) for _, j in b["govt_soon"][:6]]
+    if b.get("govt_top"):
+        from .notify import govt_card
+        today = dt.date.fromisoformat(b["date"])
+        blocks.append(f"<b>🏛 Top govt notices</b> (all: /govt · next 14 days: /deadlines)")
+        blocks += [govt_card(j, today=today) for j in b["govt_top"]]
+        rest = [j for _, j in b["govt_soon"] if j["id"] not in {g["id"] for g in b["govt_top"]}]
+        if rest:
+            blocks.append("<b>Also closing in 10 days</b>\n" + "\n".join(
+                f"• {e(j['deadline'])} · {e(j['title'][:70])} · {e(j['company'])} /show_{j['id'][:8]}" for j in rest[:5]))
     tail = []
     if b["interviews"]:
         tail.append(f"<b>🎤 Interviews in progress: {len(b['interviews'])}</b>: prep with the interview drill")

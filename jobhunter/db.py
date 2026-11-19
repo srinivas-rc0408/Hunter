@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   found_at TEXT NOT NULL,
   pay_min REAL, pay_max REAL, pay_period TEXT, currency TEXT,
   pay_estimate TEXT,                         -- who estimated the pay ("Indeed"); NULL = the posting listed it
+  details TEXT DEFAULT '{}',                 -- govt notice fields read from the notification (json)
   emails TEXT DEFAULT '[]',
   easy_apply INTEGER,
   score INTEGER DEFAULT 0,
@@ -88,6 +89,7 @@ class Job:
     pay_period: str | None = None       # month | year | hour
     currency: str | None = None
     pay_estimate: str | None = None     # "Indeed" / "Glassdoor" when the board guessed the pay; None = listed
+    details: dict = field(default_factory=dict)   # govt: post, pay, vacancies, fee, dates … read from the notice
     emails: list[str] = field(default_factory=list)
     easy_apply: bool | None = None
     kind: str = "private"
@@ -127,11 +129,13 @@ class DB:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path else config.data_dir() / "jobs.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.c = sqlite3.connect(self.path)
+        self.c = sqlite3.connect(self.path, timeout=30)   # a running scan writes too: wait, never fail
         self.c.row_factory = sqlite3.Row
         self.c.executescript(SCHEMA)
-        if "pay_estimate" not in {r[1] for r in self.c.execute("PRAGMA table_info(jobs)")}:
-            self.c.execute("ALTER TABLE jobs ADD COLUMN pay_estimate TEXT")       # DBs made before 1.7
+        cols = {r[1] for r in self.c.execute("PRAGMA table_info(jobs)")}
+        for col, typ in (("pay_estimate", "TEXT"), ("details", "TEXT DEFAULT '{}'")):     # DBs made before 1.7
+            if col not in cols:
+                self.c.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typ}")
 
     # ── jobs ────────────────────────────────────────────────────────────────
     def upsert(self, job: Job) -> bool:
@@ -143,14 +147,14 @@ class DB:
             self.c.execute(
                 """INSERT INTO jobs (id, kind, title, company, location, is_remote, job_type, url, urls,
                    sources, description, posted_at, found_at, pay_min, pay_max, pay_period, currency,
-                   emails, easy_apply, score, reasons, flags, dream, status, status_at, deadline, pay_estimate)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   emails, easy_apply, score, reasons, flags, dream, status, status_at, deadline, pay_estimate, details)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (jid, job.kind, job.title, job.company, job.location, int(job.is_remote), job.job_type,
                  url, json.dumps([url] if url else []), json.dumps([job.source]), job.description,
                  job.posted_at, iso(), job.pay_min, job.pay_max, job.pay_period, job.currency,
                  json.dumps(job.emails), None if job.easy_apply is None else int(job.easy_apply),
                  job.score, json.dumps(job.reasons), json.dumps(job.flags), int(job.dream),
-                 job.status, iso(), job.deadline, job.pay_estimate))
+                 job.status, iso(), job.deadline, job.pay_estimate, json.dumps(job.details or {})))
             self.c.commit()
             return True
         urls = json.loads(row["urls"] or "[]")
@@ -178,6 +182,9 @@ class DB:
         # pay moves as one unit (min, max, period, currency): two boards' numbers are never mixed into one
         # range, and a listed pay replaces an estimate
         had, has = row["pay_min"] or row["pay_max"], job.pay_min or job.pay_max
+        if job.details:                                                        # a re-read notice: latest reading wins
+            self.c.execute("UPDATE jobs SET details=?, deadline=COALESCE(?, deadline) WHERE id=?",
+                           (json.dumps(job.details), job.deadline, jid))
         only_this_board = json.loads(row["sources"] or "[]") == [job.source]     # its pay came from this board
         if has and (not had or (row["pay_estimate"] and not job.pay_estimate) or (job.pay_estimate and only_this_board)):
             self.c.execute("UPDATE jobs SET pay_min=?, pay_max=?, pay_period=?, currency=?, pay_estimate=? WHERE id=?",
@@ -299,12 +306,11 @@ class DB:
 
     # ── page watcher memory ─────────────────────────────────────────────────
     def link_is_new(self, page: str, href: str, text: str) -> bool:
-        try:
-            self.c.execute("INSERT INTO seen_links VALUES (?,?,?,?)", (page, href, text, iso()))
-            self.c.commit()
-            return True
-        except sqlite3.IntegrityError:
-            return False
+        # OR IGNORE, never IntegrityError: a failed INSERT left its implicit transaction open, holding the
+        # write lock through the PDF downloads that follow (the bot and other scans then hit "database is locked")
+        new = self.c.execute("INSERT OR IGNORE INTO seen_links VALUES (?,?,?,?)", (page, href, text, iso())).rowcount == 1
+        self.c.commit()
+        return new
 
     def page_known(self, page: str) -> bool:
         return self.c.execute("SELECT 1 FROM seen_links WHERE page=? LIMIT 1", (page,)).fetchone() is not None
@@ -359,6 +365,10 @@ def _row(r: sqlite3.Row) -> dict:
             d[k] = json.loads(d.get(k) or "[]")
         except (TypeError, ValueError):
             d[k] = []
+    try:
+        d["details"] = json.loads(d.get("details") or "{}")
+    except (TypeError, ValueError):
+        d["details"] = {}
     d["dream"] = bool(d.get("dream"))
     d["is_remote"] = bool(d.get("is_remote"))
     return d

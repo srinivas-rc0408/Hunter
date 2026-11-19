@@ -300,3 +300,82 @@ def digest_html(jobs: list[dict], govt: list[dict], stats: dict) -> str:
 <h3>Top new jobs</h3><table cellpadding="6" style="border-collapse:collapse" border="1">{head}{rows(jobs)}</table>
 <h3>Government notices</h3><table cellpadding="6" style="border-collapse:collapse" border="1">{head}{rows(govt)}</table>
 <p style="color:#555">Apply from your laptop: <code>hunt apply --top 10</code></p></div>"""
+
+
+def _govt_reason(j: dict) -> str:
+    """The one line that decides it: the first blocker, else the first open question, else what passed."""
+    rs = j.get("reasons") or []
+    for mark in ("✗ ", "? "):
+        hit = next((r for r in rs if r.startswith(mark)), None)
+        if hit:
+            return hit[2:]
+    ok = [r[2:] for r in rs if r.startswith("✓ ")]
+    return "; ".join(ok[:2]) or "see notification"
+
+
+def govt_card(j: dict, profile: dict | None = None, today: date | None = None) -> str:
+    """One govt notice, every value from the notification itself (else "see notification")."""
+    from . import config
+    from .eligibility import age_on, to_date
+    d = j.get("details") or {}
+    see = "see notification"
+    today = today or date.today()
+    prof = profile if profile is not None else config.cfg("profile")
+    flags = j.get("flags") or []
+    verdict = next((f.split(":", 1)[1] for f in flags if f.startswith("eligibility:")), "check")
+    last = to_date(j.get("deadline") or d.get("last_date"))
+    left = (last - today).days if last else None
+    lines = []
+    if left is not None and 0 <= left <= 3:
+        lines.append(f"🔴 <b>closes in {left} day{'s' if left != 1 else ''}</b>" if left else "🔴 <b>closes today</b>")
+    org = _esc(j["company"]) + (f" ({_esc(d['department'])})" if d.get("department") else "")
+    lines.append(f"🏛 <b>{_esc(clip(d.get('post') or j['title'], 120))}</b> · {org} · score {j.get('score', 0)}")
+    lines.append(f"📍 {_esc(j.get('location') or d.get('place') or see)}"
+                 + (f" · posting: {_esc(clip(d['place'], 80))}" if d.get("place") and d["place"] not in (j.get("location") or "") else ""))
+    lines.append(f"💰 {_esc(d.get('pay') or see)}")
+    vac = d.get("vacancies")
+    lines.append(f"👥 {vac if vac else see}" + (f" posts · SC {d['sc_vacancies']}" if vac and d.get("sc_vacancies") is not None
+                                                 else " posts" if vac else ""))
+    mark = {"eligible": "✅ Eligible", "check": "🟡 Check", "ineligible": "❌ Not eligible"}.get(verdict, "🟡 Check")
+    lines.append(f"{mark}: {_esc(clip(_govt_reason(j), 160))}")
+    cat = (prof.get("category") or "GM").upper()
+    limit = f"{d['age_limit_sc']} for {cat}" if cat in ("SC", "ST") and d.get("age_limit_sc") else d.get("age_limit")
+    dob, on = to_date(prof.get("date_of_birth")), to_date(d.get("age_cutoff")) or last
+    mine = (f"you: {int(age_on(dob, on))} on the cut-off {_day(on)}" if dob and on else
+            f"you: {int(age_on(dob, today))} today (cut-off date: {see})" if dob else "your age: add date_of_birth to private.yaml")
+    lines.append(f"🎂 age limit {limit or see} · {mine}")
+    lines.append(f"💸 fee for SC: {_esc(d.get('fee_sc') or see)}")
+    rel, ex = to_date(d.get("released")), to_date(d.get("exam_date"))
+    lines.append(f"🗓 released {_day(rel) if rel else see} · last date "
+                 + (f"{_day(last)} ({left} day{'s' if left != 1 else ''} left)" if last else see)
+                 + f" · exam {_day(ex) if ex else see}")
+    links = []
+    if d.get("pdf"):
+        links.append(f'📄 <a href="{html.escape(d["pdf"], quote=True)}">Notification PDF</a>')
+    apply_u = d.get("apply_url") or j.get("url")
+    if apply_u:
+        links.append(f'🔗 <a href="{html.escape(apply_u, quote=True)}">Apply / official page</a>')
+    lines.append(" · ".join(links) or "🔗 no link listed")
+    lines.append(f"/show_{j['id'][:8]} · /skip_{j['id'][:8]} · /applied_{j['id'][:8]}")
+    return "\n".join(lines)
+
+
+def govt_open(jobs: list[dict], today: date | None = None, scope: str = "all", eligible_only: bool = False) -> list[dict]:
+    """Open govt notices (last date not passed), eligible first, then by last date. scope: all / karnataka / central."""
+    today_s = str(today or date.today())
+    out = []
+    for j in jobs:
+        f = j.get("flags") or []
+        if j["status"] in ("skipped", "applied", "rejected") or (j.get("deadline") and j["deadline"][:10] < today_s):
+            continue
+        state = "govt:state" in f
+        in_ka = state or bool((j.get("details") or {}).get("karnataka_places"))
+        if (scope == "karnataka" and not in_ka) \
+                or (scope == "central" and state):
+            continue
+        if eligible_only and "eligibility:eligible" not in f:
+            continue
+        out.append(j)
+    rank = {"eligibility:eligible": 0, "eligibility:check": 1, "eligibility:ineligible": 2}
+    out.sort(key=lambda j: (min((rank[x] for x in j.get("flags") or [] if x in rank), default=1), j.get("deadline") or "9999"))
+    return out

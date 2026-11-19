@@ -43,7 +43,7 @@ relevance:
             "project engineer", "project associate", "trainee engineer", "probationary engineer",
             "it officer", "systems officer", "assistant programmer"]
   # …and none of these
-  exclude: ["answer key", "admit card", "hall ticket", "result", "merit list", "provisional list",
+  exclude: ["answer key", "admit card", "hall ticket", "result", "results", "archive", "merit list", "provisional list",
             "selection list", "interview schedule", "cut off", "cut-off", "tender", "corrigendum to tender",
             "rti", "photo gallery", "annual report", "press release"]
   # Bonus: notices that match these are TECH and ranked first

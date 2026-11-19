@@ -38,7 +38,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
-KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "review", "stats", "show", "scan", "company", "watch",
+KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "review", "stats", "show", "scan", "company", "watch",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
          *STATUS_CMDS}
 
@@ -117,6 +117,26 @@ def _today(db: DB, page: int = 1) -> str:
         blocks += [f"<b>🏛 Govt ({len(gov)})</b>"] + [job_card(j, db) for j in gov]
     head = f"<b>📰 {len(priv)} new in 3 days · {sum(1 for j in priv if j['dream'])} ★</b>"
     return _paged(head, blocks, "/today", page)
+
+
+def _deadlines(db: DB, days: int = 14, page: int = 1) -> str:
+    """Every last date in the next `days` days, govt and private, soonest first."""
+    today = dt.date.today()
+    rows = db.c.execute("SELECT * FROM jobs WHERE deadline IS NOT NULL AND deadline >= ? AND deadline <= ? AND "
+                        "status NOT IN ('skipped','applied','rejected') AND (kind = 'govt' OR score >= 40) "
+                        "ORDER BY deadline, score DESC", (str(today), str(today + dt.timedelta(days=days)))).fetchall()
+    from .db import _row
+    jobs = [j for j in map(_row, rows) if "eligibility:ineligible" not in (j.get("flags") or [])]
+    if not jobs:
+        return f"<b>🗓 Deadlines, next {days} days</b>\nnone"
+    lines = []
+    for j in jobs:
+        n = (dt.date.fromisoformat(j["deadline"][:10]) - today).days
+        when = "today" if n == 0 else "tomorrow" if n == 1 else f"in {n} days"
+        lines.append(f"{'🔴' if n <= 3 else '🟡' if n <= 7 else '⚪'} <b>{dt.date.fromisoformat(j['deadline'][:10]):%d %b}</b> ({when}) · "
+                     f"{'🏛 ' if j['kind'] == 'govt' else ''}{_e(j['title'][:70])} · {_e(j['company'])}"
+                     + (f" · {apply_link(j)}" if j.get("url") else "") + f" /show_{j['id'][:8]}")
+    return _paged(f"<b>🗓 Deadlines, next {days} days: {len(jobs)}</b>", lines, "/deadlines", page)
 
 
 _PICK: dict = {}                                        # numbered company choices waiting for "2"
@@ -339,11 +359,26 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         return _paged(f"<b>Top {min(n, len(jobs))} open jobs</b>", [job_card(j, db) for j in jobs[:n]], f"/top {n}", page)
     if cmd in ("today", "new"):
         return _today(db, int(arg) if arg.isdigit() else 1)
-    if cmd == "govt":
-        jobs = [j for j in db.query(kind="govt", limit=300) if j["status"] not in ("skipped", "applied")
-                and "eligibility:ineligible" not in (j.get("flags") or [])]
-        jobs.sort(key=lambda j: j.get("deadline") or "9999")
-        return "<b>Govt notices</b>\n" + ("\n".join(_line(j) for j in jobs[:12]) or "none yet")
+    if cmd in ("govt", "eligible"):
+        from .notify import govt_card, govt_open
+        words = arg.lower().split()
+        scope = next((w for w in words if w in ("all", "karnataka", "central")), "all")
+        page = int(next((w for w in words if w.isdigit()), 1))
+        jobs = govt_open(db.query(kind="govt", limit=1000), scope=scope, eligible_only=cmd == "eligible")
+        if "all" not in words:                          # posts you can't apply to: only in /govt all
+            jobs = [j for j in jobs if "eligibility:ineligible" not in (j.get("flags") or [])]
+        title = ("✅ Govt posts you're eligible for now" if cmd == "eligible" else
+                 {"karnataka": "🏛 Karnataka govt notices", "central": "🏛 Central govt / PSU notices"}.get(scope, "🏛 Govt notices"))
+        if not jobs:
+            return f"<b>{title}</b>\nnone open right now" + ("\n/govt all shows every open notice" if cmd == "eligible" else "")
+        today = dt.date.today()
+        soon = sum(1 for j in jobs if j.get("deadline") and 0 <= (dt.date.fromisoformat(j["deadline"][:10]) - today).days <= 3)
+        prof = config.cfg("profile")
+        head = f"<b>{title}: {len(jobs)} open</b>" + (f"\n🔴 <b>{soon} close{'s' if soon == 1 else ''} in 3 days or less</b>" if soon else "")
+        more = f"/{cmd}" + (f" {scope}" if scope != "all" or "all" in words else "")
+        return _paged(head, [govt_card(j, prof, today) for j in jobs], more, page)
+    if cmd == "deadlines":
+        return _deadlines(db, page=int(arg) if arg.isdigit() else 1)
     if cmd == "review":
         jobs = db.query(status=["needs_you"], limit=20)
         return (f"<b>Waiting for approval: {len(jobs)}</b>\n" + "\n".join(_line(j) for j in jobs)

@@ -104,7 +104,7 @@ def watch(db: DB, http: Http, url: str, include: list[str], exclude: list[str],
     fresh = []
     for link in extract_links(r.text, url):
         is_new = db.link_is_new(url, link.href, link.text)
-        if is_new and (not first or baseline_new) and relevant(link, include, exclude):
+        if (baseline_new or (is_new and not first)) and relevant(link, include, exclude):   # baseline_new: all on the page
             fresh.append(link)
     if first and not baseline_new:
         errors.append(f"{urlparse(url).netloc}: baseline saved (new notices from the next scan on)")
@@ -112,7 +112,7 @@ def watch(db: DB, http: Http, url: str, include: list[str], exclude: list[str],
 
 
 def pdf_text(http: Http, url: str, max_pages: int = 6) -> str:
-    """First pages of a notification PDF as text ('' if anything fails)."""
+    """First pages of a notification PDF as text; scanned PDFs (most KEA/KPSC notices) are OCR'd. '' on failure."""
     try:
         import io
 
@@ -121,6 +121,35 @@ def pdf_text(http: Http, url: str, max_pages: int = 6) -> str:
         if r.status_code >= 400 or b"%PDF" not in r.content[:1024]:
             return ""
         with pdfplumber.open(io.BytesIO(r.content)) as pdf:
-            return "\n".join((p.extract_text() or "") for p in pdf.pages[:max_pages])
+            text = "\n".join((p.extract_text() or "") for p in pdf.pages[:max_pages])
+        return text if len(text.strip()) >= 200 else (ocr(r.content, max_pages) or text)
     except Exception:
         return ""
+
+
+def ocr(pdf: bytes, max_pages: int = 6) -> str:
+    """Kannada + English OCR with pdftoppm + tesseract. Language data: data/tessdata/{kan,eng}.traineddata
+    (or the system's). '' when the tools are missing: the card then says "see notification"."""
+    import glob
+    import shutil
+    import subprocess
+    import tempfile
+
+    from .. import config
+    if not (shutil.which("pdftoppm") and shutil.which("tesseract")):
+        return ""
+    tess = config.data_dir() / "tessdata"
+    langs = [l for l in ("kan", "eng") if (tess / f"{l}.traineddata").exists()]
+    extra = ["--tessdata-dir", str(tess)] if langs else []
+    with tempfile.TemporaryDirectory() as d:
+        f = f"{d}/n.pdf"
+        with open(f, "wb") as fh:
+            fh.write(pdf)
+        try:
+            subprocess.run(["pdftoppm", "-r", "200", "-png", "-l", str(max_pages), f, f"{d}/p"], timeout=120,
+                           check=True, capture_output=True)
+            return "\n".join(subprocess.run(["tesseract", png, "-", "-l", "+".join(langs or ["eng"]), *extra],
+                                            capture_output=True, text=True, timeout=120).stdout
+                             for png in sorted(glob.glob(f"{d}/p-*.png")))
+        except (subprocess.SubprocessError, OSError):
+            return ""

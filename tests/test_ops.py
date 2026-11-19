@@ -47,9 +47,9 @@ class Morning(unittest.TestCase):
         msg = morning.as_telegram(br)
         self.assertIn("Morning brief", msg)
         self.assertIn(f"/check_{a.id[:8]}", msg)
-        self.assertIn("Govt deadlines", msg)
+        self.assertIn("Top govt notices", msg)
         self.assertIn('<a href="https://x.example/j">Apply on company site</a>', msg)   # every job: one tap to apply
-        self.assertIn('<a href="https://iisc/x">Apply on company site</a>', msg)
+        self.assertIn('<a href="https://iisc/x">Apply / official page</a>', msg)
 
     def test_alert_and_top_have_apply_links(self):
         from jobhunter.bot import handle
