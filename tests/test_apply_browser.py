@@ -256,6 +256,17 @@ class Browser(unittest.TestCase):
         self.assertTrue(res.fills[0].ok, res.fills[0].why)
         self.assertTrue(p.is_checked("#y"))
 
+    def test_radio_with_the_question_as_aria_label_reads_its_own_text(self):
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()                # live 19 Nov, LinkedIn's other 2026 markup (Wedding Co 3/5)
+        q = "Are you comfortable working in an onsite setting?"
+        opt = ('<div><div><div><input id="{i}" aria-label="' + q + '" type="radio" name="g"><label for="{i}"></label>'
+               '</div><div><p>{t}</p></div></div></div>')
+        p.set_content(f'<dialog data-testid="dialog" open><div><p>{q}*</p><fieldset role="radiogroup"><div>'
+                      + opt.format(i="y", t="Yes") + opt.format(i="n", t="No") + '</div></fieldset></div></dialog>')
+        f = B.scan(p, flows.LI_MODAL)[0]
+        self.assertEqual((f["label"], [o["text"] for o in f["options"]]), (q + "*", ["Yes", "No"]))
+
     def test_rejected_value_is_retyped_with_your_other_wording(self):
         from jobhunter.apply import browser as B
         p = self.browser.new_page()                # live 19 Nov (Wedding Co 3/5): "Immediately" → "Invalid input"

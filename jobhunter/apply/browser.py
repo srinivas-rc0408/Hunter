@@ -50,11 +50,16 @@ SCAN_JS = r"""
     if (el.id) { const l = R(el).querySelector(`label[for="${CSS.escape(el.id)}"]`); if (l) t = txt(l); }
     if (!t && el.getAttribute('aria-labelledby'))
       t = el.getAttribute('aria-labelledby').split(/\s+/).map(i => txt(byId(el, i))).join(' ');
-    if (!t && el.getAttribute('aria-label')) t = el.getAttribute('aria-label');
+    const al = el.getAttribute('aria-label') || '';    // LinkedIn 2026 may put the QUESTION in a radio's aria-label
+    const q = s => s.replace(/[\s*]+/g, ' ').trim();
+    if (!t && al && !(el.type === 'radio' && q(al) === q(groupLabel(el)))) t = al;
     if (!t) { const l = el.closest('label'); if (l) t = txt(l); }
     if (!t && (el.type === 'radio' || el.type === 'checkbox')) {     // LinkedIn 2026: empty <label for>, text beside it
       const w = el.closest('[role="radio"], [role="checkbox"]'); if (w) t = txt(w) || w.getAttribute('aria-label') || '';
     }
+    if (!t && el.type === 'radio')     // the option's text beside it: the nearest box holding only this input
+      for (let c = el.parentElement, i = 0; c && i < 5 && !t && c.querySelectorAll('input').length === 1; c = c.parentElement, i++)
+        if (txt(c).length < 120) t = txt(c);
     if (!t) {
       let c = el.parentElement;
       for (let i = 0; i < 5 && c && !t; i++) {
