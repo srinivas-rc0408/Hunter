@@ -20,6 +20,7 @@ Nothing here submits an application: applying stays in `hunt apply` / the Review
 """
 from __future__ import annotations
 
+import datetime as dt
 import html
 import re
 import subprocess
@@ -37,13 +38,14 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
-KNOWN = {"start", "help", "menu", "brief", "top", "govt", "review", "stats", "show", "scan", "company", "watch",
+KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "review", "stats", "show", "scan", "company", "watch",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
          *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter bot</b>
 <b>Every day</b>
 /brief · morning summary now
+/today · jobs posted in the last 3 days  (next page <code>/today 2</code>)
 /top · best open jobs  (<code>/top 5</code>, <code>/top 10</code>, next page <code>/top 10 2</code>)
 /review · forms waiting for you
 /govt · govt notices and last dates
@@ -79,6 +81,42 @@ def _line(j: dict) -> str:
     return (f"{'★ ' if j.get('dream') else ''}{'🏛 ' if j.get('kind') == 'govt' else ''}<b>{j['score']}</b> "
             f"{_e(j['title'][:80])} · {_e(j['company'])}" + (f" · ⏰ {j['deadline']}" if j.get("deadline") else "")
             + f" /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
+
+
+def _paged(head: str, blocks: list[str], cmd: str, page: int) -> str:
+    """Page `page` of whole blocks (a job is never cut in half), with the command for the next page."""
+    ps = pages("", blocks)
+    page = max(1, min(page, len(ps)))
+    return (head + (f" · page {page}/{len(ps)}" if len(ps) > 1 else "") + ps[page - 1]
+            + (f"\n\nMore: {cmd} {page + 1}" if page < len(ps) else ""))
+
+
+def _today(db: DB, page: int = 1) -> str:
+    """Jobs posted in the last 72 h (posting date, else the day we found it), dream first, govt in its own block."""
+    from .util import now, parse_iso
+    t = now()
+    cut = t - dt.timedelta(hours=72)
+    rows = db.c.execute("SELECT * FROM jobs WHERE status != 'skipped' AND score >= 40 AND "
+                        "COALESCE(posted_at, found_at) >= ? AND (deadline IS NULL OR deadline >= ?) "
+                        "ORDER BY dream DESC, score DESC, found_at DESC", (str(cut.date()), str(t.date()))).fetchall()
+    from .db import _row
+
+    def fresh(j):
+        p = j.get("posted_at") or j["found_at"]
+        if len(p) <= 10:                                   # a date only: counts for its whole day
+            return p >= str(cut.date())
+        d = parse_iso(p)
+        return d is not None and d >= cut
+    jobs = [j for j in map(_row, rows) if fresh(j)]
+    priv = [j for j in jobs if j["kind"] != "govt"]
+    gov = [j for j in jobs if j["kind"] == "govt"]
+    if not jobs:
+        return "<b>📰 Nothing new in the last 3 days</b>\n/top shows the best open jobs"
+    blocks = [job_card(j, db) for j in priv]
+    if gov:
+        blocks += [f"<b>🏛 Govt ({len(gov)})</b>"] + [job_card(j, db) for j in gov]
+    head = f"<b>📰 {len(priv)} new in 3 days · {sum(1 for j in priv if j['dream'])} ★</b>"
+    return _paged(head, blocks, "/today", page)
 
 
 def handle(text: str, db: DB | None = None) -> str | list[str]:
@@ -194,14 +232,14 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         n, page = (nums + [1])[:2] if nums else (10, 1)       # /top · /top 5 · /top 10 2 (page 2)
         n = max(1, min(n, 50))
         jobs = db.query(status=["new", "alerted", "queued"], kind="private", min_score=40, limit=n * 2)
+        today = str(dt.date.today())
+        jobs = [j for j in jobs if not j.get("deadline") or j["deadline"] >= today]     # last date passed: gone
         jobs.sort(key=lambda j: (j["status"] != "queued", not j["dream"], -j["score"]))
         if not jobs:
             return "<b>Top open jobs</b>\nnone: run /scan"
-        ps = pages("", [job_card(j, db) for j in jobs[:n]])
-        page = max(1, min(page, len(ps)))
-        head = f"<b>Top {min(n, len(jobs))} open jobs</b>" + (f" · page {page}/{len(ps)}" if len(ps) > 1 else "")
-        more = f"\n\nMore: /top {n} {page + 1}" if page < len(ps) else ""
-        return head + ps[page - 1] + more
+        return _paged(f"<b>Top {min(n, len(jobs))} open jobs</b>", [job_card(j, db) for j in jobs[:n]], f"/top {n}", page)
+    if cmd in ("today", "new"):
+        return _today(db, int(arg) if arg.isdigit() else 1)
     if cmd == "govt":
         jobs = [j for j in db.query(kind="govt", limit=300) if j["status"] not in ("skipped", "applied")
                 and "eligibility:ineligible" not in (j.get("flags") or [])]
@@ -239,7 +277,7 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check"}
+SLOW = {"today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check"}
 
 
 def log(msg: str) -> None:
@@ -334,7 +372,7 @@ def run() -> None:
         requests.post(f"{api}/deleteWebhook", timeout=20, json={"drop_pending_updates": False})  # webhooks block polling
         requests.post(f"{api}/setMyCommands", timeout=20, json={"commands": [
             {"command": c, "description": d} for c, d in [
-                ("brief", "morning brief now"), ("top", "best open jobs"), ("govt", "govt notices + deadlines"),
+                ("brief", "morning brief now"), ("today", "jobs posted in the last 3 days"), ("top", "best open jobs"), ("govt", "govt notices + deadlines"),
                 ("review", "forms waiting for approval"), ("questions", "questions only you can answer"),
                 ("company", "a company's open listings"), ("stats", "pipeline numbers"), ("scan", "scan now"),
                 ("ping", "is the bot alive"), ("help", "all commands")]]})

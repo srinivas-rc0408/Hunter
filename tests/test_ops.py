@@ -273,3 +273,58 @@ class JobCards(unittest.TestCase):
             self.assertLessEqual(len(p), 3900)
             assert_telegram_html(self, p)
         self.assert_card("\n".join(pages), jobs[0])
+
+
+class Today(unittest.TestCase):
+    """/today: jobs posted in the last 72 h (posting date, else the date we found it), best first, paged."""
+
+    def test_72h_window_header_govt_block_and_paging(self):
+        from jobhunter.bot import handle
+        from jobhunter.util import iso, now
+        db = DB(HOME / "data" / "today.db")
+        t = now()
+        day = lambda d: str((t - dt.timedelta(days=d)).date())
+        cases = {"AAA in": day(0), "BBB in": day(3), "CCC out": day(4), "DDD in": None, "EEE out": None,
+                 "FFF in": iso(t - dt.timedelta(hours=71)), "GGG out": iso(t - dt.timedelta(hours=73))}
+        for title, posted in cases.items():
+            j = score(Job(f"ML Engineer {title}", f"Firm {title[:3]}", "Bengaluru, Karnataka", url="https://x.example/j",
+                          source="linkedin", description="Python LLMs freshers", posted_at=posted))
+            db.upsert(j)
+            db.set_score(j.id, j.score, j.reasons, j.flags, title.startswith("AAA"))
+        db.c.execute("UPDATE jobs SET found_at=? WHERE title LIKE '%EEE%'", (iso(t - dt.timedelta(days=5)),))
+        db.c.execute("UPDATE jobs SET found_at=? WHERE title LIKE '%CCC%'", (iso(t),))     # posting date wins
+        g = Job("Recruitment of Project Engineer", "IISc", "Bengaluru", url="https://iisc/x", kind="govt")
+        db.upsert(g)
+        db.set_score(g.id, 70, [], ["tech"], False)
+        for title, dl in (("Closed Role III", day(1)), ("Open Role JJJ", str(t.date()))):
+            j = score(Job(title, f"Firm {title[-3:]}", "Bengaluru", url="https://x.example/c", source="linkedin",
+                          description="Python LLMs freshers", posted_at=day(0), deadline=dl))
+            db.upsert(j)
+            db.set_score(j.id, 60, [], [], False)
+        skipped = seed(db, "Skipped Role HHH", "Firm HHH")
+        db.set_status(skipped.id, "skipped")
+        db.c.commit()
+        out = handle("today", db)
+        assert_telegram_html(self, out)
+        self.assertIn("5 new in 3 days · 1 ★", out)
+        self.assertNotIn("III", out)                                       # last date passed: not offered
+        self.assertNotIn("III", handle("top 50", db))
+        self.assertIn("⏰ last date " + t.strftime("%d %b %Y").lstrip("0"), out)
+        for title in cases:
+            (self.assertIn if title.endswith(" in") else self.assertNotIn)(f"ML Engineer {title}", out)
+        self.assertNotIn("HHH", out)
+        self.assertLess(out.index("AAA"), out.index("BBB"))                   # dream first
+        self.assertIn("🏛 Govt", out)
+        self.assertGreater(out.index("IISc"), out.index("🏛 Govt"))
+        for f in CARD_FIELDS:
+            self.assertIn(f, out)
+        self.assertEqual(handle("/new", db), out)
+        for i in range(30):                                                    # many → whole pages, "/today 2"
+            seed(db, f"Data Scientist {chr(65 + i % 26) * 2}{chr(65 + i // 26)}", f"Org {chr(65 + i % 26) * 3}{i // 26}")
+        p1, p2 = handle("today", db), handle("/today 2", db)
+        self.assertIn("/today 2", p1)
+        for p in (p1, p2):
+            assert_telegram_html(self, p)
+            self.assertLessEqual(len(p), 3900)
+            self.assertTrue(p.startswith("<b>📰"))
+        self.assertIn("page 2/", p2)

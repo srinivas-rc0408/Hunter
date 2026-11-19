@@ -120,7 +120,10 @@ def job_card(j: dict, db=None) -> str:
              f"💰 {_esc(pay_text(j))}",
              f"🕒 {when_text(j)}"]
     if j.get("deadline"):
-        lines.append(f"⏰ last date {_esc(j['deadline'])}")
+        try:
+            lines.append(f"⏰ last date {_day(date.fromisoformat(j['deadline'][:10]))}")
+        except ValueError:
+            lines.append(f"⏰ last date {_esc(j['deadline'])}")
     link = apply_link(j)
     lines.append(f"🔗 {link}" if link else "🔗 no apply link listed")
     lines.append(f"/check_{jid} · /skip_{jid}")

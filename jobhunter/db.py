@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_score ON jobs(score);
+CREATE INDEX IF NOT EXISTS jobs_found ON jobs(found_at);
+CREATE INDEX IF NOT EXISTS jobs_posted ON jobs(posted_at);
 CREATE TABLE IF NOT EXISTS events (
   job_id TEXT, at TEXT, kind TEXT, detail TEXT
 );
