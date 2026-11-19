@@ -34,7 +34,7 @@ class Link:
 
 def extract_links(html: str, base: str) -> list[Link]:
     soup = BeautifulSoup(html, "lxml")
-    for t in soup(["script", "style", "noscript"]):
+    for t in soup(["script", "style", "noscript", "nav", "header", "footer"]):   # menus aren't notices
         t.decompose()
     out, seen = [], set()
     for a in soup.find_all("a", href=True):

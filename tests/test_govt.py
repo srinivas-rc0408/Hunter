@@ -52,6 +52,12 @@ class Notices(unittest.TestCase):
         self.assertEqual(d["apply_url"], "https://rac.gov.in")
         self.assertEqual(d["karnataka_places"], [])
 
+    def test_a_date_counted_from_the_last_date_is_not_the_last_date(self):
+        t = ("Ex-servicemen whose assignment is due to be completed within one year from the\n"
+             "last date of receipt of application i.e., 20.07.2027) otherwise than by way of dismissal")
+        self.assertIsNone(notice.read(t)["last_date"])
+        self.assertEqual(notice.read("Last date of receipt of application: 21.07.2026")["last_date"], "2026-07-21")
+
     def test_nothing_is_guessed(self):
         d = notice.read("Recruitment of Clerks. Apply online.", "Clerk", "central")
         for k in ("pay", "vacancies", "sc_vacancies", "age_limit", "fee_sc", "released", "last_date", "exam_date"):
@@ -120,6 +126,27 @@ class Commands(unittest.TestCase):
         self.assertIn("Post 1", handle("/govt karnataka", db))
         self.assertNotIn("Post 1", handle("/govt central", db))
         self.assertIn("🔴", handle("/deadlines", db))
+
+
+class Links(unittest.TestCase):
+    def test_menu_links_are_not_notices(self):
+        from jobhunter.sources.govt import _notice_like
+        from jobhunter.sources.pages import Link
+        inc = ["recruitment", "advertisement", "vacancies", "engineer"]
+        for t, want in (("About Us", False), ("Vacancies", False), ("Advt No.15-2026-FINAL_0.pdf", True),
+                        ("Recruitment of Project Engineer on contract", True), ("Walk-in 12.12.2026", True)):
+            self.assertEqual(_notice_like(Link("p", "https://x.example/" + t.replace(" ", "_"), t, "Recruitment"), inc), want, t)
+
+    def test_title_from_the_row_when_the_link_says_english(self):
+        from jobhunter.sources.govt import notice_title
+        from jobhunter.sources.pages import Link
+        row = "Recruitment of Specialist Cadre Officers Advt CRPD/SCO/2026-27/12 English (1 MB) Hindi (1 MB)"
+        self.assertEqual(notice_title(Link("p", "h", "English (1 MB)", row)),
+                         "Recruitment of Specialist Cadre Officers Advt CRPD/SCO/2026-27/12")
+        self.assertEqual(notice_title(Link("p", "h", "APPLY ONLINE (19.11.2026 TO 03.12.2026)",
+                                           "Recruitment of Apprentices APPLY ONLINE (19.11.2026 TO 03.12.2026)")),
+                         "Recruitment of Apprentices")
+        self.assertEqual(notice_title(Link("p", "h", "Advt No.15-2026.pdf", "row")), "Advt No.15-2026.pdf")
 
 
 class Locking(unittest.TestCase):

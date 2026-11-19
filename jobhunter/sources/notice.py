@@ -44,6 +44,8 @@ def iso(d: str, mo: str, y: str) -> str | None:
 def _date(t: str, pats: list[str]) -> str | None:
     for p in pats:
         for m in re.finditer(p + DATE, t, re.I):
+            if " ".join(t[max(0, m.start() - 20):m.start()].split()).lower().endswith(("from the", "before the")):
+                continue                    # "one year from the last date … i.e. 20.07.2027" is not the last date
             v = iso(*m.groups()[-3:])
             if v:
                 return v
