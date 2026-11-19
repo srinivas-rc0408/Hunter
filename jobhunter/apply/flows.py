@@ -390,6 +390,13 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
             why = "couldn't find Next"
         elif before and not _li_moved(page, before):
             why = f"pressed Next but LinkedIn stayed on page {before}"
+            while B.retry_rejected(page, res):          # it rejected a typed value: your other wording, Next again
+                if B.click_button(page, ["Continue to next step", "Next", "Review your application", "Review"],
+                                  root=LI_MODAL) and _li_moved(page, before):
+                    why = ""
+                    break
+            if why and (errs := B.errors(page, LI_MODAL)):
+                why += ": LinkedIn says " + "; ".join(errs[:3])
         if why:
             B.snap(page)
             if dry:
@@ -402,6 +409,11 @@ def linkedin(page, db: DB, job: dict, resume: Path | None, cover: str | None, dr
 LI_STEP_BTN = re.compile(r"next|continue to next step|review|submit application", re.I)
 
 
+def _li_submit(page):
+    """LinkedIn's Submit button(s), found by name: the 2026 Review page's button has no aria-label."""
+    return page.locator(LI_MODAL).first.get_by_role("button", name="Submit application")
+
+
 def _li_ready(page, wait_ms: int = 5000) -> bool:
     """Wait (up to ~5 s) until the Easy Apply step has loaded its Next/Review/Submit button."""
     for _ in range(wait_ms // 500):
@@ -409,11 +421,6 @@ def _li_ready(page, wait_ms: int = 5000) -> bool:
             b = page.locator(LI_MODAL).first.get_by_role("button", name=LI_STEP_BTN)
             if any(b.nth(i).is_visible() for i in range(b.count())):
                 return True
-def _li_submit(page):
-    """LinkedIn's Submit button(s), found by name: the 2026 Review page's button has no aria-label."""
-    return page.locator(LI_MODAL).first.get_by_role("button", name="Submit application")
-
-
         except Exception:
             pass
         page.wait_for_timeout(500)

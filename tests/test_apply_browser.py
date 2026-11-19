@@ -256,6 +256,21 @@ class Browser(unittest.TestCase):
         self.assertTrue(res.fills[0].ok, res.fills[0].why)
         self.assertTrue(p.is_checked("#y"))
 
+    def test_rejected_value_is_retyped_with_your_other_wording(self):
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()                # live 19 Nov (Wedding Co 3/5): "Immediately" → "Invalid input"
+        p.set_content('<dialog data-testid="dialog" open><p>What is your Notice Period?*</p>'
+                      '<input id="np" type="text" required aria-label="What is your Notice Period?" aria-describedby="np-info">'
+                      '<div id="np-info"><p id="h">0/20</p><p>0 of 20 characters</p></div></dialog>')
+        res = B.fill_form(p, JOB, None, root=flows.LI_MODAL)
+        self.assertEqual(res.fills[0].chosen, "Immediately")
+        self.assertFalse(B.retry_rejected(p, res))                 # nothing rejected yet: touch nothing
+        p.evaluate("h.innerText = 'Invalid input'")               # LinkedIn's verdict after Next
+        self.assertTrue(B.retry_rejected(p, res))
+        self.assertEqual(p.input_value("#np"), "0")               # notice_period_days from the profile
+        self.assertEqual(res.fills[0].chosen, "0")
+        self.assertFalse(B.retry_rejected(p, res))                 # no wording left: stays for you
+
     def test_missing_window_never_fills_the_page_behind_it(self):
         from jobhunter.apply import browser as B
         p = self.page("basic_ats")              # live: Easy Apply didn't open → bot typed into LinkedIn's Search

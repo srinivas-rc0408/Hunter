@@ -527,6 +527,35 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
 
 SITE_PREFILL_OK = {"email", "email_confirm", "phone", "country_code"}
 
+REJECTED_JS = r"""e => { if (e.getAttribute('aria-invalid') === 'true') return true;
+  const r = e.getRootNode(); const t = (e.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
+    .map(i => (r.getElementById ? r.getElementById(i) : document.getElementById(i))?.innerText || '').join(' ');
+  return /invalid input|enter a (valid|whole|decimal)/i.test(t); }"""
+
+
+def retry_rejected(page, res: FormResult) -> bool:
+    """A typed value the site rejected after Next (e.g. LinkedIn "Invalid input" on "Immediately") is retyped
+    with your next wording of the same answer from the profile. True if anything was retyped."""
+    changed = False
+    for fl in res.fills:
+        if not fl.ok or fl.field["type"] not in ("text", "number", "textarea") or fl.field.get("combo"):
+            continue
+        loc = page.locator(f'[data-jh="{fl.field["jh"]}"]')
+        try:
+            if not loc.count() or not loc.evaluate(REJECTED_JS):
+                continue
+        except Exception:
+            continue
+        words = [str(x) for x in (fl.answer.value, *fl.answer.alts) if x not in (None, "")]
+        nxt = next((w for w in words[words.index(str(fl.chosen)) + 1:] if w != str(fl.chosen)), None) \
+            if str(fl.chosen) in words else None
+        if nxt and _type(page, loc, nxt):
+            fl.chosen, changed = nxt, True
+            for r in RECORD:                                   # "what was sent" shows the retyped value
+                if r["jh"] == fl.field["jh"]:
+                    r["value"] = nxt
+    return changed
+
 
 def verify(page, res: FormResult, root: str | None = None) -> list[str]:
     """Second read: every field we filled still holds the value; no errors showing."""

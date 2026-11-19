@@ -388,7 +388,8 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
         if ftype == "number":
             return P(a.get("notice_period_days"))
         r_ = P(a.get("notice_period"))
-        r_.alts = tuple(x for x in (a.get("earliest_joining"),) if x)   # shorter wording, for tight fields
+        # shorter wording for tight fields; days for fields that turn out to want a number
+        r_.alts = tuple(x for x in (a.get("earliest_joining"), a.get("notice_period_days")) if x not in (None, ""))
         return r_
     if key == "current_ctc":
         return P(a.get("current_ctc") if ftype == "number" or not options else a.get("current_ctc_text"))
