@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   posted_at TEXT,
   found_at TEXT NOT NULL,
   pay_min REAL, pay_max REAL, pay_period TEXT, currency TEXT,
+  pay_estimate TEXT,                         -- who estimated the pay ("Indeed"); NULL = the posting listed it
   emails TEXT DEFAULT '[]',
   easy_apply INTEGER,
   score INTEGER DEFAULT 0,
@@ -86,6 +87,7 @@ class Job:
     pay_max: float | None = None
     pay_period: str | None = None       # month | year | hour
     currency: str | None = None
+    pay_estimate: str | None = None     # "Indeed" / "Glassdoor" when the board guessed the pay; None = listed
     emails: list[str] = field(default_factory=list)
     easy_apply: bool | None = None
     kind: str = "private"
@@ -128,6 +130,8 @@ class DB:
         self.c = sqlite3.connect(self.path)
         self.c.row_factory = sqlite3.Row
         self.c.executescript(SCHEMA)
+        if "pay_estimate" not in {r[1] for r in self.c.execute("PRAGMA table_info(jobs)")}:
+            self.c.execute("ALTER TABLE jobs ADD COLUMN pay_estimate TEXT")       # DBs made before 1.7
 
     # ── jobs ────────────────────────────────────────────────────────────────
     def upsert(self, job: Job) -> bool:
@@ -139,14 +143,14 @@ class DB:
             self.c.execute(
                 """INSERT INTO jobs (id, kind, title, company, location, is_remote, job_type, url, urls,
                    sources, description, posted_at, found_at, pay_min, pay_max, pay_period, currency,
-                   emails, easy_apply, score, reasons, flags, dream, status, status_at, deadline)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                   emails, easy_apply, score, reasons, flags, dream, status, status_at, deadline, pay_estimate)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (jid, job.kind, job.title, job.company, job.location, int(job.is_remote), job.job_type,
                  url, json.dumps([url] if url else []), json.dumps([job.source]), job.description,
                  job.posted_at, iso(), job.pay_min, job.pay_max, job.pay_period, job.currency,
                  json.dumps(job.emails), None if job.easy_apply is None else int(job.easy_apply),
                  job.score, json.dumps(job.reasons), json.dumps(job.flags), int(job.dream),
-                 job.status, iso(), job.deadline))
+                 job.status, iso(), job.deadline, job.pay_estimate))
             self.c.commit()
             return True
         urls = json.loads(row["urls"] or "[]")
@@ -165,14 +169,19 @@ class DB:
         emails = sorted(set(json.loads(row["emails"] or "[]")) | set(job.emails))
         self.c.execute(
             """UPDATE jobs SET urls=?, sources=?, description=?, url=?, emails=?,
-               pay_min=COALESCE(pay_min, ?), pay_max=COALESCE(pay_max, ?),
-               pay_period=COALESCE(pay_period, ?), currency=COALESCE(currency, ?),
                posted_at=COALESCE(posted_at, ?), job_type=COALESCE(job_type, ?),
                easy_apply=COALESCE(easy_apply, ?), deadline=COALESCE(deadline, ?)
                WHERE id=?""",
             (json.dumps(urls), json.dumps(sources), desc, best_url, json.dumps(emails),
-             job.pay_min, job.pay_max, job.pay_period, job.currency, job.posted_at, job.job_type,
+             job.posted_at, job.job_type,
              None if job.easy_apply is None else int(job.easy_apply), job.deadline, jid))
+        # pay moves as one unit (min, max, period, currency): two boards' numbers are never mixed into one
+        # range, and a listed pay replaces an estimate
+        had, has = row["pay_min"] or row["pay_max"], job.pay_min or job.pay_max
+        only_this_board = json.loads(row["sources"] or "[]") == [job.source]     # its pay came from this board
+        if has and (not had or (row["pay_estimate"] and not job.pay_estimate) or (job.pay_estimate and only_this_board)):
+            self.c.execute("UPDATE jobs SET pay_min=?, pay_max=?, pay_period=?, currency=?, pay_estimate=? WHERE id=?",
+                           (job.pay_min, job.pay_max, job.pay_period, job.currency, job.pay_estimate, jid))
         self.c.commit()
         return False
 

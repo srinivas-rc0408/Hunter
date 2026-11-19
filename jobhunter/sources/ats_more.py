@@ -28,6 +28,8 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
+from ..util import pay_pair
+
 UA = "JobHunter/1.1 (personal job search; contact via GitHub srinivas-rc0408/Hunter)"
 
 
@@ -64,9 +66,12 @@ def _jtype(*vals) -> str | None:
 def L(**kw) -> dict:
     base = {"title": "", "company": "", "location": "", "url": "", "apply_url": "", "posted": None, "job_type": None,
             "remote": False, "description": "", "source": "", "pay_min": None, "pay_max": None, "currency": None,
-            "pay_period": None, "deadline": None}
+            "pay_period": None, "pay_estimate": None, "deadline": None}
     base.update({k: v for k, v in kw.items() if v is not None or k in base})
     base["title"] = (base["title"] or "").strip()
+    base["pay_min"], base["pay_max"] = pay_pair(base["pay_min"], base["pay_max"])   # "Competitive" → None
+    if not (base["pay_min"] or base["pay_max"]):
+        base["currency"] = base["pay_period"] = base["pay_estimate"] = None
     if not base["apply_url"]:
         base["apply_url"] = base["url"]
     return base
@@ -123,7 +128,8 @@ def parse_keka(data: list, tenant: str, company: str = "") -> list[dict]:
                                                                   4: "contract"}.get(p.get("jobType")) or _jtype(p.get("jobType")),
                      description=(f"Experience: {p['experience']}. " if p.get("experience") else "") + _text(p.get("description")),
                      source="keka", pay_min=sal.get("min") if isinstance(sal, dict) else None,
-                     pay_max=sal.get("max") if isinstance(sal, dict) else None))
+                     pay_max=sal.get("max") if isinstance(sal, dict) else None,
+                     currency=sal.get("currency") if isinstance(sal, dict) else None))
     return out
 
 
@@ -178,13 +184,17 @@ def parse_jsonld(html_text: str, page_url: str) -> list[dict]:
                                                     (l.get("address") or {}).get("addressCountry")] if isinstance(x, str) and x)
                               for l in locs if isinstance(l, dict))
             sal = ((it.get("baseSalary") or {}).get("value") or {}) if isinstance(it.get("baseSalary"), dict) else {}
+            sal = sal if isinstance(sal, dict) else {"value": sal}          # "value": 50000 or a QuantitativeValue
+            unit = str(sal.get("unitText") or "").upper()
             out.append(L(title=it.get("title"), company=(it.get("hiringOrganization") or {}).get("name", ""),
                          location=place, url=urljoin(page_url, it.get("url") or page_url), posted=_day(it.get("datePosted")),
                          job_type=_jtype(it.get("employmentType")), remote="TELECOMMUTE" in str(it.get("jobLocationType", "")),
                          description=_text(it.get("description")) + (f" Apply by {it['validThrough'][:10]}."
                                                                      if it.get("validThrough") else ""),
-                         source="careers-site", pay_min=sal.get("minValue") if isinstance(sal, dict) else None,
-                         pay_max=sal.get("maxValue") if isinstance(sal, dict) else None,
+                         source="careers-site", pay_min=sal.get("minValue") or sal.get("value"),
+                         pay_max=sal.get("maxValue") or sal.get("value"),
+                         pay_period={"YEAR": "year", "MONTH": "month", "WEEK": "week", "DAY": "day",
+                                     "HOUR": "hour"}.get(unit),
                          currency=(it.get("baseSalary") or {}).get("currency") if isinstance(it.get("baseSalary"), dict) else None))
     return out
 

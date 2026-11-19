@@ -84,15 +84,18 @@ def years_required(text: str) -> int | None:
     return min(vals) if vals else None
 
 
-def monthly_inr(job: Job) -> tuple[float | None, float | None]:
-    """(monthly, yearly) INR from listed pay, or (None, None)."""
-    lo = job.pay_min or job.pay_max
-    if not lo:
+def monthly_inr(job: Job, high: bool = False) -> tuple[float | None, float | None]:
+    """(monthly, yearly) INR from the LISTED pay (the low end, or the high end with high=True), else (None, None).
+    A board's estimate, or a figure whose unit is clearly wrong ("60,000 P.A." for an engineer), counts as unknown."""
+    lo = (job.pay_max or job.pay_min) if high else (job.pay_min or job.pay_max)
+    if not lo or job.pay_estimate:
         return None, None
     cur = (job.currency or "INR").upper()
+    per = (job.pay_period or "").lower()
+    if cur == "INR" and ((per == "year" and (job.pay_max or lo) < 100000) or (per == "month" and lo > 500000)):
+        return None, None
     fx = {"INR": 1, "USD": 84, "EUR": 90, "GBP": 105}.get(cur, 1)
     lo *= fx
-    per = (job.pay_period or "").lower()
     if per == "hour":
         return lo * 160, lo * 160 * 12
     if per == "month":
@@ -101,7 +104,7 @@ def monthly_inr(job: Job) -> tuple[float | None, float | None]:
         return lo * 4.3, lo * 52
     if per == "day":
         return lo * 22, lo * 22 * 12
-    if lo < 200000:                     # yearly figures under 2L are almost always monthly stipends
+    if not per and lo < 200000:         # no unit given: a figure under 2L is a monthly stipend, not a CTC
         return lo, lo * 12
     return lo / 12, lo
 
@@ -153,11 +156,12 @@ def score(job: Job, today: dt.date | None = None) -> Job:
         if age_d is not None and age_d > tg.get("max_posting_age_days", 45):
             return drop(f"posted {age_d} days ago (stale)")
     mon, yr = monthly_inr(job)
-    if mon is not None:
-        if is_intern and mon < tg.get("min_stipend_inr_month", 15000):
-            return drop(f"stipend ₹{mon:,.0f}/month < floor")
-        if not is_intern and yr and yr < tg.get("min_ctc_inr_year", 450000) and yr > 30000:
-            return drop(f"CTC ₹{yr / 1e5:.1f} LPA < floor")
+    top_m, top_y = monthly_inr(job, high=True)        # the floor drops a job only when even its top pay is under it
+    if top_m is not None:
+        if is_intern and top_m < tg.get("min_stipend_inr_month", 15000):
+            return drop(f"stipend ₹{top_m:,.0f}/month < floor")
+        if not is_intern and top_y and top_y < tg.get("min_ctc_inr_year", 450000) and top_y > 30000:
+            return drop(f"CTC ₹{top_y / 1e5:.1f} LPA < floor")
 
     # ── score ──────────────────────────────────────────────────────────────
     pts = 0

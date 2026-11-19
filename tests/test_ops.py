@@ -169,16 +169,16 @@ class JobCards(unittest.TestCase):
     def test_pay_exactly_as_listed(self):
         from jobhunter.notify import pay_text
         for j, want in [({"pay_min": 1000000, "pay_max": 1600000, "pay_period": "year", "currency": "INR"}, "₹10–16 LPA"),
-                        ({"pay_min": 350000, "pay_period": "year", "currency": "INR"}, "₹3.5 LPA"),
+                        ({"pay_min": 350000, "pay_period": "year", "currency": "INR"}, "from ₹3.5 LPA"),
                         ({"pay_min": 1100000, "pay_max": 1350000, "pay_period": "year", "currency": "INR"}, "₹11–13.5 LPA"),
                         ({"pay_min": 4000, "pay_max": 5000, "pay_period": "month", "currency": "INR"}, "₹4,000–5,000/month"),
-                        ({"pay_min": 20, "pay_max": 100, "pay_period": "hour", "currency": "USD"}, "$20–100/hour"),
-                        ({"pay_min": 90000, "pay_max": 120000, "pay_period": "year", "currency": "CAD"}, "C$90,000–120,000/year"),
-                        ({"pay_min": 500, "pay_max": 500, "pay_period": "week", "currency": "EUR"}, "€500/week"),
-                        ({"pay_min": 30000, "pay_period": "month", "currency": "GBP"}, "£30,000/month"),
-                        ({"pay_min": 1500, "pay_period": "day", "currency": "INR"}, "₹1,500/day"),
-                        ({"pay_min": 60, "pay_max": 80, "pay_period": "hour", "currency": "SGD"}, "S$60–80/hour"),
-                        ({"pay_min": 12.5, "pay_period": "hour", "currency": "USD"}, "$12.5/hour"),
+                        ({"pay_min": 20, "pay_max": 100, "pay_period": "hour", "currency": "USD"}, "$20–100/hour (not INR)"),
+                        ({"pay_min": 90000, "pay_max": 120000, "pay_period": "year", "currency": "CAD"}, "C$90,000–120,000/year (not INR)"),
+                        ({"pay_min": 500, "pay_max": 500, "pay_period": "week", "currency": "EUR"}, "€500/week (not INR)"),
+                        ({"pay_min": 30000, "pay_period": "month", "currency": "GBP"}, "from £30,000/month (not INR)"),
+                        ({"pay_min": 1500, "pay_period": "day", "currency": "INR"}, "from ₹1,500/day"),
+                        ({"pay_min": 60, "pay_max": 80, "pay_period": "hour", "currency": "SGD"}, "S$60–80/hour (not INR)"),
+                        ({"pay_min": 12.5, "pay_period": "hour", "currency": "USD"}, "from $12.5/hour (not INR)"),
                         ({"pay_min": None}, "not listed"), ({}, "not listed")]:
             self.assertEqual(pay_text(j), want, j)
 

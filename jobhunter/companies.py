@@ -368,7 +368,7 @@ def _boards_search(name: str, errors: list[str], sites=("linkedin", "naukri", "i
                 out.append(ats_more.L(title=j.title, company=j.company, location=j.location, url=j.url,
                                       posted=j.posted_at, job_type=j.job_type, remote=j.is_remote,
                                       description=j.description, source=site, pay_min=j.pay_min, pay_max=j.pay_max,
-                                      currency=j.currency, pay_period=j.pay_period))
+                                      currency=j.currency, pay_period=j.pay_period, pay_estimate=j.pay_estimate))
     return out
 
 
@@ -377,7 +377,7 @@ def to_job(l: dict) -> Job:
                source=l.get("source") or "company", description=l.get("description") or "", posted_at=l.get("posted"),
                job_type=l.get("job_type"), is_remote=bool(l.get("remote")), pay_min=l.get("pay_min"),
                pay_max=l.get("pay_max"), currency=l.get("currency"), pay_period=l.get("pay_period"),
-               deadline=l.get("deadline"))
+               pay_estimate=l.get("pay_estimate"), deadline=l.get("deadline"))
 
 
 def listings(info: dict, boards_search: bool = True, today: dt.date | None = None) -> dict:

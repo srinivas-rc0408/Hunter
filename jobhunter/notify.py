@@ -46,19 +46,49 @@ def _num(v: float) -> str:
     return f"{v:,.2f}".rstrip("0").rstrip(".")
 
 
+def _inr(v: float) -> str:
+    """Indian grouping: 600000 → 6,00,000."""
+    s = str(int(round(v)))
+    return s if len(s) <= 3 else re.sub(r"(\d)(?=(\d\d)+$)", r"\1,", s[:-3]) + "," + s[-3:]
+
+
+def _lpa(v: float) -> str:
+    return f"{v / 1e5:.1f}".removesuffix(".0")                 # 1 decimal max, no trailing .0
+
+
+def _span(lo, hi, f, pre: str, post: str) -> str:
+    """'₹10–16 LPA', one number when min = max, 'from ₹X' when only a minimum, 'up to ₹X' when only a maximum."""
+    if lo and hi:
+        a, b = f(lo), f(hi)
+        return f"{pre}{a}{post}" if a == b else f"{pre}{a}–{b}{post}"
+    return f"from {pre}{f(lo)}{post}" if lo else f"up to {pre}{f(hi)}{post}"
+
+
 def pay_text(j: dict) -> str:
-    """Pay exactly as the source listed it (INR a year in LPA, the unit Indian postings use), else "not listed"."""
-    lo, hi = j.get("pay_min"), j.get("pay_max")
+    """Pay as the posting listed it: '₹10–16 LPA', '₹30,000/month', '$20–100/hour (not INR)', 'from ₹6 LPA',
+    an internship's stipend per month, '≈ … (estimate by Indeed)' when the board guessed it, else 'not listed'."""
+    lo, hi = j.get("pay_min") or None, j.get("pay_max") or None
     if not lo and not hi:
         return "not listed"
-    lo, hi = lo or hi, hi or lo
     cur, per = (j.get("currency") or "").upper(), (j.get("pay_period") or "").lower()
-    sym = CUR.get(cur, f"{cur} " if cur else "")
-    if cur == "INR" and per == "year":
-        lo, hi, unit = lo / 100000, hi / 100000, " LPA"
+    intern = j.get("job_type") == "internship" or re.search(r"\bintern", j.get("title") or "", re.I)
+    top = hi or lo
+    if cur == "INR" and per == "year" and top < 100000:          # "60,000-70,000 P.A." for an engineer
+        text = _span(lo, hi, _inr, "₹", "/year") + " as listed (looks like per month: check the posting)"
+    elif cur == "INR" and per == "year" and intern:
+        text = (_span(lo and lo / 12, hi and hi / 12, _inr, "₹", "/month") +
+                f" ({_span(lo, hi, _lpa, '₹', ' LPA')} listed)")
+    elif cur == "INR" and per == "year":
+        text = _span(lo, hi, _lpa, "₹", " LPA")
+    elif cur == "INR":
+        text = _span(lo, hi, _inr, "₹", f"/{per}" if per else "")
+        if per == "month" and (lo or hi) > 500000:
+            text += " as listed (looks like per year: check the posting)"
+    elif cur:
+        text = _span(lo, hi, _num, CUR.get(cur, f"{cur} "), f"/{per}" if per else "") + " (not INR)"
     else:
-        unit = f"/{per}" if per else ""
-    return f"{sym}{_num(lo)}{'' if hi == lo else '–' + _num(hi)}{unit}"
+        text = _span(lo, hi, _num, "", f"/{per}" if per else "") + " (currency not listed)"
+    return f"≈ {text} (estimate by {j['pay_estimate']})" if j.get("pay_estimate") else text
 
 
 _REMOTE = re.compile(r"\bremote\b|work from home|\bwfh\b", re.I)

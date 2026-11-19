@@ -183,7 +183,9 @@ def pay_from_text(text):
         return None
     tail = (text or "")[m.end():m.end() + 30].lower()
     period = "year"
-    if hi < 1000 or "hour" in tail or "/hr" in tail:
+    if "month" in tail or "/mo" in tail:
+        period = "month"
+    elif hi < 1000 or "hour" in tail or "/hr" in tail:
         period = "hour"
     return {"min": lo, "max": hi, "currency": "USD", "period": period}
 
@@ -296,8 +298,9 @@ def from_lever(board, data):
         pay = None
         rng = p.get("salaryRange")
         if rng and rng.get("min") and rng.get("max"):
+            iv = str(rng.get("interval") or "per-year-salary").lower()     # per-year-salary, per-month-salary, per-hour-wage …
             pay = {"min": rng["min"], "max": rng["max"], "currency": rng.get("currency", "USD"),
-                   "period": "year" if "year" in str(rng.get("interval", "year")) else "hour"}
+                   "period": next((p for p in ("month", "week", "day", "hour") if p in iv), "year")}
         pay = pay or pay_from_text(text)
         remote = p.get("workplaceType") == "remote" or "remote" in (cat.get("location") or "").lower()
         out.append(_job(board, p.get("id"), p.get("text"), cat.get("location"), p.get("hostedUrl"),

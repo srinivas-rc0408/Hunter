@@ -18,6 +18,18 @@ IST = timezone(timedelta(hours=5, minutes=30))
 UA = "jobhunter/1.0 (personal job alerts; polite, low-frequency)"
 
 
+def pay_pair(lo, hi) -> tuple[float | None, float | None]:
+    """Listed pay as two numbers: 0 / "Competitive" / "best in industry" → None, min > max → swapped."""
+    def num(v):
+        try:
+            v = float(str(v).replace(",", "")) if v is not None and not isinstance(v, bool) else None
+        except ValueError:
+            return None
+        return v if v and v > 0 else None
+    lo, hi = num(lo), num(hi)
+    return (hi, lo) if lo and hi and lo > hi else (lo, hi)
+
+
 def now() -> datetime:
     return datetime.now(IST)
 

@@ -28,9 +28,11 @@ INDIA = ("india", "bengaluru", "bangalore", "hyderabad", "pune", "chennai", "mum
 
 
 def _pay(p: dict | None):
-    if not p:
+    from ..util import pay_pair
+    lo, hi = pay_pair((p or {}).get("min"), (p or {}).get("max"))
+    if not (lo or hi):
         return None, None, None, None
-    return p.get("min"), p.get("max"), p.get("period"), p.get("currency")
+    return lo, hi, p.get("period"), p.get("currency")
 
 
 def scan(errors: list[str], offline: str | None = None) -> list[Job]:

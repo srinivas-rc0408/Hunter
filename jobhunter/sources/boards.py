@@ -12,7 +12,7 @@ from typing import Iterable
 
 from .. import config
 from ..db import Job
-from ..util import console
+from ..util import console, pay_pair
 
 SITE_NAMES = {"linkedin", "indeed", "naukri", "glassdoor", "google"}
 
@@ -55,6 +55,10 @@ def row_to_job(r: dict, term_type: str | None = None) -> Job | None:
     url = _val(r.get("job_url_direct")) or _val(r.get("job_url")) or ""
     site = str(_val(r.get("site")) or "board")
     desc = str(_val(r.get("description")) or "")
+    lo, hi = pay_pair(_val(r.get("min_amount")), _val(r.get("max_amount")))   # Naukri "0-24 Lacs": 0 = no min
+    cur = _val(r.get("currency"))
+    estimate = ("Glassdoor" if site == "glassdoor" else          # Glassdoor's p10–p90 range is its own model
+                "Indeed" if "estimate" in str(_val(r.get("salary_source")) or "") else None)
     exp = _val(r.get("experience_range"))
     if exp:
         desc = f"Experience: {exp}\n" + desc
@@ -68,20 +72,36 @@ def row_to_job(r: dict, term_type: str | None = None) -> Job | None:
         posted_at=str(posted)[:10] if posted else None,
         job_type=_job_type(_val(r.get("job_type")), term_type, str(title)),
         is_remote=bool(_val(r.get("is_remote"))) or "remote" in str(_val(r.get("work_from_home_type")) or "").lower(),
-        pay_min=_float(_val(r.get("min_amount"))),
-        pay_max=_float(_val(r.get("max_amount"))),
-        pay_period=period,
-        currency=_val(r.get("currency")),
+        pay_min=lo,
+        pay_max=hi,
+        pay_period=period if (lo or hi) else None,
+        currency=cur if (lo or hi) else None,
+        pay_estimate=estimate if (lo or hi) else None,
         emails=list(emails or []),
         easy_apply=None,
     )
 
 
-def _float(v):
-    try:
-        return float(v) if v is not None else None
-    except (TypeError, ValueError):
-        return None
+
+def _tag_indeed_estimates() -> None:
+    """JobSpy fills Indeed pay with Indeed's own estimate when the employer listed none, and says nothing.
+    Wrap its parser so those rows carry salary_source="indeed_estimate" (shown as "≈ … (estimate by Indeed)")."""
+    import jobspy.indeed as ind
+    from jobspy.model import Compensation
+    if getattr(ind.get_compensation, "_tags", False):
+        return
+
+    class Pay(Compensation):
+        salary_source: str | None = None
+    real = ind.get_compensation
+
+    def get_compensation(c):
+        pay = real(c)
+        if not c.baseSalary and c.estimated and (pay.min_amount or pay.max_amount):
+            return Pay(**pay.model_dump(), salary_source="indeed_estimate")
+        return pay
+    get_compensation._tags = True
+    ind.get_compensation = get_compensation
 
 
 def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = None,
@@ -91,6 +111,10 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
     except ImportError:
         errors.append("python-jobspy not installed: pip install python-jobspy")
         return []
+    try:
+        _tag_indeed_estimates()
+    except (ImportError, AttributeError) as exc:      # a JobSpy upgrade moved it: say so, keep scanning
+        errors.append(f"indeed estimate tag off: {exc}")
     s = config.cfg("search")
     boards = s.get("boards", {})
     enabled = [b for b, o in boards.items() if (o or {}).get("enabled") and b in SITE_NAMES]
