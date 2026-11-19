@@ -46,18 +46,18 @@ class Morning(unittest.TestCase):
         self.assertEqual(br["govt_soon"][0][1]["id"], g.id)
         msg = morning.as_telegram(br)
         self.assertIn("Morning brief", msg)
-        self.assertIn(f"/show_{a.id[:8]}", msg)
+        self.assertIn(f"/check_{a.id[:8]}", msg)
         self.assertIn("Govt deadlines", msg)
-        self.assertIn('<a href="https://x.example/j">Apply</a>', msg)      # every job: one tap to apply
-        self.assertIn('<a href="https://iisc/x">Apply</a>', msg)
+        self.assertIn('<a href="https://x.example/j">Apply on company site</a>', msg)   # every job: one tap to apply
+        self.assertIn('<a href="https://iisc/x">Apply on company site</a>', msg)
 
     def test_alert_and_top_have_apply_links(self):
         from jobhunter.bot import handle
         from jobhunter.notify import format_job
         db = DB(HOME / "data" / "links.db")
         j = seed(db, "Data Engineer", "Link Co")
-        self.assertIn('<a href="https://x.example/j">Apply</a>', format_job(db.get(j.id)))
-        self.assertIn('<a href="https://x.example/j">Apply</a>', handle("/top", db))
+        self.assertIn('<a href="https://x.example/j">Apply on company site</a>', format_job(db.get(j.id)))
+        self.assertIn('<a href="https://x.example/j">Apply on company site</a>', handle("/top", db))
 
 
 class Bot(unittest.TestCase):
@@ -157,3 +157,119 @@ class Backup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+CARD_FIELDS = ("📍", "💰", "🕒 Posted", "found", "IST", "🔗", "/check_", "/skip_")
+
+
+class JobCards(unittest.TestCase):
+    """Every job in /top, the morning brief and alerts: role, company, location + work mode, pay as listed,
+    posted + found dates, apply link, /check and /skip, and "Applied on" once applied."""
+
+    def test_pay_exactly_as_listed(self):
+        from jobhunter.notify import pay_text
+        for j, want in [({"pay_min": 1000000, "pay_max": 1600000, "pay_period": "year", "currency": "INR"}, "₹10–16 LPA"),
+                        ({"pay_min": 350000, "pay_period": "year", "currency": "INR"}, "₹3.5 LPA"),
+                        ({"pay_min": 1100000, "pay_max": 1350000, "pay_period": "year", "currency": "INR"}, "₹11–13.5 LPA"),
+                        ({"pay_min": 4000, "pay_max": 5000, "pay_period": "month", "currency": "INR"}, "₹4,000–5,000/month"),
+                        ({"pay_min": 20, "pay_max": 100, "pay_period": "hour", "currency": "USD"}, "$20–100/hour"),
+                        ({"pay_min": 90000, "pay_max": 120000, "pay_period": "year", "currency": "CAD"}, "C$90,000–120,000/year"),
+                        ({"pay_min": 500, "pay_max": 500, "pay_period": "week", "currency": "EUR"}, "€500/week"),
+                        ({"pay_min": 30000, "pay_period": "month", "currency": "GBP"}, "£30,000/month"),
+                        ({"pay_min": 1500, "pay_period": "day", "currency": "INR"}, "₹1,500/day"),
+                        ({"pay_min": 60, "pay_max": 80, "pay_period": "hour", "currency": "SGD"}, "S$60–80/hour"),
+                        ({"pay_min": 12.5, "pay_period": "hour", "currency": "USD"}, "$12.5/hour"),
+                        ({"pay_min": None}, "not listed"), ({}, "not listed")]:
+            self.assertEqual(pay_text(j), want, j)
+
+    def test_dates_as_given_and_found_in_ist(self):
+        from jobhunter.notify import when_text
+        self.assertEqual(when_text({"posted_at": "2026-11-17", "found_at": "2026-11-18T08:34:49+05:30"}),
+                         "Posted 17 Nov 2026 · found 18 Nov, 8:34 am IST")
+        self.assertEqual(when_text({"posted_at": "2026-11-17T09:30:00+00:00", "found_at": "2026-11-18T03:04:49+00:00"}),
+                         "Posted 17 Nov 2026, 3:00 pm IST · found 18 Nov, 8:34 am IST")     # a time only when the source gave one
+        self.assertEqual(when_text({"posted_at": None, "found_at": "2026-11-18T20:05:00+05:30"}),
+                         "Posted date not listed · found 18 Nov, 8:05 pm IST")
+
+    def test_work_mode_only_when_the_posting_says_so(self):
+        from jobhunter.notify import mode_text
+        for j, want in [({"is_remote": 1, "location": "India"}, "Remote"),
+                        ({"location": "Remote - India"}, "Remote"),
+                        ({"location": "Bengaluru (Hybrid)"}, "Hybrid"),
+                        ({"location": "Bengaluru", "description": "This is a hybrid role, 3 days in office."}, "Hybrid"),
+                        ({"location": "Bengaluru", "description": "Work mode: Hybrid"}, "Hybrid"),
+                        ({"location": "Bengaluru", "description": "Work from office, Mon-Fri."}, "On-site"),
+                        ({"location": "Bengaluru, On-site"}, "On-site"),
+                        ({"location": "Bengaluru", "description": "Experience with hybrid cloud and on-site servers"}, None),
+                        ({"location": "Bengaluru", "description": ""}, None)]:
+            self.assertEqual(mode_text(j), want, j)
+
+    def test_apply_link_prefers_the_company_page(self):
+        from jobhunter.notify import apply_link
+        j = {"url": "https://www.linkedin.com/jobs/view/1", "urls": ["https://www.linkedin.com/jobs/view/1",
+                                                                      "https://jobs.lever.co/acme/2?a=1&b=2"]}
+        self.assertEqual(apply_link(j), '<a href="https://jobs.lever.co/acme/2?a=1&amp;b=2">Apply on company site</a>')
+        self.assertEqual(apply_link({"url": "https://www.naukri.com/job/3", "urls": []}),
+                         '<a href="https://www.naukri.com/job/3">Apply on Naukri</a>')
+        self.assertEqual(apply_link({"url": "https://in.linkedin.com/jobs/view/4"}),
+                         '<a href="https://in.linkedin.com/jobs/view/4">Apply on LinkedIn</a>')
+        self.assertEqual(apply_link({"url": ""}), "")
+
+    def _db(self, name, n=1, url=None):
+        db = DB(HOME / "data" / name)
+        jobs = [seed(db, f"ML Engineer {chr(65 + i) * 3} " + "with a long title " * 3, f"Co & {chr(65 + i) * 3}", pay_min=1000000, pay_max=1600000,
+                     pay_period="year", currency="INR") for i in range(n)]
+        if url:
+            db.c.execute("UPDATE jobs SET url=?", (url,))
+        return db, jobs
+
+    def assert_card(self, text, j):
+        assert_telegram_html(self, text)
+        for f in CARD_FIELDS:
+            self.assertIn(f, text)
+        for f in ("Bengaluru, Karnataka", "₹10–16 LPA", f"/check_{j.id[:8]}", f"/skip_{j.id[:8]}",
+                  "Posted " + dt.date.today().strftime("%d %b %Y").lstrip("0")):
+            self.assertIn(f, text)
+
+    def test_card_has_every_field_and_applied_on(self):
+        from jobhunter.notify import job_card
+        db, (j,) = self._db("card.db")
+        self.assert_card(job_card(db.get(j.id), db), j)
+        self.assertNotIn("Applied on", job_card(db.get(j.id), db))
+        db.set_status(j.id, "applied", "test")
+        self.assertIn("✅ Applied on " + dt.date.today().strftime("%d %b %Y").lstrip("0"), job_card(db.get(j.id), db))
+        self.assertIn("💰 not listed", job_card({**db.get(j.id), "pay_min": None, "pay_max": None}, db))
+
+    def test_alert_has_every_field(self):
+        from jobhunter.notify import format_job
+        db, (j,) = self._db("alert.db")
+        self.assert_card(format_job(db.get(j.id)), j)
+
+    def test_top_is_paged_and_never_cuts_a_job(self):
+        from jobhunter.bot import handle
+        db, jobs = self._db("top.db", n=12, url="https://boards.greenhouse.io/acme/jobs/" + "9" * 300)
+        p5 = handle("top 5", db)
+        self.assertEqual(p5.count("/check_"), 5)
+        p1, p2 = handle("top 10", db), handle("/top 10 2", db)
+        for p in (p5, p1, p2):
+            self.assertLessEqual(len(p), 3900)
+            assert_telegram_html(self, p)
+            for block in p.split("\n\n")[1:]:
+                if "/check_" in block:
+                    for f in CARD_FIELDS:
+                        self.assertIn(f, block)                  # each job whole, in one message
+        self.assertIn("/top 10 2", p1)                           # tells you how to get the rest
+        self.assertEqual(p1.count("/check_") + p2.count("/check_"), 10)
+        self.assertFalse(set(p1.split()) & {w for w in p2.split() if w.startswith("/check_")})   # no job twice
+        self.assert_card(p1, max((x for x in jobs if f"/check_{x.id[:8]}" in p1), key=lambda x: 0))
+
+    def test_brief_shows_full_cards_in_whole_pages(self):
+        from jobhunter.morning import as_telegram_pages, build
+        db, jobs = self._db("brief.db", n=8)
+        pages = as_telegram_pages(build(db=db, heartbeat=False))
+        self.assertIn("Morning brief", pages[0])
+        self.assertEqual(sum(p.count("/check_") for p in pages), 8)
+        for p in pages:
+            self.assertLessEqual(len(p), 3900)
+            assert_telegram_html(self, p)
+        self.assert_card("\n".join(pages), jobs[0])

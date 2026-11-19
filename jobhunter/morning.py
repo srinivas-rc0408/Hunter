@@ -14,11 +14,12 @@ from __future__ import annotations
 import datetime as dt
 import html
 import json
+import re
 import subprocess
 
 from . import config
 from .db import DB
-from .notify import apply_link, telegram
+from .notify import job_card, pages, telegram
 from .util import iso
 
 DAILY_GOAL = 10
@@ -114,45 +115,54 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
             "gate": gate_countdown(today), "next_event": next_event(today), "questions": qs}
 
 
-def as_telegram(b: dict) -> str:
+def as_telegram_pages(b: dict) -> list[str]:
+    """The brief as whole Telegram messages: every job is a full card, never cut between messages."""
     e = lambda s: html.escape(str(s or ""), quote=False)
-    L = [f"<b>☀️ Morning brief · {dt.date.fromisoformat(b['date']):%a %d %b}</b>"]
+    head = f"<b>☀️ Morning brief · {dt.date.fromisoformat(b['date']):%a %d %b}</b>"
+    top = []
     if b["heartbeat"][0]:
-        L.append(("☁ " if (b["heartbeat"][1] or 99) <= 1.5 else "⚠️ ") + e(b["heartbeat"][0]))
-    L.append(f"\n<b>★ New since last brief: {len(b['new'])}</b> (open queue {b['open']})")
-    for j in b["new"][:8]:
-        L.append(f"{'★ ' if j['dream'] else ''}<b>{j['score']}</b> {e(j['title'])} · {e(j['company'])} /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
+        top.append(("☁ " if (b["heartbeat"][1] or 99) <= 1.5 else "⚠️ ") + e(b["heartbeat"][0]))
+    top.append(f"<b>★ New since last brief: {len(b['new'])}</b> (open queue {b['open']})"
+               + ("" if b["new"] else "\nnothing new: /top shows the best open jobs"))
+    blocks = ["\n".join(top)] + [job_card(j) for j in b["new"][:8]]
+    if len(b["new"]) > 8:
+        blocks.append(f"… and {len(b['new']) - 8} more: /top 20")
     if b["waiting"]:
-        L.append(f"\n<b>✋ Waiting for your approval: {len(b['waiting'])}</b> (Review Center: localhost:8765)")
-        for j in b["waiting"][:5]:
-            L.append(f"• {e(j['title'])} · {e(j['company'])}")
+        blocks.append(f"<b>✋ Waiting for your approval: {len(b['waiting'])}</b> (Review Center: localhost:8765)\n"
+                      + "\n".join(f"• {e(j['title'])} · {e(j['company'])}" for j in b["waiting"][:5]))
     if b.get("questions"):
         q = b["questions"]
-        L.append(f"\n<b>❓ {len(q)} question(s) only you can answer</b> (unblocks "
-                 f"{len({j for r in q for j in r.get('jobs', [])})} job(s)): /questions")
+        blocks.append(f"<b>❓ {len(q)} question(s) only you can answer</b> (unblocks "
+                      f"{len({j for r in q for j in r.get('jobs', [])})} job(s)): /questions")
     if b["govt_soon"]:
-        L.append("\n<b>🏛 Govt deadlines (10 days)</b>")
-        for d, j in b["govt_soon"][:6]:
-            L.append(f"⏰ {d:%d %b} · {e(j['title'][:70])} · {e(j['company'])} /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
+        blocks.append("<b>🏛 Govt deadlines (10 days)</b>")
+        blocks += [job_card(j) for _, j in b["govt_soon"][:6]]
+    tail = []
     if b["interviews"]:
-        L.append(f"\n<b>🎤 Interviews in progress: {len(b['interviews'])}</b>: prep with the interview drill")
+        tail.append(f"<b>🎤 Interviews in progress: {len(b['interviews'])}</b>: prep with the interview drill")
     if b["gate"]:
-        L.append(f"\n📚 {e(b['gate'])}")
+        tail.append(f"📚 {e(b['gate'])}")
     if b["next_event"]:
-        L.append(f"📅 {e(b['next_event'])}")
+        tail.append(f"📅 {e(b['next_event'])}")
     left = max(0, b["goal"] - b["applied_today"])
-    L.append(f"\n🎯 Today: {left} applications to your goal of {b['goal']} → <code>hunt apply --top {max(left, 5)}</code>")
-    return "\n".join(L)
+    tail.append(f"🎯 Today: {left} applications to your goal of {b['goal']} → <code>hunt apply --top {max(left, 5)}</code>")
+    blocks.append("\n".join(tail))
+    ps = pages(head, blocks)
+    return [p.replace(head, head + f" ({i}/{len(ps)})", 1) if len(ps) > 1 else p for i, p in enumerate(ps, 1)]
+
+
+def as_telegram(b: dict) -> str:
+    return "\n\n".join(as_telegram_pages(b))
 
 
 def run(send: bool = False, heartbeat: bool = True) -> dict:
     from .util import console
     b = build(heartbeat=heartbeat)
-    msg = as_telegram(b)
-    plain = html.unescape(msg.replace("<b>", "").replace("</b>", "").replace("<code>", "`").replace("</code>", "`"))
-    console.print(plain)
+    msgs = as_telegram_pages(b)
+    plain = html.unescape(re.sub(r"<[^>]+>", "", "\n\n".join(msgs)))
+    console.print(plain, markup=False)
     if send:
-        if not telegram(msg):
+        if not all([telegram(m) for m in msgs]):
             console.print("[yellow]Telegram not configured: brief printed only[/]")
     save_state(last_brief=iso())
     return b

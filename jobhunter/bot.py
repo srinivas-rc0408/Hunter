@@ -30,7 +30,7 @@ import requests
 
 from . import config
 from .config import env
-from .notify import apply_link
+from .notify import apply_link, job_card, pages
 from .db import DB
 
 STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview", "rejected": "rejected",
@@ -44,7 +44,7 @@ KNOWN = {"start", "help", "menu", "brief", "top", "govt", "review", "stats", "sh
 HELP = """<b>🎯 JobHunter bot</b>
 <b>Every day</b>
 /brief · morning summary now
-/top · best open jobs  (<code>/top 20</code> for more)
+/top · best open jobs  (<code>/top 5</code>, <code>/top 10</code>, next page <code>/top 10 2</code>)
 /review · forms waiting for you
 /govt · govt notices and last dates
 /stats · your numbers
@@ -81,8 +81,8 @@ def _line(j: dict) -> str:
             + f" /show_{j['id'][:8]}" + (f" · {apply_link(j)}" if j.get("url") else ""))
 
 
-def handle(text: str, db: DB | None = None) -> str:
-    """Pure command handler (unit-tested): text in, HTML reply out."""
+def handle(text: str, db: DB | None = None) -> str | list[str]:
+    """Pure command handler (unit-tested): text in, HTML reply out (a list = several whole messages)."""
     db = db or DB()
     t = (text or "").strip()
     if t and not t.startswith("/") and t.split()[0].lower() in KNOWN:
@@ -187,13 +187,21 @@ def handle(text: str, db: DB | None = None) -> str:
         return head + "\n" + "\n".join(lines) + (f"\n\nDid you mean: {_e(', '.join(others))}?" if others else "") + \
             "\nFull list + apply: hunt company on the laptop, or Review Center → Companies"
     if cmd == "brief":
-        from .morning import as_telegram, build
-        return as_telegram(build(db=db, heartbeat=False))
+        from .morning import as_telegram_pages, build
+        return as_telegram_pages(build(db=db, heartbeat=False))
     if cmd == "top":
-        n = int(arg) if arg.isdigit() else 10
+        nums = [int(x) for x in arg.split() if x.isdigit()]
+        n, page = (nums + [1])[:2] if nums else (10, 1)       # /top · /top 5 · /top 10 2 (page 2)
+        n = max(1, min(n, 50))
         jobs = db.query(status=["new", "alerted", "queued"], kind="private", min_score=40, limit=n * 2)
         jobs.sort(key=lambda j: (j["status"] != "queued", not j["dream"], -j["score"]))
-        return "<b>Top open jobs</b>\n" + ("\n".join(_line(j) for j in jobs[:n]) or "none: run /scan")
+        if not jobs:
+            return "<b>Top open jobs</b>\nnone: run /scan"
+        ps = pages("", [job_card(j, db) for j in jobs[:n]])
+        page = max(1, min(page, len(ps)))
+        head = f"<b>Top {min(n, len(jobs))} open jobs</b>" + (f" · page {page}/{len(ps)}" if len(ps) > 1 else "")
+        more = f"\n\nMore: /top {n} {page + 1}" if page < len(ps) else ""
+        return head + ps[page - 1] + more
     if cmd == "govt":
         jobs = [j for j in db.query(kind="govt", limit=300) if j["status"] not in ("skipped", "applied")
                 and "eligibility:ineligible" not in (j.get("flags") or [])]
@@ -306,8 +314,9 @@ def _reply(api: str, chat: str, text: str) -> None:
         _send_resume(api, chat)
         log(f"{text[:40]!r} → resume sent")
         return
-    ok = send(api, chat, reply)
-    log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} in {time.time() - t0:.1f}s")
+    parts = reply if isinstance(reply, list) else [reply]       # long replies come as whole pages
+    ok = all([send(api, chat, p) for p in parts])
+    log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} ({len(parts)} msg) in {time.time() - t0:.1f}s")
 
 
 def run() -> None:

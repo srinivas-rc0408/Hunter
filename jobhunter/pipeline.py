@@ -108,6 +108,7 @@ def digest(send: bool = True) -> str:
     body = notify.digest_html(jobs, gov, stats)
     if send:
         if not notify.email(f"JobHunter: {stats['new today']} new · {stats['waiting for you']} waiting", body):
-            top = "\n\n".join(notify.format_job(j) for j in (jobs + gov)[:8])
-            notify.telegram(f"<b>Daily digest</b>\n{stats}\n\n{top}" if top else f"<b>Daily digest</b>\n{stats}")
+            head = "<b>Daily digest</b>\n" + " · ".join(f"{k} {v}" for k, v in stats.items())
+            for msg in notify.pages(head, [notify.format_job(j, db) for j in (jobs + gov)[:8]]):
+                notify.telegram(msg)
     return body

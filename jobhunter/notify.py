@@ -10,14 +10,16 @@ Nothing is required: without them, alerts print to the console.
 from __future__ import annotations
 
 import html
+import re
 import smtplib
+from datetime import date
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import requests
 
 from .config import env
-from .util import clip, console
+from .util import clip, console, parse_iso
 
 
 def _esc(s) -> str:
@@ -25,26 +27,125 @@ def _esc(s) -> str:
 
 
 def apply_link(j: dict) -> str:
-    """One tap from Telegram to the job's apply page ("" when there's no link)."""
-    return f'<a href="{html.escape(j["url"], quote=True)}">Apply</a>' if j.get("url") else ""
+    """One tap from Telegram to the job's apply page: the company's own page when we know it ("" if no link)."""
+    from .db import _url_rank
+    urls = [u for u in [j.get("url"), *(j.get("urls") or [])] if u]
+    if not urls:
+        return ""
+    u = max(urls, key=_url_rank)                     # stable: the first of equally good links wins
+    host = re.sub(r"^https?://", "", u.lower()).split("/")[0]
+    where = ("LinkedIn" if "linkedin." in host else "Naukri" if "naukri." in host else "Indeed" if "indeed." in host
+             else "Glassdoor" if "glassdoor." in host else "company site")
+    return f'<a href="{html.escape(u, quote=True)}">Apply on {where}</a>'
 
 
-def format_job(j: dict) -> str:
-    star = "★ " if j.get("dream") else ""
-    gov = "🏛 " if j.get("kind") == "govt" else ""
-    pay = ""
-    if j.get("pay_min"):
-        per = j.get("pay_period") or ""
-        pay = f" · ₹{j['pay_min']:,.0f}{('/' + per) if per else ''}"
-    lines = [f"{gov}{star}<b>{_esc(j['title'])}</b>",
-             f"{_esc(j['company'])} · {_esc(j.get('location'))}{pay} · score <b>{j.get('score', 0)}</b>"]
+CUR = {"INR": "₹", "USD": "$", "CAD": "C$", "AUD": "A$", "SGD": "S$", "EUR": "€", "GBP": "£"}
+
+
+def _num(v: float) -> str:
+    return f"{v:,.2f}".rstrip("0").rstrip(".")
+
+
+def pay_text(j: dict) -> str:
+    """Pay exactly as the source listed it (INR a year in LPA, the unit Indian postings use), else "not listed"."""
+    lo, hi = j.get("pay_min"), j.get("pay_max")
+    if not lo and not hi:
+        return "not listed"
+    lo, hi = lo or hi, hi or lo
+    cur, per = (j.get("currency") or "").upper(), (j.get("pay_period") or "").lower()
+    sym = CUR.get(cur, f"{cur} " if cur else "")
+    if cur == "INR" and per == "year":
+        lo, hi, unit = lo / 100000, hi / 100000, " LPA"
+    else:
+        unit = f"/{per}" if per else ""
+    return f"{sym}{_num(lo)}{'' if hi == lo else '–' + _num(hi)}{unit}"
+
+
+_REMOTE = re.compile(r"\bremote\b|work from home|\bwfh\b", re.I)
+_HYBRID_LOC, _ONSITE_LOC = re.compile(r"\bhybrid\b", re.I), re.compile(r"\bon-?site\b|in-office|work from office|\bwfo\b", re.I)
+_HYBRID_DESC = re.compile(r"\bhybrid (?:work|working|mode|role|model|setup|position|job|arrangement|schedule)\b|"
+                          r"work(?:ing)? (?:mode|model|type)\s*[:\-–]\s*hybrid|\(hybrid\)", re.I)
+_ONSITE_DESC = re.compile(r"\b(?:on-?site|in-office) (?:role|position|job|work|opportunity)\b|work from office|\bwfo\b|"
+                          r"work(?:ing)? (?:mode|model|type)\s*[:\-–]\s*(?:on-?site|office)|\(on-?site\)", re.I)
+_REMOTE_DESC = re.compile(r"\b(?:fully|100%) remote\b|\bremote (?:role|position|job|opportunity)\b|"
+                          r"work(?:ing)? (?:mode|model|type)\s*[:\-–]\s*remote", re.I)
+
+
+def mode_text(j: dict) -> str | None:
+    """On-site / Hybrid / Remote only when the posting says so (location first, then the description). Else None."""
+    loc, desc = j.get("location") or "", j.get("description") or ""
+    for rx, mode in ((_HYBRID_LOC, "Hybrid"), (_REMOTE, "Remote"), (_ONSITE_LOC, "On-site")):
+        if rx.search(loc):
+            return mode
+    if j.get("is_remote"):
+        return "Remote"
+    for rx, mode in ((_HYBRID_DESC, "Hybrid"), (_ONSITE_DESC, "On-site"), (_REMOTE_DESC, "Remote")):
+        if rx.search(desc):
+            return mode
+    return None
+
+
+def _clock(d) -> str:
+    return f"{d:%I:%M}".lstrip("0") + (" am" if d.hour < 12 else " pm")
+
+
+def _day(d, year: bool = True) -> str:
+    return f"{d.day} {d:%b}" + (f" {d.year}" if year else "")
+
+
+def when_text(j: dict) -> str:
+    """'Posted 17 Nov 2026 · found 18 Nov, 8:34 am IST': the posted time only when the source gave one."""
+    p = j.get("posted_at") or ""
+    try:
+        if "T" in p or " " in p.strip():
+            d = parse_iso(p)
+            if d is None:
+                raise ValueError(p)
+            posted = f"Posted {_day(d)}, {_clock(d)} IST"
+        else:
+            posted = f"Posted {_day(date.fromisoformat(p[:10]))}" if p else "Posted date not listed"
+    except ValueError:
+        posted = f"Posted {_esc(p)}"
+    f = parse_iso(j.get("found_at"))
+    return f"{posted} · found {_day(f, year=False)}, {_clock(f)} IST" if f else posted
+
+
+def job_card(j: dict, db=None) -> str:
+    """One job, whole, the same everywhere (/top, morning brief, alerts)."""
+    jid = j["id"][:8]
+    mode = mode_text(j)
+    lines = [f"{'🏛 ' if j.get('kind') == 'govt' else ''}{'★ ' if j.get('dream') else ''}<b>{_esc(j['title'])}</b>"
+             f" · {_esc(j['company'])} · score {j.get('score', 0)}",
+             f"📍 {_esc(j.get('location')) or 'location not listed'} ({mode or 'work mode not listed'})",
+             f"💰 {_esc(pay_text(j))}",
+             f"🕒 {when_text(j)}"]
     if j.get("deadline"):
         lines.append(f"⏰ last date {_esc(j['deadline'])}")
-    for r in (j.get("reasons") or [])[:3]:
-        lines.append("• " + _esc(clip(r, 110)))
-    if j.get("url"):
-        lines.append(f'{apply_link(j)} · /show_{j["id"][:8]} · /skip_{j["id"][:8]}')
+    link = apply_link(j)
+    lines.append(f"🔗 {link}" if link else "🔗 no apply link listed")
+    lines.append(f"/check_{jid} · /skip_{jid}")
+    on = db.applied_on(j["id"]) if db is not None else None
+    if on:
+        lines.append(f"✅ Applied on {_day(parse_iso(on))}")
     return "\n".join(lines)
+
+
+def pages(head: str, blocks: list[str], more: str = "", limit: int = 3800) -> list[str]:
+    """Pack whole blocks into Telegram-sized messages: a job is never cut in half."""
+    out, cur = [], head
+    for b in blocks:
+        if len(cur) + 2 + len(b) > limit and cur != head:
+            out.append(cur)
+            cur = head
+        cur += "\n\n" + b
+    out.append(cur)
+    return [p + (more if i < len(out) - 1 else "") for i, p in enumerate(out)] if more else out
+
+
+def format_job(j: dict, db=None) -> str:
+    """A job alert: the card, plus why it matched."""
+    why = "\n".join("• " + _esc(clip(r, 110)) for r in (j.get("reasons") or [])[:2])
+    return job_card(j, db) + ("\n" + why if why else "")
 
 
 def telegram(text: str) -> bool:
@@ -52,7 +153,6 @@ def telegram(text: str) -> bool:
     tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         return False
-    import re
     for payload in ({"parse_mode": "HTML", "text": text[:4000]},
                     {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
         try:

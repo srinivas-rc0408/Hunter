@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS jobs_score ON jobs(score);
 CREATE TABLE IF NOT EXISTS events (
   job_id TEXT, at TEXT, kind TEXT, detail TEXT
 );
+CREATE INDEX IF NOT EXISTS events_job ON events(job_id, kind);
 CREATE TABLE IF NOT EXISTS seen_links (      -- page watcher memory
   page TEXT, href TEXT, text TEXT, first_seen TEXT,
   PRIMARY KEY (page, href)
@@ -188,6 +189,14 @@ class DB:
         self.c.execute("UPDATE jobs SET status=?, status_at=? WHERE id=?", (status, iso(), jid))
         self.event(jid, status, detail)
         self.c.commit()
+
+    def applied_on(self, jid: str) -> str | None:
+        """When you applied (first 'applied' status), or None."""
+        r = self.c.execute("SELECT MIN(at) FROM events WHERE job_id=? AND kind='applied'", (jid,)).fetchone()
+        if r and r[0]:
+            return r[0]
+        r = self.c.execute("SELECT status_at FROM jobs WHERE id=? AND status='applied'", (jid,)).fetchone()
+        return r[0] if r else None
 
     def note(self, jid: str, text: str) -> None:
         self.c.execute("UPDATE jobs SET notes = TRIM(COALESCE(notes,'') || char(10) || ?) WHERE id=?",
