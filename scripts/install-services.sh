@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Install / refresh every JobHunter systemd user unit. Safe to re-run any time.
 #   Review Center (always on) · Telegram bot (always on) · cloud sync every 30 min
-#   laptop scan every 2 h · morning brief 07:30 · encrypted backup Sundays 21:00
+#   laptop scan every 2 h · morning brief 07:30 · encrypted backup + weekly report Sundays 21:00
+#   self-health check every 30 min · a Telegram alert the moment any service fails (OnFailure=)
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 UNIT_DIR="$HOME/.config/systemd/user"
@@ -13,7 +14,7 @@ done
 systemctl --user import-environment DISPLAY WAYLAND_DISPLAY XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user enable --now jobhunter-review.service jobhunter-sync.timer jobhunter-scan.timer \
-  jobhunter-morning.timer jobhunter-backup.timer
+  jobhunter-morning.timer jobhunter-backup.timer jobhunter-health.timer jobhunter-weekly.timer
 if grep -qE '^TELEGRAM_CHAT_ID=.+' "$REPO/.env" 2>/dev/null; then
   systemctl --user enable --now jobhunter-bot.service
 else

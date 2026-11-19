@@ -38,7 +38,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
-KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "review", "stats", "show", "scan", "company", "watch",
+KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
          *STATUS_CMDS}
 
@@ -70,7 +70,7 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 /resume · the current resume (send a PDF to replace it)
 
 <b>System</b>
-/scan · scan now · /ping · alive?"""
+/health · every check, ✓/✗ with the exact fix · /scan · scan now · /ping · alive?"""
 
 
 def _e(s) -> str:
@@ -407,6 +407,9 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
                 + "\nApprove them at localhost:8765 on your laptop.") if jobs else "Nothing waiting. ✅"
     if cmd == "stats":
         return _stats(db)
+    if cmd == "health":
+        from . import health
+        return health.as_telegram(health.checks(live=False))
     if cmd == "search":
         if not arg:
             return "Usage: <code>/search python intern</code> (role, skill or company)"
@@ -551,7 +554,7 @@ def run() -> None:
                 ("company", "a company: every open role + news"), ("govt", "govt notices, eligible first"),
                 ("eligible", "govt posts you can apply to"), ("deadlines", "last dates in the next 14 days"),
                 ("brief", "morning brief now"), ("review", "forms waiting for approval"),
-                ("questions", "questions only you can answer"), ("stats", "applied, interviews, response rate"), ("scan", "scan now"),
+                ("questions", "questions only you can answer"), ("stats", "applied, interviews, response rate"), ("health", "is everything working? fixes"), ("scan", "scan now"),
                 ("ping", "is the bot alive"), ("help", "all commands")]]})
         log(f"bot @{me['result'].get('username')} running for chat {chat[-4:].rjust(4, '*')}")
     except requests.RequestException as exc:

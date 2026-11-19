@@ -59,6 +59,22 @@ def _remember(prov: str, model: str, ok: bool) -> None:
     except OSError:
         pass
 
+def _mark_down(down: bool) -> None:
+    """Every provider failed (down=True) / one answered. `hunt health` alerts after 24 h down."""
+    import json
+    st = _state()
+    if down == ("_down_since" in st):
+        return
+    if down:
+        st["_down_since"] = time.time()
+    else:
+        st.pop("_down_since", None)
+    try:
+        _state_file().write_text(json.dumps(st, indent=1))
+    except OSError:
+        pass
+
+
 PRESETS = {
     "nvidia": ("https://integrate.api.nvidia.com/v1", "deepseek-ai/deepseek-v4-flash"),
     "ollama": ("http://localhost:11434/v1", "qwen3:4b"),
@@ -312,6 +328,7 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                     LAST.update(prov=prov, model=model, key=mask(k))
                     if prov != "ollama":
                         _remember(prov, model, True)
+                    _mark_down(False)
                     return text
                 if code in (401, 403) and k:
                     _DEAD.add(k)                        # bad / revoked key: skip it from now on
@@ -327,4 +344,6 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                 break
             if not next_model and prov != "ollama" and not _usable(prov):
                 break
+    if _providers():
+        _mark_down(True)                                # configured, and nothing answered
     return None

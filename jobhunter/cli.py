@@ -186,6 +186,25 @@ def cmd_morning(a):
     run(send=a.send, heartbeat=not a.offline)
 
 
+def cmd_health(a):
+    from . import health
+    if a.unit_failed:                                   # systemd OnFailure= (jobhunter-alert@.service)
+        return health.unit_failed(a.unit_failed)
+    if a.watch:                                         # jobhunter-health.timer, every 30 min
+        for m in health.watch():
+            print("sent:", m.splitlines()[0])
+        return
+    if a.weekly:                                        # jobhunter-weekly.timer, Sunday 21:00
+        from .db import DB
+        from .notify import telegram
+        msg = health.weekly(DB())
+        print(msg if not a.send else ("sent" if telegram(msg) else "NOT sent (Telegram not set?)"))
+        return
+    c = _console()
+    for ok, what, fix in health.checks():
+        c.print(f"{'[green]✓[/]' if ok else '[red]✗[/]'} {what}" + ("" if ok else f"\n    fix: [bold]{fix}[/]"))
+
+
 def cmd_bot(a):
     from .bot import run
     run()
@@ -857,6 +876,13 @@ def main(argv=None):
     s = sub.add_parser("update", help="git pull + reinstall + refresh Chromium")
     s.add_argument("--test", action="store_true", help="also run the test suite")
     s.set_defaults(fn=cmd_update)
+
+    s = sub.add_parser("health", help="every check in plain words with the fix command (/health on Telegram)")
+    s.add_argument("--watch", action="store_true", help="alert new problems on Telegram once, and their recovery")
+    s.add_argument("--unit-failed", metavar="UNIT", help="called by systemd when a service fails")
+    s.add_argument("--weekly", action="store_true", help="the Sunday report (print; --send to Telegram)")
+    s.add_argument("--send", action="store_true")
+    s.set_defaults(fn=cmd_health)
 
     s = sub.add_parser("doctor", help="check setup")
     s.add_argument("--test-alert", action="store_true")

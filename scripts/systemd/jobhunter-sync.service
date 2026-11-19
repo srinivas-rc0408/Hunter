@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=jobhunter-alert@%n.service
 Description=JobHunter: pull the cloud radar's jobs
 After=network-online.target
 Wants=network-online.target

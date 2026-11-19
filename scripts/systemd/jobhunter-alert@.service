@@ -1,0 +1,7 @@
+[Unit]
+Description=JobHunter: Telegram alert that %i failed
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/jobhunter
+ExecStart=%h/jobhunter/.venv/bin/hunt health --unit-failed %i

@@ -1,0 +1,7 @@
+[Unit]
+Description=JobHunter self-health check (alerts once per problem, once on recovery)
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/jobhunter
+ExecStart=%h/jobhunter/.venv/bin/hunt health --watch

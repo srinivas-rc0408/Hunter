@@ -220,6 +220,11 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
             db.add_application(job["id"], out.site, out.status, out.auto, approve, dry, out.why, list(B.RECORD),
                                str(B.SNAP_PATH) if B.SNAP_PATH.exists() else "", str(resume or ""), rrep,
                                cover or "", url_now)
+            if out.site in ("linkedin", "naukri"):              # /health alert: "run hunt login linkedin"
+                from .. import health
+                out_of = bool(re.search(r"logged out|not logged in", out.why or ""))
+                if out_of or out.status in ("applied", "needs_you", "filled"):
+                    health.set_flag(f"{out.site}_logged_out", out_of)
             if not dry:
                 detail = f"site={out.site} auto={out.auto} approved={approve} why={out.why[:200]}"
                 if out.status == "applied":

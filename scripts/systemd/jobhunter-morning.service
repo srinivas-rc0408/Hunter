@@ -1,4 +1,5 @@
 [Unit]
+OnFailure=jobhunter-alert@%n.service
 Description=JobHunter morning brief (Telegram)
 After=network-online.target
 Wants=network-online.target
