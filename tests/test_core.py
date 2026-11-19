@@ -370,6 +370,47 @@ class Retries(unittest.TestCase):
         db.add_application(j["id"], "linkedin", "applied", False, False, False, "", [], "", "", None, "", "")
         self.assertTrue(runner.already_applied(db, j))
 
+    def test_same_role_same_company_within_30_days(self):
+        from jobhunter.apply import runner
+        from jobhunter.notify import job_card
+        db = DB()
+        a = Job("Data Analyst", "Acme Analytics Pvt Ltd", "Bengaluru", url="https://www.linkedin.com/jobs/view/1")
+        b = Job("Data Analyst", "Acme Analytics", "Remote", url="https://www.naukri.com/job-listings-2")   # another row
+        c = Job("Data Analyst", "Other Co", "Bengaluru", url="https://x.example/3")
+        for j in (a, b, c):
+            db.upsert(j)
+        self.assertIsNone(runner.applied_before(db, db.get(b.id)))
+        db.set_status(a.id, "applied", "site=linkedin")
+        self.assertTrue(runner.applied_before(db, db.get(b.id)))                 # reposted on another board
+        self.assertIsNone(runner.applied_before(db, db.get(c.id)))               # another company
+        self.assertIn("already applied on", job_card(db.get(b.id), db))
+        self.assertIn("same role, another listing", job_card(db.get(b.id), db))
+        db.c.execute("UPDATE events SET at='2020-01-01T00:00:00' WHERE job_id=?", (a.id,))
+        db.c.commit()
+        self.assertIsNone(runner.applied_before(db, db.get(b.id)))               # more than 30 days ago
+
+    def test_caps_in_plain_words(self):
+        from jobhunter.apply import runner
+        db = DB()
+        self.assertIsNone(runner.cap_reached(db, "linkedin"))
+        for i in range(20):
+            j = self._job(db, f"Cap Role {i}")
+            db.set_status(j["id"], "applied", "site=linkedin auto=True")
+        self.assertIn("Linkedin daily cap reached (20", runner.cap_reached(db, "linkedin"))
+        self.assertIsNone(runner.cap_reached(db, "naukri"))
+        for i in range(5):
+            j = self._job(db, f"Cap Naukri {i}")
+            db.set_status(j["id"], "applied", "site=naukri auto=True")
+        self.assertIn("daily cap reached (25", runner.cap_reached(db, "naukri"))
+
+    def test_agency_flag_on_card(self):
+        from jobhunter.notify import job_card
+        for co, flagged in (("Sunrise HR Solutions", True), ("Bright Staffing", True), ("Tata Consultancy Services", False),
+                            ("Zoho", False)):
+            j = Job("Analyst", co, "Bengaluru", url="https://x.example/a")
+            card = job_card(vars(j) | {"id": j.id, "score": 50})
+            self.assertEqual("⚠ agency: check the real employer" in card, flagged, co)
+
 
 if __name__ == "__main__":
     unittest.main()

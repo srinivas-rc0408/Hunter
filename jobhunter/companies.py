@@ -82,6 +82,15 @@ def directory() -> list[dict]:
     return config.cfg("company_directory").get("companies", []) or []
 
 
+AGENCY = re.compile(r"\b(?:hr\s+solutions?|consultanc(?:y|ies)|consultants?|staffing|placements?|manpower)\b", re.I)
+
+
+def is_agency(name: str | None) -> bool:
+    """A recruiting agency posting for someone else ('XYZ HR Solutions', 'ABC Staffing'). Real employers in
+    the directory (Tata Consultancy Services) are not agencies."""
+    return bool(AGENCY.search(name or "")) and not any(same_company(name, d["name"]) for d in directory())
+
+
 def watchlist_path():
     return config.path("config", "watchlist.yaml")
 

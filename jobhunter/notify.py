@@ -156,10 +156,18 @@ def job_card(j: dict, db=None) -> str:
             lines.append(f"⏰ last date {_esc(j['deadline'])}")
     link = apply_link(j)
     lines.append(f"🔗 {link}" if link else "🔗 no apply link listed")
+    from .companies import is_agency
+    if is_agency(j.get("company")):
+        lines.append("⚠ agency: check the real employer")
     lines.append(f"/check_{jid} · /skip_{jid}")
-    on = db.applied_on(j["id"]) if db is not None else None
-    if on:
-        lines.append(f"✅ Applied on {_day(parse_iso(on))}")
+    if db is not None:
+        from .apply.runner import applied_before
+        on = applied_before(db, j)
+        if on:
+            d = parse_iso(on) if len(on) > 10 else None
+            own = db.applied_on(j["id"]) or j.get("status") == "applied"
+            lines.append(f"✅ {'Applied' if own else 'already applied'} on {_day(d) if d else _esc(on[:10])}"
+                         + ("" if own else " (same role, another listing)"))
     return "\n".join(lines)
 
 

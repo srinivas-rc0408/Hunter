@@ -1,6 +1,7 @@
 """`hunt apply`: open your browser and work through the queue, best jobs first."""
 from __future__ import annotations
 
+import datetime as dt
 import os
 import random
 import re
@@ -99,10 +100,41 @@ def apply(ids: list[str] | None = None, top: int = 10, min_score: int = 50, dry:
 SAME_CAUSE, MAX_TRIES = 3, 5
 
 
+def applied_before(db: DB, job: dict, days: int = 30) -> str | None:
+    """When you already applied: to this job ever, or to the same title at the same company in the last
+    `days` days (the same role reposted, or found on another board). None when you haven't."""
+    from ..companies import same_company
+    from ..util import norm
+    on = db.applied_on(job["id"])
+    if on or job.get("status") in ("applied", "interview", "offer", "rejected"):
+        return on or job.get("status_at") or "an earlier day"
+    r = db.c.execute("SELECT MIN(at) FROM applications WHERE job_id=? AND outcome='applied' AND dry=0", (job["id"],)).fetchone()
+    if r and r[0]:
+        return r[0]
+    since = (dt.datetime.now() - dt.timedelta(days=days)).isoformat(timespec="seconds")
+    title = norm(job["title"])
+    for j in db.c.execute("SELECT j.id, j.title, j.company, MIN(e.at) FROM jobs j JOIN events e ON e.job_id = j.id "
+                          "WHERE e.kind = 'applied' AND e.at >= ? AND j.id != ? GROUP BY j.id", (since, job["id"])):
+        if norm(j[1]) == title and same_company(j[2], job["company"]):
+            return j[3]
+    return None
+
+
 def already_applied(db: DB, job: dict) -> bool:
-    """Sent before (not a dry run), or past that stage: never apply twice."""
-    return job.get("status") in ("applied", "interview", "offer", "rejected") or bool(db.c.execute(
-        "SELECT 1 FROM applications WHERE job_id=? AND outcome='applied' AND dry=0", (job["id"],)).fetchone())
+    """Sent before (not a dry run), past that stage, or the same role at the same company this month: never twice."""
+    return applied_before(db, job) is not None
+
+
+def cap_reached(db: DB, site: str) -> str | None:
+    """The daily caps (all sites, and per site) as plain words, or None. flows.gate() enforces them too."""
+    s = config.cfg("search").get("apply", {})
+    total = s.get("max_auto_submits_per_day", 25)
+    if db.applied_today() >= total:
+        return f"daily cap reached ({total} applications today)"
+    cap = (s.get("max_per_site_per_day") or {}).get(site)
+    if cap is not None and db.applied_today(site) >= cap:
+        return f"{site.title()} daily cap reached ({cap} today)"
+    return None
 
 
 def after_failure(db: DB, job: dict, why: str) -> bool:
@@ -152,11 +184,21 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
     pw, ctx = B.launch(headless=hidden)
     page = B.work_page(ctx)
     done: list[tuple[dict, flows.Outcome]] = []
+    capped: set[str] = set()
     try:
         for n, job in enumerate(jobs, 1):
             console.rule(f"[{n}/{len(jobs)}] {job['title']} · {job['company']} · score {job['score']}")
-            if already_applied(db, job):
-                console.print("   already applied: skipped (never twice)")
+            on = applied_before(db, job)
+            if on:
+                console.print(f"   already applied on {on[:10]}: skipped (never twice)")
+                db.event(job["id"], "skip_duplicate", f"already applied on {on[:10]}")
+                continue
+            cap = None if dry else cap_reached(db, flows.site_of(job["url"]))
+            if cap:
+                console.print(f"[yellow]   {cap}: continues tomorrow[/]")
+                if cap not in capped:
+                    capped.add(cap)
+                    notify.telegram(f"⏸ {notify._esc(cap)}, continues tomorrow (human pace, never spam)")
                 continue
             B.RECORD.clear()
             shots = config.data_dir() / "screens"
