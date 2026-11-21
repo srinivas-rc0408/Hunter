@@ -503,7 +503,11 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         if not j:
             return f"Usage: /{cmd} &lt;id&gt;"
         db.set_status(j["id"], STATUS_CMDS[cmd], "telegram")
-        return f"✓ {_e(j['title'][:60])} · {_e(j['company'])} → <b>{STATUS_CMDS[cmd]}</b>"
+        done = f"✓ {_e(j['title'][:60])} · {_e(j['company'])} → <b>{STATUS_CMDS[cmd]}</b>"
+        if cmd == "interview":                          # one-screen prep pack, facts from resume.yaml only
+            from .prep import pack
+            return [done, pack(j)]
+        return done
     if cmd == "scan":
         subprocess.Popen([sys.executable, "-m", "jobhunter.cli", "scan"], cwd=str(config.home()),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -511,7 +515,7 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check"}
+SLOW = {"today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
 
 
 def log(msg: str) -> None:

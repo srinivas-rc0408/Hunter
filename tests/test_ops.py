@@ -16,6 +16,7 @@ def setUpModule():
 os.environ["STATE_KEY"] = "test-key-123"
 os.environ["JOBHUNTER_BACKUP_DIR"] = tempfile.mkdtemp(prefix="jh-bk-")
 
+from html import unescape as html_unescape  # noqa: E402
 from jobhunter.db import DB, Job  # noqa: E402
 from jobhunter.score import score  # noqa: E402
 
@@ -196,6 +197,31 @@ class FollowUp(unittest.TestCase):
         self.assertIn("linkedin.com/search/results/people/?keywords=Co%20A%20recruiter", m)
         self.assertIn("send it yourself", m)
         assert_telegram_html(self, m)
+
+
+class InterviewPrep(unittest.TestCase):
+    def test_interview_sends_one_screen_pack_from_resume_only(self):
+        from unittest import mock
+        from jobhunter import config
+        from jobhunter.bot import handle
+        db = DB(HOME / "data" / "prep.db")
+        j = seed(db, "ML Engineer", "Prep Co")
+        db.c.execute("UPDATE jobs SET description=? WHERE id=?",
+                     ("We need Python, Python and more Python. FastAPI services, Docker, SQL. Kubernetes a plus.", j.id))
+        db.c.commit()
+        with mock.patch("jobhunter.prep._what_they_do", return_value="Makes widgets."):
+            out = handle(f"/interview_{j.id[:8]}", db)
+        self.assertEqual(db.get(j.id)["status"], "interview")
+        status, pack = out
+        self.assertIn("→ <b>interview</b>", status)
+        self.assertIn("Makes widgets.", pack)
+        self.assertIn("Top skills in the JD:</b> Python", pack)                   # most-mentioned first
+        self.assertEqual(len([l for l in pack.splitlines() if l[:2] in {f"{i}." for i in range(1, 6)}]), 5)
+        mine = {p["name"] for p in config.cfg("resume").get("projects") or []}
+        named = [l.split("→ ", 1)[1] for l in pack.splitlines() if l.startswith("   → ") and "no project" not in l]
+        self.assertTrue(named and all(html_unescape(n) in mine for n in named), named)   # never an invented project
+        self.assertLess(len(pack), 2000)                                          # one screen
+        assert_telegram_html(self, pack)
 
 
 class BotHTML(unittest.TestCase):
