@@ -16,7 +16,7 @@ Every command is for **your Arch laptop, in fish**, from `~/jobhunter` unless it
 |---|---|---|
 | Cloud radar: LinkedIn, Naukri, Indeed, Google, company boards, Birla pages, 20 govt sites | GitHub Actions (free, laptop can be off) | every 30 min, full scan every 3 h |
 | Telegram alerts for strong matches + govt notices | your phone | the moment the radar finds them |
-| **Morning brief** (best new jobs, approvals waiting, govt deadlines, GATE countdown, cloud health) | laptop → Telegram | 07:30 daily (runs at login if the laptop was off) |
+| **Morning brief** (best new jobs, approvals waiting, govt deadlines, GATE countdown, cloud health) | cloud radar → Telegram (laptop fallback) | 07:25 daily from GitHub; the laptop sends at 08:00 only if the cloud one didn't |
 | **Telegram command bot** (`/top`, `/govt`, `/review`, `/skip_…`, `/stats`) | laptop | always on |
 | **Review Center** (http://localhost:8765): every field the bot filled + Approve & Submit | laptop | always on |
 | Laptop scan (backup to the cloud) + cloud sync | laptop | scan every 2 h, sync every 30 min |
@@ -314,7 +314,7 @@ questions are open. Never asked: captchas, OTPs, essays, and voluntary diversity
 
 ## Daily routine (25–35 min)
 
-**07:30 Telegram morning brief.** Read it on your phone. `/skip_<id>` anything you don't want.
+**07:25 Telegram morning brief.** Read it on your phone. `/skip_<id>` anything you don't want.
 
 **Morning at the laptop:**
 ```fish

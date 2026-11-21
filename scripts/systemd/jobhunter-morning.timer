@@ -1,8 +1,8 @@
 [Unit]
-Description=JobHunter morning brief at 07:30 (runs at boot if the laptop was off)
+Description=JobHunter morning brief fallback at 08:00: sends only if the cloud's 07:25 brief didn't (runs at boot if the laptop was off)
 
 [Timer]
-OnCalendar=*-*-* 07:30:00
+OnCalendar=*-*-* 08:00:00
 Persistent=true
 
 [Install]

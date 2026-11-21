@@ -71,6 +71,30 @@ class Morning(unittest.TestCase):
         self.assertIn(f"/check_{j.id[:8]}", msg)
         self.assertIn('<a href="https://x.example/j">Apply on company site</a>', msg)
 
+    def test_cloud_brief_flag_stops_the_laptop_sending_twice(self):
+        """Cloud radar sends at 07:25 and records brief_sent in jobs.db; `hunt sync` merges it; the laptop skips."""
+        from unittest import mock
+        from jobhunter import morning
+        cloud, laptop = DB(HOME / "data" / "cloud_b.db"), DB(HOME / "data" / "laptop_b.db")
+        j = seed(cloud, "ML Engineer", "Cloud Co")
+        sent = []
+        env = {"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "1", "GITHUB_ACTIONS": "true"}
+        with mock.patch.dict(os.environ, env), mock.patch("jobhunter.morning.telegram", side_effect=lambda m: sent.append(m) or True):
+            morning.run(send=True, heartbeat=False, db=cloud)
+        self.assertTrue(sent and f"/check_{j.id[:8]}" in "".join(sent))          # cloud: full cards, apply links
+        self.assertIn("Apply on company site", "".join(sent))
+        self.assertEqual(cloud.c.execute("SELECT detail FROM events WHERE kind='brief_sent'").fetchone()[0], "cloud")
+        laptop.merge_from(HOME / "data" / "cloud_b.db")                             # what `hunt sync` does
+        sent.clear()
+        env.pop("GITHUB_ACTIONS")
+        with mock.patch.dict(os.environ, env), mock.patch("jobhunter.morning.telegram", side_effect=lambda m: sent.append(m) or True):
+            morning.run(send=True, heartbeat=False, db=laptop)
+        self.assertEqual(sent, [])                                                  # laptop: already sent today
+        fresh = DB(HOME / "data" / "laptop_c.db")                                   # cloud didn't run: laptop sends
+        with mock.patch.dict(os.environ, env), mock.patch("jobhunter.morning.telegram", side_effect=lambda m: sent.append(m) or True):
+            morning.run(send=True, heartbeat=False, db=fresh)
+        self.assertTrue(sent)
+
     def test_alert_and_top_have_apply_links(self):
         from jobhunter.bot import handle
         from jobhunter.notify import format_job

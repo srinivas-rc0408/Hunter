@@ -81,7 +81,7 @@ cp config/private.example.yaml config/private.yaml   # fill it in (you already h
    `gh workflow run radar -f mode=full`.
 3. **Log in once:** `hunt login linkedin`, `hunt login naukri`.
 4. **Services:** `./scripts/install-services.sh` sets up the Review Center (http://localhost:8765),
-   Telegram bot, morning brief 07:30, cloud sync, laptop scans and weekly encrypted backups.
+   Telegram bot, morning brief (cloud 07:25, laptop fallback 08:00), cloud sync, laptop scans and weekly encrypted backups.
 
 ## Daily use
 
@@ -98,7 +98,7 @@ it *would* send in the Review Center.
 
 ## Daily use without Claude
 
-Everything runs by itself: cloud radar on GitHub, laptop scans every 2 h, the 07:30 brief, a health
+Everything runs by itself: cloud radar on GitHub, laptop scans every 2 h, the 07:25 brief (from the cloud; the laptop sends at 08:00 only if it didn't), a health
 check every 30 min (an alert arrives on Telegram the first time something breaks, and once when it's
 fixed), the Sunday 21:00 weekly report and backup. From your phone: `today`, `top 5`, `search python`,
 `company Zoho`, `govt karnataka`, `eligible`, `deadlines`, `stats`, `health`, `help`.

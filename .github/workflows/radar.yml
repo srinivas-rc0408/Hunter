@@ -15,9 +15,10 @@ on:
     - cron: "7,37 * * * *"        # light scan every 30 min
     - cron: "52 */3 * * *"        # full scan every 3 hours
     - cron: "45 14 * * *"         # daily digest 20:15 IST
+    - cron: "55 1 * * *"          # morning brief 07:25 IST (the laptop sends at 08:00 only if this didn't)
   workflow_dispatch:
     inputs:
-      mode: {description: "light | full | digest", default: "full"}
+      mode: {description: "light | full | digest | brief", default: "full"}
 
 permissions:
   contents: write
@@ -67,6 +68,7 @@ jobs:
           if [ -z "$M" ]; then
             case "${{ github.event.schedule }}" in
               "45 14 * * *") M=digest ;;
+              "55 1 * * *") M=brief ;;
               "52 */3 * * *") M=full ;;
               *) M=light ;;
             esac
@@ -106,7 +108,7 @@ jobs:
           fi
 
       - name: Scan
-        if: steps.mode.outputs.mode != 'digest'
+        if: steps.mode.outputs.mode != 'digest' && steps.mode.outputs.mode != 'brief'
         run: |
           if [ "${{ steps.mode.outputs.mode }}" = "light" ]; then
             python -m jobhunter.cli scan --light
@@ -117,6 +119,11 @@ jobs:
       - name: Digest
         if: steps.mode.outputs.mode == 'digest'
         run: python -m jobhunter.cli digest
+
+      - name: Morning brief
+        # same job cards and apply links as the laptop; records brief_sent in jobs.db so the laptop skips
+        if: steps.mode.outputs.mode == 'brief'
+        run: python -m jobhunter.cli morning --send
 
       - name: Keep-alive
         # Public repos: GitHub disables scheduled workflows after 60 days without repository

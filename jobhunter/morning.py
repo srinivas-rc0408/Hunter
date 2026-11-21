@@ -7,7 +7,7 @@
   📅 calendar               GATE countdown + the next dated event
   🎯 today's target         applications to reach your daily goal
 
-Runs at 07:30 from a systemd timer (`hunt morning --send`); run it by hand any time.
+Sent at 07:25 IST by the cloud radar (radar.yml, mode brief); the laptop timer at 08:00 sends only if it didn't.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from . import config
 from .config import env
 from .db import DB
 from .notify import job_card, pages, telegram
-from .util import iso
+from .util import iso, now
 
 DAILY_GOAL = 10
 
@@ -88,7 +88,8 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
     db = db or DB()
     today = today or dt.date.today()
     st = load_state()
-    since = st.get("last_brief") or (dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds")
+    since = (last_sent(db) or st.get("last_brief")
+             or (dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds"))
     new = db.query(status=["new", "alerted", "queued"], kind="private", min_score=50, since=since, limit=60)
     new.sort(key=lambda j: (not j["dream"], -j["score"]))
     best = [] if new else db.query(status=["new", "alerted", "queued"], kind="private", min_score=50, limit=5)
@@ -166,9 +167,22 @@ def as_telegram(b: dict) -> str:
     return "\n\n".join(as_telegram_pages(b))
 
 
-def run(send: bool = False, heartbeat: bool = True) -> dict:
+def last_sent(db: DB) -> str | None:
+    """When a brief last reached Telegram, from the cloud radar or this laptop. It's an event row in jobs.db, so
+    it rides the encrypted cloud state: `hunt sync` brings the cloud's 07:25 send here."""
+    r = db.c.execute("SELECT MAX(at) FROM events WHERE kind='brief_sent'").fetchone()
+    return r[0] if r else None
+
+
+def run(send: bool = False, heartbeat: bool = True, db: DB | None = None) -> dict:
+    import os
+
     from .util import console
-    b = build(heartbeat=heartbeat)
+    db = db or DB()
+    if send and (last_sent(db) or "")[:10] == str(now().date()):     # IST, laptop and cloud alike
+        console.print(f"brief already sent today ({last_sent(db)}): not sending again. Telegram /brief shows it")
+        return {}
+    b = build(db=db, heartbeat=heartbeat)
     msgs = as_telegram_pages(b)
     plain = html.unescape(re.sub(r"<[^>]+>", "", "\n\n".join(msgs)))
     console.print(plain, markup=False)
@@ -178,5 +192,9 @@ def run(send: bool = False, heartbeat: bool = True) -> dict:
         elif not all([telegram(m) for m in msgs]):   # offline (laptop just woke): exit 1, systemd retries
             console.print("[red]Telegram unreachable: brief NOT sent (will retry)[/]")
             raise SystemExit(1)                      # last_brief untouched: nothing new is skipped
+        else:
+            db.c.execute("INSERT INTO events VALUES ('', ?, 'brief_sent', ?)",
+                         (iso(), "cloud" if os.environ.get("GITHUB_ACTIONS") else "laptop"))
+            db.c.commit()
     save_state(last_brief=iso())
     return b
