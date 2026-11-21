@@ -54,6 +54,7 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 
 <b>Govt</b>
 /govt · open notices, eligible first · <code>govt karnataka</code>, <code>govt central</code>, <code>govt all</code>
+<code>govt isro</code>, <code>govt kpsc</code>, <code>govt engineer</code> · search govt notices only
 /eligible · posts you can apply to now
 
 <b>One job</b> (tap the links on a card)
@@ -388,17 +389,27 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         scope = next((w for w in words if w in ("all", "karnataka", "central")), "all")
         page = int(next((w for w in words if w.isdigit()), 1))
         jobs = govt_open(db.query(kind="govt", limit=1000), scope=scope, eligible_only=cmd == "eligible")
+        find = [w for w in words if w not in ("all", "karnataka", "central") and not w.isdigit()]
+        if find:                                        # "govt isro", "govt kpsc", "govt engineer": govt notices only
+            hay = lambda j: " ".join([j["title"], j["company"], " ".join(j.get("sources") or []),  # noqa: E731
+                                      (j.get("details") or {}).get("post") or "", j.get("description") or ""]).lower()
+            jobs = [j for j in jobs if all(w in hay(j) for w in find)]
         if "all" not in words:                          # posts you can't apply to: only in /govt all
             jobs = [j for j in jobs if "eligibility:ineligible" not in (j.get("flags") or [])]
         title = ("✅ Govt posts you're eligible for now" if cmd == "eligible" else
                  {"karnataka": "🏛 Karnataka govt notices", "central": "🏛 Central govt / PSU notices"}.get(scope, "🏛 Govt notices"))
+        if find:
+            title += f" · “{_e(' '.join(find))}”"
+        from .notify import registration_text, registrations
+        regs = "🪪 " + " · ".join(registration_text(r) for r in registrations()) if registrations() else ""
         if not jobs:
-            return f"<b>{title}</b>\nnone open right now" + ("\n/govt all shows every open notice" if cmd == "eligible" else "")
+            return (f"<b>{title}</b>\nnone open right now" + ("\n/govt all shows every open notice" if cmd == "eligible" else "")
+                    + (f"\n\n{regs}" if regs else ""))
         today = dt.date.today()
         soon = sum(1 for j in jobs if j.get("deadline") and 0 <= (dt.date.fromisoformat(j["deadline"][:10]) - today).days <= 3)
         prof = config.cfg("profile")
-        head = f"<b>{title}: {len(jobs)} open</b>" + (f"\n🔴 <b>{soon} close{'s' if soon == 1 else ''} in 3 days or less</b>" if soon else "")
-        more = f"/{cmd}" + (f" {scope}" if scope != "all" or "all" in words else "")
+        head = f"<b>{title}: {len(jobs)} open</b>" + (f"\n{regs}" if regs else "") + (f"\n🔴 <b>{soon} close{'s' if soon == 1 else ''} in 3 days or less</b>" if soon else "")
+        more = f"/{cmd}" + (f" {scope}" if scope != "all" or "all" in words else "") + (f" {' '.join(find)}" if find else "")
         return _paged(head, [govt_card(j, prof, today) for j in jobs], more, page)
     if cmd == "deadlines":
         return _deadlines(db, page=int(arg) if arg.isdigit() else 1)

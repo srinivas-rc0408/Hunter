@@ -321,6 +321,18 @@ def _govt_reason(j: dict) -> str:
     return "; ".join(ok[:2]) or "see notification"
 
 
+def registrations() -> list[dict]:
+    """Your govt portal registrations (OTR) from config/advantages.yaml: portal, sources, url, status."""
+    from . import config
+    return config.cfg("advantages").get("registrations") or []
+
+
+def registration_text(r: dict) -> str:
+    st = str(r.get("status") or "unknown").lower()
+    mark = "✓ done" if st == "done" else "✗ not done" if st in ("not done", "no", "pending") else "? not recorded"
+    return f"{_esc(r['portal'])} {mark}"
+
+
 def govt_card(j: dict, profile: dict | None = None, today: date | None = None) -> str:
     """One govt notice, every value from the notification itself (else "see notification")."""
     from . import config
@@ -364,6 +376,10 @@ def govt_card(j: dict, profile: dict | None = None, today: date | None = None) -
     if apply_u:
         links.append(f'🔗 <a href="{html.escape(apply_u, quote=True)}">Apply / official page</a>')
     lines.append(" · ".join(links) or "🔗 no link listed")
+    src = (j.get("source") or (j.get("sources") or [""])[0] or "").removeprefix("govt:")
+    reg = next((r for r in registrations() if src and src in (r.get("sources") or [])), None)
+    if reg:
+        lines.append(f"🪪 {registration_text(reg)}" + (f' · <a href="{html.escape(reg["url"], quote=True)}">portal</a>' if reg.get("url") else ""))
     lines.append(f"/show_{j['id'][:8]} · /skip_{j['id'][:8]} · /applied_{j['id'][:8]}")
     return "\n".join(lines)
 

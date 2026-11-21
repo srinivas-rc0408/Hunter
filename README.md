@@ -96,6 +96,28 @@ hunt advantages           # your reservation / state / GATE advantages checklist
 `hunt apply --dry-run` fills and records without submitting. You see exactly what
 it *would* send in the Review Center.
 
+## Daily use without Claude
+
+Everything runs by itself: cloud radar on GitHub, laptop scans every 2 h, the 07:30 brief, a health
+check every 30 min (an alert arrives on Telegram the first time something breaks, and once when it's
+fixed), the Sunday 21:00 weekly report and backup. From your phone: `today`, `top 5`, `search python`,
+`company Zoho`, `govt karnataka`, `eligible`, `deadlines`, `stats`, `health`, `help`.
+
+```bash
+hunt health                     # every check, ✓/✗ with the exact fix command (same as /health)
+hunt apply --top 10             # apply (caps: LinkedIn 20, all sites 25 a day; never the same role twice)
+
+# update to the latest version
+git pull && systemctl --user restart jobhunter-bot jobhunter-review
+
+# something broke after an update: go back to the last known-good version
+git checkout v1.7-stable && systemctl --user restart jobhunter-bot jobhunter-review
+git checkout main               # later, to return to the latest
+```
+
+Restore everything (laptop lost): clone the repo, `hunt restore ~/jobhunter-backups/<newest>.tar.gz.enc`
+with `STATE_KEY` from your phone notes, then `scripts/install-services.sh`.
+
 ## Resume tailoring (hunter-resume inside)
 
 `hunt tailor <id>` (also runs automatically before each apply):

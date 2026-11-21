@@ -127,6 +127,31 @@ class Commands(unittest.TestCase):
         self.assertNotIn("Post 1", handle("/govt central", db))
         self.assertIn("🔴", handle("/deadlines", db))
 
+    def test_govt_word_search_and_registration_status(self):
+        from unittest import mock
+
+        from jobhunter import notify
+        from jobhunter.bot import handle
+        db = DB(HOME / "data" / "govt-words.db")
+        for i, (src, title) in enumerate([("isro", "Scientist/Engineer SC"), ("kea", "Assistant Engineer"), ("ibps", "Clerk")]):
+            j = Job(title, src.upper() + " & Co", "All India", url=f"https://g.example/w{i}", source=f"govt:{src}", kind="govt",
+                    deadline=str(dt.date.today() + dt.timedelta(days=9)), details={"vacancies": 3})
+            db.upsert(j)
+            db.set_score(j.id, 60, ["✓ fine"], ["govt:central", "eligibility:check"], False)
+        regs = [{"portal": "KEA <OTR>", "sources": ["kea"], "url": "https://kea.example/?a=1&b=2", "status": "done"},
+                {"portal": "IBPS", "sources": ["ibps"], "status": "not done"}, {"portal": "UPSC OTR", "sources": []}]
+        with mock.patch.object(notify, "registrations", return_value=regs):
+            isro, eng, kea = handle("govt isro", db), handle("govt engineer", db), handle("govt kea", db)
+            for out in (isro, eng, kea, handle("govt clerk", db), handle("govt nothingmatches", db)):
+                assert_telegram_html(self, out)
+        self.assertIn("Scientist/Engineer", isro)
+        self.assertNotIn("Clerk", isro)
+        self.assertIn("Assistant Engineer", eng)
+        self.assertNotIn("Clerk", eng)
+        self.assertIn("🪪 KEA &lt;OTR&gt; ✓ done", kea)                       # on the KEA card
+        self.assertIn("IBPS ✗ not done", kea)                                # the summary line
+        self.assertIn("UPSC OTR ? not recorded", kea)
+
 
 class Links(unittest.TestCase):
     def test_menu_links_are_not_notices(self):
