@@ -18,6 +18,7 @@ import re
 import subprocess
 
 from . import config
+from .config import env
 from .db import DB
 from .notify import job_card, pages, telegram
 from .util import iso
@@ -90,6 +91,7 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
     since = st.get("last_brief") or (dt.datetime.now() - dt.timedelta(days=1)).isoformat(timespec="seconds")
     new = db.query(status=["new", "alerted", "queued"], kind="private", min_score=50, since=since, limit=60)
     new.sort(key=lambda j: (not j["dream"], -j["score"]))
+    best = [] if new else db.query(status=["new", "alerted", "queued"], kind="private", min_score=50, limit=5)
     open_q = db.count("kind='private' AND status IN ('new','alerted','queued') AND score >= 50")
     waiting = db.query(status=["needs_you"], limit=50)
     soon = []
@@ -112,7 +114,7 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
     hb = cloud_heartbeat() if heartbeat else ("", None)
     from .apply.questions import pending
     qs = pending()
-    return {"date": today.isoformat(), "since": since, "new": new, "open": open_q, "waiting": waiting,
+    return {"date": today.isoformat(), "since": since, "new": new, "best": best, "open": open_q, "waiting": waiting,
             "govt_soon": soon, "govt_top": govt_top, "applied_today": applied_today, "goal": DAILY_GOAL,
             "interviews": db.query(status=["interview"], limit=20), "heartbeat": hb,
             "gate": gate_countdown(today), "next_event": next_event(today), "questions": qs}
@@ -126,8 +128,8 @@ def as_telegram_pages(b: dict) -> list[str]:
     if b["heartbeat"][0]:
         top.append(("☁ " if (b["heartbeat"][1] or 99) <= 1.5 else "⚠️ ") + e(b["heartbeat"][0]))
     top.append(f"<b>★ New since last brief: {len(b['new'])}</b> (open queue {b['open']})"
-               + ("" if b["new"] else "\nnothing new: /top shows the best open jobs"))
-    blocks = ["\n".join(top)] + [job_card(j) for j in b["new"][:8]]
+               + ("" if b["new"] or not b.get("best") else "\nnothing new: your best open jobs (more: /top 20)"))
+    blocks = ["\n".join(top)] + [job_card(j) for j in (b["new"] or b.get("best") or [])[:8]]
     if len(b["new"]) > 8:
         blocks.append(f"… and {len(b['new']) - 8} more: /top 20")
     if b["waiting"]:
@@ -171,7 +173,10 @@ def run(send: bool = False, heartbeat: bool = True) -> dict:
     plain = html.unescape(re.sub(r"<[^>]+>", "", "\n\n".join(msgs)))
     console.print(plain, markup=False)
     if send:
-        if not all([telegram(m) for m in msgs]):
+        if not (env("TELEGRAM_BOT_TOKEN") and env("TELEGRAM_CHAT_ID")):
             console.print("[yellow]Telegram not configured: brief printed only[/]")
+        elif not all([telegram(m) for m in msgs]):   # offline (laptop just woke): exit 1, systemd retries
+            console.print("[red]Telegram unreachable: brief NOT sent (will retry)[/]")
+            raise SystemExit(1)                      # last_brief untouched: nothing new is skipped
     save_state(last_brief=iso())
     return b

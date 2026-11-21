@@ -51,6 +51,26 @@ class Morning(unittest.TestCase):
         self.assertIn('<a href="https://x.example/j">Apply on company site</a>', msg)   # every job: one tap to apply
         self.assertIn('<a href="https://iisc/x">Apply / official page</a>', msg)
 
+    def test_offline_send_retries_and_keeps_window(self):
+        """Laptop just woke, Wi-Fi not up: exit 1 so systemd retries, and last_brief stays put."""
+        from unittest import mock
+        from jobhunter import morning
+        db = DB(HOME / "data" / "offline.db")
+        j = seed(db, "Data Scientist", "Offline Co")
+        morning.save_state(last_brief="2000-01-01T00:00:00")
+        with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "1"}), \
+                mock.patch("jobhunter.morning.telegram", return_value=False), \
+                mock.patch("jobhunter.morning.build", return_value=morning.build(db=db, heartbeat=False)):
+            with self.assertRaises(SystemExit) as e:
+                morning.run(send=True, heartbeat=False)
+        self.assertEqual(e.exception.code, 1)
+        self.assertEqual(morning.load_state()["last_brief"], "2000-01-01T00:00:00")
+        morning.save_state(last_brief="2999-01-01T00:00:00")        # nothing new since: best open jobs as cards
+        msg = morning.as_telegram(morning.build(db=db, heartbeat=False))
+        self.assertIn("New since last brief: 0", msg)
+        self.assertIn(f"/check_{j.id[:8]}", msg)
+        self.assertIn('<a href="https://x.example/j">Apply on company site</a>', msg)
+
     def test_alert_and_top_have_apply_links(self):
         from jobhunter.bot import handle
         from jobhunter.notify import format_job

@@ -600,6 +600,8 @@ def run() -> None:
                 requests.post(f"{api}/deleteWebhook", timeout=20, json={})
             time.sleep(min(60, 5 * fails))
             continue
+        if fails:
+            log(f"Telegram reachable again after {fails} failed poll(s): answering")
         fails = 0
         for u in r.get("result", []):
             offset = u["update_id"] + 1

@@ -3,9 +3,15 @@ OnFailure=jobhunter-alert@%n.service
 Description=JobHunter morning brief (Telegram)
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=2h
+StartLimitBurst=30
 
 [Service]
 Type=oneshot
 WorkingDirectory=%h/jobhunter
 ExecStartPre=-%h/jobhunter/.venv/bin/hunt sync
 ExecStart=%h/jobhunter/.venv/bin/hunt morning --send
+# User units can't wait for network-online.target, so at boot the send can fail: retry every
+# minute for 30 min (exit 1 = Telegram unreachable), then OnFailure alerts.
+Restart=on-failure
+RestartSec=60
