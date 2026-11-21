@@ -171,6 +171,33 @@ class BotOffline(unittest.TestCase):
         self.assertIn("bot offline since", sent[0])
 
 
+class FollowUp(unittest.TestCase):
+    """7 days after applying with no reply: one draft + recruiter search on Telegram, never sent to the company."""
+
+    def test_due_once_after_seven_days(self):
+        from unittest import mock
+        from jobhunter import followup
+        db = DB(HOME / "data" / "fu.db")
+        old, fresh, answered = (seed(db, f"ML Engineer {x}", f"Co {x}") for x in "ABC")
+        for j in (old, fresh, answered):
+            db.set_status(j.id, "applied")
+        db.set_status(answered.id, "interview")
+        eight = (dt.date.today() - dt.timedelta(days=8)).isoformat()
+        db.c.execute("UPDATE jobs SET status_at=? WHERE id IN (?,?)", (eight, old.id, answered.id))
+        db.c.commit()
+        self.assertEqual([j["id"] for j in followup.due(db)], [old.id])
+        sent = []
+        with mock.patch("jobhunter.followup.telegram", side_effect=lambda m: sent.append(m) or True):
+            self.assertEqual(followup.suggest(db), 1)
+            self.assertEqual(followup.suggest(db), 0)                     # never twice
+        m = sent[0]
+        self.assertIn("I applied for the ML Engineer A role at Co A on " + eight, m)
+        self.assertIn("[fill: first]", m)                                  # recruiter's name: yours to fill, not guessed
+        self.assertIn("linkedin.com/search/results/people/?keywords=Co%20A%20recruiter", m)
+        self.assertIn("send it yourself", m)
+        assert_telegram_html(self, m)
+
+
 class BotHTML(unittest.TestCase):
     def test_every_reply_is_valid_telegram_html(self):
         from jobhunter.bot import handle

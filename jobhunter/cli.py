@@ -193,6 +193,8 @@ def cmd_health(a):
     if a.watch:                                         # jobhunter-health.timer, every 30 min
         for m in health.watch():
             print("sent:", m.splitlines()[0])
+        from .followup import suggest                   # 7 days, no reply: a follow-up draft for you to send
+        print(f"follow-up suggestions sent: {suggest()}")
         return
     if a.weekly:                                        # jobhunter-weekly.timer, Sunday 21:00
         from .db import DB
