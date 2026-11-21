@@ -600,6 +600,16 @@ def _reply(api: str, chat: str, text: str) -> None:
     log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} ({len(parts)} msg) in {time.time() - t0:.1f}s")
 
 
+def offline_note(since: float, secs: float) -> str | None:
+    """One alert when the bot is back after >= 2 h without Telegram. secs is monotonic time, which stands still
+    while the laptop sleeps, so only time the laptop was on (and offline) counts."""
+    if secs < 2 * 3600:
+        return None
+    return (f"⚠️ <b>bot offline since {time.strftime('%d %b %H:%M', time.localtime(since))}</b> "
+            f"({secs / 3600:.1f} h with the laptop on but Telegram unreachable). Back now; "
+            f"anything you sent meanwhile is answered next.")
+
+
 def run() -> None:
     from concurrent.futures import ThreadPoolExecutor
     tok, chat = env("TELEGRAM_BOT_TOKEN"), str(env("TELEGRAM_CHAT_ID") or "")
@@ -625,17 +635,19 @@ def run() -> None:
     except requests.RequestException as exc:
         log(f"startup: Telegram unreachable ({type(exc).__name__}); retrying in the loop")
     pool = ThreadPoolExecutor(max_workers=3)   # a slow /company never blocks /help
-    fails = 0
+    fails, down = 0, None                   # down: (wall time, monotonic) of the first failed poll
     while True:
         try:
             r = requests.get(f"{api}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60).json()
         except (requests.RequestException, ValueError) as exc:
             fails += 1
+            down = down or (time.time(), time.monotonic())
             log(f"getUpdates failed ({type(exc).__name__}); retry in {min(60, 5 * fails)}s")
             time.sleep(min(60, 5 * fails))
             continue
         if not r.get("ok"):
             fails += 1
+            down = down or (time.time(), time.monotonic())
             log(f"getUpdates refused: {r.get('error_code')} {r.get('description')}")
             if r.get("error_code") == 401:
                 sys.exit("Token revoked or wrong: fix TELEGRAM_BOT_TOKEN in .env, then restart the bot.")
@@ -645,7 +657,10 @@ def run() -> None:
             continue
         if fails:
             log(f"Telegram reachable again after {fails} failed poll(s): answering")
-        fails = 0
+            note = offline_note(down[0], time.monotonic() - down[1])
+            if note and send(api, chat, note):
+                log("sent the offline alert")
+        fails, down = 0, None
         for u in r.get("result", []):
             offset = u["update_id"] + 1
             save_state(tg_offset=offset)

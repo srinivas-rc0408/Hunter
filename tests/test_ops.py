@@ -137,6 +137,40 @@ def assert_telegram_html(tc, text):
     tc.assertEqual(stack, [], "unclosed tag")
 
 
+class BotOffline(unittest.TestCase):
+    """Laptop on, Telegram unreachable for 2 h+: one "bot offline since …" message when it's back."""
+
+    def test_rule(self):
+        from jobhunter.bot import offline_note
+        self.assertIsNone(offline_note(0, 7199))
+        self.assertIn("bot offline since", offline_note(0, 3 * 3600))
+
+    def test_loop_sends_one_alert_on_recovery(self):
+        from unittest import mock
+        import requests
+        from jobhunter import bot
+        ok = mock.Mock(json=lambda: {"ok": True, "result": []})
+        me = mock.Mock(json=lambda: {"ok": True, "result": {"username": "b"}})
+        clock = iter([0.0, 3 * 3600.0, 3 * 3600.0, 3 * 3600.0])
+        gets = iter([me, requests.ConnectionError(), requests.ConnectionError(), ok, ok, KeyboardInterrupt()])
+
+        def get(*a, **k):
+            r = next(gets)
+            if isinstance(r, BaseException):
+                raise r
+            return r
+        sent = []
+        with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "t", "TELEGRAM_CHAT_ID": "1"}), \
+                mock.patch("jobhunter.bot.requests.get", side_effect=get), \
+                mock.patch("jobhunter.bot.requests.post"), mock.patch("jobhunter.bot.time.sleep"), \
+                mock.patch("jobhunter.bot.time.monotonic", side_effect=lambda: next(clock)), \
+                mock.patch("jobhunter.bot.send", side_effect=lambda a, c, t: sent.append(t) or True):
+            with self.assertRaises(KeyboardInterrupt):
+                bot.run()
+        self.assertEqual(len(sent), 1)
+        self.assertIn("bot offline since", sent[0])
+
+
 class BotHTML(unittest.TestCase):
     def test_every_reply_is_valid_telegram_html(self):
         from jobhunter.bot import handle
