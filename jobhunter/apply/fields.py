@@ -187,7 +187,11 @@ def from_bank(label: str) -> Any:
 
 
 # ── answering ──────────────────────────────────────────────────────────────
-_NEVER_GUESS = {"captcha", "otp", "consent", "marketing", "cover_letter", "resume", "diversity"}
+_NEVER_GUESS = {"captcha", "otp", "consent", "marketing", "cover_letter", "resume", "diversity",
+                # names: a real name question already matches the rules; the LLM picked first_name for
+                # LinkedIn's "Your title" (21 Nov) and your name went into the job-title box
+                "first_name", "last_name", "middle_name", "full_name", "preferred_name",
+                "father_name", "mother_name", "spouse"}
 _UNDERSTOOD: dict[str, str] = {}
 
 

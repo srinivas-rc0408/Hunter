@@ -157,6 +157,16 @@ class Eligibility(unittest.TestCase):
 
 
 class Fields(unittest.TestCase):
+    def test_llm_never_maps_a_label_onto_your_name(self):
+        """Live 21 Nov: the LLM called LinkedIn's "Your title" first_name → your name in the job-title box."""
+        from unittest import mock
+        from jobhunter.apply import fields as F
+        F._UNDERSTOOD.clear()
+        with mock.patch("jobhunter.llm.chat", return_value="first_name"):
+            a = F.answer("Your title")
+        self.assertEqual((a.value, a.basis), (None, "none"))
+        F._UNDERSTOOD.clear()
+
     def test_basic_facts(self):
         for label, want in [("First Name", "Asha"), ("Father's Name", "Ramesh K"),
                             ("Mother's Name", "Lakshmi"), ("Date of Birth", "21/07/2004"),
