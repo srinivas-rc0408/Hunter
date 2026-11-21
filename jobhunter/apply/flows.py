@@ -63,6 +63,8 @@ def checking() -> bool:
 
 def gate(db: DB, site: str, job: dict, res: B.FormResult, problems: list[str]) -> tuple[bool, str]:
     s = config.cfg("search").get("apply", {})
+    if "scam?" in (job.get("flags") or []):        # never auto-applied, whatever the mode or approval
+        return False, "⚠ looks like a scam: check before applying, then submit it yourself"
     if site in s.get("never_auto_submit_on", []):
         return False, f"{site}: you always submit this site yourself"
     if checking():

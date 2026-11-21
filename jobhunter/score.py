@@ -109,6 +109,27 @@ def monthly_inr(job: Job, high: bool = False) -> tuple[float | None, float | Non
     return lo / 12, lo
 
 
+SCAM = re.compile(r"\b(?:registration|processing|training|joining|security|interview|placement|refundable|onboarding|kit)"
+                  r"\s+(?:fee|fees|charge|charges|deposit|amount)\b|\bpay(?:ing)? (?:to apply|for (?:the )?training)\b|"
+                  r"\bdeposit of\b|\bjob guarantee|\bguaranteed (?:job|placement)|\bplacement guarantee|"
+                  r"\b100 ?% (?:job|placement)|\bpay after placement|\btraining (?:followed by|then|and then|cum) "
+                  r"(?:a )?(?:job|placement|employment)")
+NEGATED = re.compile(r"\b(?:no|not|never|without|free of|zero|don'?t|doesn'?t|won'?t|nor)\b")
+PERSONAL_MAIL = re.compile(r"@(?:gmail|yahoo|hotmail|outlook|rediffmail|ymail|live|aol)\.", re.I)
+
+
+def scam_reason(job: Job, text: str) -> str | None:
+    """Fee / deposit / training-then-job, or a personal mailbox as the recruiter. Private jobs only:
+    govt notices legitimately list an application fee."""
+    if job.kind != "private":
+        return None
+    for m in SCAM.finditer(text):           # "we will never charge a registration fee" is a disclaimer, not a fee
+        if not NEGATED.search(re.split(r"[.;\n]", text[max(0, m.start() - 80):m.start()])[-1]):
+            return f"asks “{m.group(0)}”"
+    mail = next((e for e in job.emails or [] if PERSONAL_MAIL.search(e)), None)
+    return "recruiter uses a personal email address" if mail else None
+
+
 def score(job: Job, today: dt.date | None = None) -> Job:
     prof = _profile()
     s = config.cfg("search")
@@ -230,9 +251,10 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     if any(w in text for w in ("bond", "service agreement", "security deposit")):
         flags.append("bond?")
         reasons.append("⚠ mentions bond/service agreement")
-    if any(w in text for w in ("registration fee", "pay to apply", "training fee", "refundable deposit")):
+    scam = scam_reason(job, text)
+    if scam:
         flags.append("scam?")
-        reasons.append("⚠ asks money: likely scam")
+        reasons.append(f"⚠ looks like a scam ({scam}): check before applying")
         pts -= 40
     job.score = max(0, min(100, pts))
     job.reasons, job.flags = reasons, flags

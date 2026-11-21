@@ -159,6 +159,8 @@ def job_card(j: dict, db=None) -> str:
     from .companies import is_agency
     if is_agency(j.get("company")):
         lines.append("⚠ agency: check the real employer")
+    if "scam?" in (j.get("flags") or []):
+        lines.append("⚠ <b>looks like a scam: check before applying</b>")
     lines.append(f"📱 /check_{jid} · ✅ /applied_{jid} · /skip_{jid}")
     if db is not None:
         from .apply.runner import applied_before

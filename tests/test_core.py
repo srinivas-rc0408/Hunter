@@ -85,6 +85,40 @@ class Scoring(unittest.TestCase):
         self.assertLess(J("Python Developer Intern", description="Pay a refundable deposit of 2000").score, 30)
 
 
+class ScamGuard(unittest.TestCase):
+    """Fee, deposit, registration charges, training-then-job, a personal Gmail recruiter: flagged, never auto-applied."""
+
+    def test_flags_and_gate(self):
+        from jobhunter.apply import flows
+        from jobhunter.apply.browser import FormResult
+        from jobhunter.notify import job_card
+        d = "Python developer fresher, Bengaluru. "
+        for desc, emails in [(d + "Pay a refundable security deposit of Rs 5000.", []),
+                             (d + "Registration charges Rs 999 apply.", []),
+                             (d + "3 months paid training followed by job in our company.", []),
+                             (d + "100% placement assured.", []),
+                             (d + "Send your CV.", ["hr.jobs.blr@gmail.com"])]:
+            j = J("Python Developer", description=desc, emails=emails)
+            self.assertIn("scam?", j.flags, desc)
+            self.assertTrue(any("looks like a scam" in r for r in j.reasons), j.reasons)
+        for desc in (d + "Apply at careers@acme.com. CTC 6 LPA.",
+                     d + "HPE and its agencies will never charge a candidate a registration fee, hiring fee, or any fee.",
+                     d + "No fees required - no application fee. - no registration fee."):
+            self.assertNotIn("scam?", J("Python Developer", description=desc, emails=["careers@acme.com"]).flags, desc)
+        g = score(Job("Assistant Engineer", "KPSC", "Bengaluru", kind="govt", description="Application fee Rs 500"), TODAY)
+        self.assertNotIn("scam?", g.flags)                                   # govt notices list a fee legitimately
+        bad = {"id": "s1", "title": "Python Developer", "company": "Acme", "score": 99, "dream": True, "flags": ["scam?"],
+               "url": "https://x.example/j"}
+        flows.APPROVED, was = True, flows.APPROVED
+        try:
+            ok, why = flows.gate(DB(HOME / "data" / "scam.db"), "greenhouse", bad, FormResult(), [])
+        finally:
+            flows.APPROVED = was
+        self.assertFalse(ok)
+        self.assertIn("looks like a scam", why)
+        self.assertIn("looks like a scam: check before applying", job_card(bad))
+
+
 class Dedupe(unittest.TestCase):
     def test_same_job_across_boards(self):
         self.assertEqual(job_id("Sarvam AI", "ML Engineer", "Bengaluru, Karnataka"),
