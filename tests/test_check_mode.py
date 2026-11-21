@@ -363,3 +363,52 @@ class Dashboard(unittest.TestCase):
         self.assertEqual(errs, [])
         self.assertIn("Dashco", body)
         self.assertIn("1 field(s)", body)
+
+
+class MobileAndLocation(unittest.TestCase):
+    """/check from the phone gives the link + your details; a city box never gets your name."""
+    def test_check_is_a_phone_apply_page(self):
+        from jobhunter.bot import handle
+        from test_ops import assert_telegram_html
+        db = DB()
+        j = Job("ML Intern", "Phoneco", "Bengaluru, Karnataka", url="https://www.linkedin.com/jobs/view/123",
+                source="linkedin", description="Python, PyTorch, RAG. Final-year students welcome.")
+        db.upsert(j)
+        out = handle(f"/check_{j.id[:8]}", db)
+        assert_telegram_html(self, out)
+        self.assertIn("Apply from your phone", out)
+        self.assertIn('href="https://www.linkedin.com/jobs/view/123"', out)
+        self.assertIn("<code>Asha K R</code>", out)                     # tap-to-copy details
+        self.assertIn(f"/applied_{j.id[:8]}", out)
+        self.assertIn("What they ask", out)
+        self.assertNotIn("laptop's bot browser", out)                   # nothing started on the laptop
+        self.assertIn("💻 /laptop_", out)
+
+    def test_card_offers_phone_apply(self):
+        from jobhunter.notify import job_card
+        j = {"id": "abcdef1234567890", "title": "X", "company": "Y", "location": "Bengaluru", "url": "https://x.example/a"}
+        self.assertIn("📱 /check_abcdef12 · ✅ /applied_abcdef12", job_card(j))
+
+    def test_city_box_never_gets_a_name(self):
+        from jobhunter.apply.browser import _answer
+        prof = config.cfg("profile")
+        # LinkedIn-style: the text found next to the box was your name (profile header); the box is a city typeahead
+        a = _answer({"label": prof["name"], "type": "text", "ac": "", "eid": "location-GEO-LOCATION", "name": ""}, [], None)
+        self.assertEqual((a.key, a.value), ("city", "Bengaluru"))
+        a = _answer({"label": "Full name", "type": "text", "ac": "address-level2", "eid": "", "name": "city"}, [], None)
+        self.assertEqual(a.key, "city")
+        a = _answer({"label": "Your location", "type": "text", "ac": "", "eid": "", "name": ""}, [], None)
+        self.assertEqual(a.value, "Bengaluru")
+        a = _answer({"label": "Full name", "type": "text", "ac": "name", "eid": "fullname", "name": "name"}, [], None)
+        self.assertEqual(a.key, "full_name")                           # a real name box still gets the name
+
+    def test_label_is_the_nearest_text_above_not_a_header(self):
+        from playwright.sync_api import sync_playwright
+        from jobhunter.apply import browser as B
+        html = """<div class="modal"><div class="title">Asha K R</div><div class="sub">Bengaluru</div>
+          <div><span class="label">Location (city)</span><div><input id="geo"></div></div></div>"""
+        with sync_playwright() as pw:
+            b = pw.chromium.launch(); p = b.new_page(); p.set_content(html)
+            f = [x for x in B.scan(p) if x["eid"] == "geo"][0]
+            b.close()
+        self.assertEqual(f["label"], "Location (city)")

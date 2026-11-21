@@ -420,7 +420,7 @@ hunt backup / restore <file>     encrypted backups      hunt secrets --push     
 Telegram (words work without the slash):
   /brief /top /review /govt /stats /scan /ping /help
   /form_<id>  every field filled     /fix_<id> 3 new value  correct field 3 (remembered)
-  /approve_<id>  send as shown       /check_<id>  open on the laptop with the panel
+  /approve_<id>  send as shown       /check_<id>  apply from your phone (link + your details) · /laptop_<id>  open on the laptop
   /show_<id> /skip_<id> /queue_<id> /applied_<id> /interview_<id> /rejected_<id> /offer_<id>
   /dream Zoho  /undream Zoho  /dreams      /company <name>  /watch <name>
   /questions  /answer 1 Yes              send a PDF = new resume · /resume = get it back

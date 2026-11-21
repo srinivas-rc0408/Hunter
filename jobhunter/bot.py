@@ -39,7 +39,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
 
 
 KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch",
-         "questions", "answer", "ping", "form", "fix", "approve", "check", "dream", "undream", "dreams", "resume",
+         "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume",
          *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
@@ -60,7 +60,9 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 <b>One job</b> (tap the links on a card)
 /show_&lt;id&gt; · why it matched · /form_&lt;id&gt; · every filled field
 /fix_&lt;id&gt; · change a field · <code>/fix_ab12cd34 3 15 days</code>
-/approve_&lt;id&gt; · submit as shown · /check_&lt;id&gt; · open it on the laptop
+📱 /check_&lt;id&gt; · apply from your phone: the apply link + your details to copy
+✅ /applied_&lt;id&gt; · tell me you applied (from the phone or anywhere)
+💻 /laptop_&lt;id&gt; · open it in the bot browser on the laptop · /approve_&lt;id&gt; · submit as shown
 /skip_&lt;id&gt; · /queue_&lt;id&gt; · /applied_&lt;id&gt; · /interview_&lt;id&gt; · /offer_&lt;id&gt;
 
 <b>You</b>
@@ -77,6 +79,43 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 
 def _e(s) -> str:
     return html.escape(str(s or ""), quote=False)
+
+
+def mobile_apply(db, jid: str) -> str:
+    """📱 Everything to apply from the phone: the job card, every apply link, what they ask, and your
+    details as tap-to-copy lines. Nothing runs on the laptop."""
+    j = db.get(jid) if jid else None
+    if not j:
+        return "Usage: /check_&lt;id&gt; (the id from a job card)"
+    from .notify import job_card
+    jid8 = j["id"][:8]
+    out = ["📱 <b>Apply from your phone</b>", job_card(j, db)]
+    links, seen = [], set()
+    for u in [j.get("url"), *(j.get("urls") or [])]:
+        if u and u not in seen:
+            seen.add(u)
+            host = re.sub(r"^https?://(www\.)?", "", u).split("/")[0]
+            links.append(f'• <a href="{html.escape(u, quote=True)}">{_e(host)}</a>')
+    out.append("<b>Open and apply</b> (tap)\n" + ("\n".join(links[:5]) if links else
+               "no link was listed: search the role on the company's careers page"))
+    desc = " ".join((j.get("description") or "").split())
+    if desc:
+        out.append("<b>What they ask</b>\n" + _e(desc[:500]) + ("…" if len(desc) > 500 else ""))
+    p = config.cfg("profile")
+    ans, loc = p.get("answers") or {}, p.get("location") or {}
+    links_p = p.get("links") or {}
+    ctc = ans.get("expected_ctc_lpa")
+    rows = [("Name", p.get("name")), ("Email", p.get("email")), ("Phone", p.get("phone_digits") or p.get("phone")),
+            ("City", ", ".join(x for x in (loc.get("city"), loc.get("state")) if x)),
+            ("LinkedIn", links_p.get("linkedin") or p.get("linkedin")), ("GitHub", links_p.get("github") or p.get("github")),
+            ("Portfolio", links_p.get("portfolio") or p.get("portfolio")),
+            ("Notice period", ans.get("earliest_joining") or ans.get("notice_period")),
+            ("Expected CTC", f"{ctc} LPA" if ctc else None)]
+    copy = "\n".join(f"{k}: <code>{_e(v)}</code>" for k, v in rows if v)
+    if copy:
+        out.append("<b>Your details</b> (tap a value to copy)\n" + copy)
+    out.append(f"Done? ✅ /applied_{jid8} · fill it on the laptop instead: 💻 /laptop_{jid8} · not for you: /skip_{jid8}")
+    return "\n\n".join(out)
 
 
 def _line(j: dict) -> str:
@@ -325,7 +364,9 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
             return "Usage: <code>/fix_&lt;id&gt; 3 your answer</code> (the number from /form)"
         ok, msg = fix(db, jid, int(rest[0]), rest[1])
         return ("✓ " if ok else "✗ ") + _e(msg)
-    if cmd in ("approve", "check"):
+    if cmd == "check":
+        return mobile_apply(db, jid)
+    if cmd in ("approve", "laptop"):
         j = db.get(jid) if jid else None
         if not j:
             return f"Usage: /{cmd}_&lt;id&gt;"
@@ -334,12 +375,14 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
             return ("The bot service can't see the laptop screen, so it can't open the browser. On the laptop run "
                     "<code>scripts/install-services.sh</code> once from your desktop session.")
         args = ["apply", j["id"], "--submit" if cmd == "approve" else "--approve"]
+        # the laptop runs it in the background: say so plainly, and how to apply from the phone instead
         subprocess.Popen([sys.executable, "-m", "jobhunter.cli", *args], cwd=str(config.home()),
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
                          env={**os.environ, "JH_NOTIFY": "1"})
         return (f"⏳ Sending <b>{_e(j['title'])}</b> · {_e(j['company'])} from the laptop with the values in /form. "
                 "You'll get ✅ Applied, or ✋ if the site asks something new." if cmd == "approve" else
-                f"⏳ Opening <b>{_e(j['title'])}</b> on the laptop. Read the form there and press Submit on the panel.")
+                f"⏳ Opening <b>{_e(j['title'])}</b> on the laptop's bot browser. Read the form there and press Submit "
+                f"on the panel. Not at the laptop? /check_{j['id'][:8]} gives you the link to apply from your phone.")
     if cmd == "resume":
         return "__RESUME__"
     if cmd == "ping":

@@ -8,6 +8,7 @@ tags it with data-jh so it can be filled and read back reliably.
 from __future__ import annotations
 
 import random
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -60,11 +61,13 @@ SCAN_JS = r"""
     if (!t && el.type === 'radio')     // the option's text beside it: the nearest box holding only this input
       for (let c = el.parentElement, i = 0; c && i < 5 && !t && c.querySelectorAll('input').length === 1; c = c.parentElement, i++)
         if (txt(c).length < 120) t = txt(c);
-    if (!t) {
+    if (!t) {   // nearest label-like text ABOVE the field (not the first one in the box: that can be a profile header)
       let c = el.parentElement;
       for (let i = 0; i < 5 && c && !t; i++) {
-        const cand = c.querySelector('label, legend, [class*="label"], [class*="question"], [class*="title"]');
-        if (cand && !cand.contains(el) && txt(cand).length < 300) t = txt(cand);
+        const cands = [...c.querySelectorAll('label, legend, [class*="label"], [class*="question"], [class*="title"]')]
+          .filter(x => !x.contains(el) && !x.querySelector('input, select, textarea') && txt(x) && txt(x).length < 300 &&
+                       (x.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING));
+        if (cands.length) t = txt(cands[cands.length - 1]);
         c = c.parentElement;
       }
     }
@@ -116,6 +119,7 @@ SCAN_JS = r"""
       continue;
     }
     const f = {jh, tag: el.tagName.toLowerCase(), type, name: el.name || '', label: labelOf(el),
+               ac: el.getAttribute('autocomplete') || '', eid: el.id || '',
                required, placeholder: el.placeholder || '', value: null, options: [],
                combo: el.getAttribute('role') === 'combobox' || !!el.getAttribute('aria-autocomplete') ||
                       /select__input|autocomplete|typeahead/i.test(el.className || ''),
@@ -370,6 +374,29 @@ def record(fill: "Fill", page_url: str) -> None:
                    "options": [o.get("text") for o in f.get("options", []) if o.get("text")][:40]})
 
 
+NAME_KEYS = {"full_name", "first_name", "last_name", "middle_name", "father_name", "mother_name"}
+CITY_HINT = re.compile(r"address-level2|\bcity\b|city|location|geo(?:graph)?|place", re.I)
+NAME_HINT = re.compile(r"(?:^|[^a-z])(?:given|family|first|last|full)?[-_ ]?name(?:[^a-z]|$)", re.I)
+
+
+def _answer(f: dict, opts: list, job) -> "F.Answer":
+    """The answer for a field, cross-checked with the box's own technical hints (autocomplete, id, name).
+    A city/location box is never given a person's name, even if the text next to it was a name header."""
+    label = f.get("label") or ""
+    a = F.answer(label, f.get("type") or "text", f.get("placeholder", ""), opts, job)
+    hint = " ".join(str(f.get(k) or "") for k in ("ac", "eid", "name", "placeholder"))
+    prof = config.cfg("profile")
+    names = {str(prof.get(k) or "").strip().lower() for k in ("name", "first_name", "last_name", "father_name", "mother_name")} - {""}
+    if label.strip().lower() in names:            # the "label" is a value (e.g. your name in a profile header)
+        a = F.answer(f.get("placeholder") or "", f.get("type") or "text", "", opts, job)
+    if CITY_HINT.search(hint) and not NAME_HINT.search(hint) and (a.key in NAME_KEYS or a.key == "unknown"):
+        a = F.answer("City", f.get("type") or "text", "", opts, job)
+        a = F.Answer(a.key, a.value, a.basis, "the box is a city/location field", alts=a.alts)
+    elif a.key == "city" and NAME_HINT.search(hint) and not CITY_HINT.search(hint):
+        a = F.Answer("unknown", None, "none", "label says city but the box is a name field: left for you")
+    return a
+
+
 def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None = None,
               cover_text: str | None = None, skip_jh: set[str] | None = None) -> FormResult:
     """Fill every field we can. Leaves unknowns alone. Never clicks submit."""
@@ -382,7 +409,7 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
         # again by its question before touching it, never trust an id from an earlier scan.
         f = f0 if i == 0 else _same_field(scan(page, root), f0)
         opts = [o["text"] for o in (f or f0).get("options", [])]
-        a = F.answer(f0["label"], f0["type"], f0.get("placeholder", ""), opts, job)
+        a = _answer(f0, opts, job)
         fill = Fill(f or f0, a)
         res.fills.append(fill)
         if f is None:
@@ -398,8 +425,7 @@ def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None
                 page.wait_for_timeout(400)
                 f = _same_field(scan(page, root), f0)
                 if f:
-                    a = F.answer(f0["label"], f0["type"], f0.get("placeholder", ""),
-                                 [o["text"] for o in f.get("options", [])], job)
+                    a = _answer(f0, [o["text"] for o in f.get("options", [])], job)
                     fill.field, fill.answer, fill.why = f, a, ""
                     _fill_one(page, f, a, fill, resume_path, cover_text)
         except Exception as exc:  # one bad field must not stop the form

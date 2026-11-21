@@ -159,7 +159,7 @@ def job_card(j: dict, db=None) -> str:
     from .companies import is_agency
     if is_agency(j.get("company")):
         lines.append("⚠ agency: check the real employer")
-    lines.append(f"/check_{jid} · /skip_{jid}")
+    lines.append(f"📱 /check_{jid} · ✅ /applied_{jid} · /skip_{jid}")
     if db is not None:
         from .apply.runner import applied_before
         on = applied_before(db, j)

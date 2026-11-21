@@ -108,7 +108,7 @@ RULES: list[tuple[str, str]] = [
     ("district", r"\bdistrict\b"),
     ("address", r"\baddress\b|street"),
     ("pincode", r"pin ?code|postal|\bzip\b|post code"),
-    ("city", r"current (?:city|location)|\bcity\b|^location$|where are you (?:based|located)|preferred location|town"),
+    ("city", r"current (?:city|location)|\bcity\b|^location$|^(?:your |home |base )location$|where are you (?:based|located)|preferred location|town"),
     ("state", r"^state$|\bstate\b|province|region"),
     ("country", r"^country$|country of residence|\bcountry\b"),
     ("full_name", r"^(?:full |your |legal |candidate s |applicant s )?name\b|full name|name as per"),
