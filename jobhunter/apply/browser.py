@@ -454,9 +454,9 @@ def _fill_one(page, f: dict, a: F.Answer, fill: Fill, resume_path: Path | None, 
         fill.ok, fill.chosen = True, "left unticked"
         return
     if a.value is None or (a.value == "" and a.key not in ("middle_name", "referred")):
-        if already not in (None, "", False) and t not in ("radio", "checkbox", "select"):
+        if already not in (None, "", False) and t not in ("radio", "checkbox", "select") and a.key in SITE_PREFILL_OK:
             # site pre-filled a typed field (e.g. LinkedIn email/phone from your account). That's your own data.
-            # A ticked choice with no answer of yours is NOT: it stays basis "none" and becomes a question.
+            # Anything else already in a box (a stale value, another field's text) is NOT: basis "none", a question.
             fill.ok, fill.chosen = True, already
             fill.answer = F.Answer(a.key, already, "profile", "pre-filled by the site from your account")
         else:

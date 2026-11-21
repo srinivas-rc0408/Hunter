@@ -194,6 +194,17 @@ class Browser(unittest.TestCase):
         self.assertEqual(p.input_value("#once"), "Immediately")
         self.assertFalse(B._type(p, p.locator("#always"), "Immediately"))
 
+    def test_stale_text_in_unknown_box_is_not_your_answer(self):
+        """Live 21 Nov: LinkedIn's "Your title" box held "Srinivas" (first name) and was passed off as
+        "pre-filled from your account". Only account data (email, phone) may be trusted that way."""
+        from jobhunter.apply import browser as B
+        p = self.browser.new_page()
+        p.set_content('<dialog data-testid="dialog" open><label for="t">Your title*</label>'
+                      '<input id="t" required value="Srinivas"></dialog>')
+        f = B.fill_form(p, JOB, None, root=flows.LI_MODAL).fills[0]
+        self.assertFalse(f.ok)
+        self.assertEqual(f.answer.basis, "none")
+
     def test_numeric_notice_field_uses_days_or_asks(self):
         from jobhunter import config
         from jobhunter.apply import browser as B
