@@ -82,6 +82,47 @@ class Mail(unittest.TestCase):
         self.assertFalse(mail.is_job_mail(self.m("friend@gmail.com", "Dinner tonight?", "see you"), ["zoho"]))
         self.assertTrue(mail.is_job_mail(self.m("careers@birlasoft.com", "Your application", "thanks"), ["birlasoft"]))
 
+    def test_real_inbox_noise_is_ignored(self):
+        """Subjects seen in the real inbox on 24 Nov: none of these is a reply to an application."""
+        noise = [("invitations@linkedin.com", "You have 1 new invitation"),
+                 ("notifications-noreply@linkedin.com", "Nikesh Rai reacted to this post: 50,000…"),
+                 ("news@anthropic.com", "Claude cracked a 26-year-old NSA mystery"),
+                 ("info@naukri.com", "Update: Your profile is a good fit"),
+                 ("team@render.com", "Build, deploy, and monitor your application in one place"),
+                 ("jobalerts-noreply@linkedin.com", "Data Engineer - ML at Scoutit"),
+                 ("messages-noreply@linkedin.com", "You may know Abhishek Bandu Bhandare"),
+                 ("jobs-listings@linkedin.com", "Machine Learning Engineer: Accenture in India and Infosys are hiring"),
+                 ("info@naukri.com", "Update: A new opportunity is available for you | 1 new alert"),
+                 ("newsletter@datacamp.com", "Stop applying blindly: Fix your data applications tonight")]
+        for s, sub in noise:
+            self.assertFalse(mail.is_job_mail(self.m(s, sub, "interview tips and more"), ["zoho", "birlasoft"]), sub)
+
+    def test_real_replies_are_kept_and_sorted(self):
+        m = self.m("info@naukri.com", "Update: Your application has not been accepted", "Regards, recruiter")
+        self.assertTrue(mail.is_job_mail(m, []))
+        self.assertEqual(mail.classify(m), "rejected")
+        m = self.m("jobs-noreply@linkedin.com", "Your application was viewed by Astra Security", "")
+        self.assertTrue(mail.is_job_mail(m, []))
+        self.assertEqual(mail.classify(m), "viewed")
+        m = self.m("jobs-noreply@linkedin.com", "Your application was sent to Zoho Corporation", "")
+        self.assertTrue(mail.is_job_mail(m, []))
+
+    def test_bad_password_is_one_plain_line(self):
+        import imaplib
+        class Bad:
+            def __init__(self, *a): pass
+            def login(self, u, p): raise imaplib.IMAP4.error("[ALERT] Application-specific password required")
+        import os
+        os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"] = "a@b.c", "x"
+        real = mail.imaplib.IMAP4_SSL
+        mail.imaplib.IMAP4_SSL = Bad
+        try:
+            r = mail.sync(quiet=True)
+        finally:
+            mail.imaplib.IMAP4_SSL = real
+            os.environ.pop("GMAIL_USER"); os.environ.pop("GMAIL_APP_PASSWORD")
+        self.assertIn("16-letter app password", r["error"])
+
     def test_match_by_sender_subject_and_role(self):
         jid, how = mail.match(self.db, self.m("careers@birlasoft.com", "Thanks", "Hi Srinivas"))
         self.assertEqual(jid, self.jobs[("Generative AI Engineer", "Birlasoft Limited")])

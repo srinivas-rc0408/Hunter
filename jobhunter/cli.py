@@ -440,7 +440,9 @@ def _mail_and_sheet(quiet: bool = True) -> None:
     if all(mail.creds()):
         try:
             r = mail.sync(quiet=quiet)
-            if r and not quiet:
+            if r.get("error"):
+                _console().print(f"[yellow]email check: {r['error']}[/]")
+            elif r and not quiet:
                 _console().print(r)
         except Exception as exc:
             _console().print(f"[yellow]email check failed: {type(exc).__name__}: {str(exc)[:150]}[/]")
@@ -454,7 +456,15 @@ def cmd_mail(a):
         c.print("Set up once: Google Account → Security → 2-Step Verification → App passwords → create one "
                 "named JobHunter.\nThen add to .env:\n  GMAIL_USER=you@gmail.com\n  GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx")
         return
+    if a.reset:
+        from .db import DB
+        db = DB(); mail.ensure(db); n = db.c.execute("DELETE FROM mail").rowcount; db.c.commit()
+        c.print(f"forgot {n} sorted emails: they'll be re-read and re-sorted now. To remove old Gmail labels, "
+                "delete the 'JobHunter' label in Gmail (your emails stay).")
     r = mail.sync(days=a.days, label=not a.no_label, quiet=False)
+    if r.get("error"):
+        c.print(f"[red]✗ {r['error']}[/]")
+        return
     c.print(r if r else "no new application emails")
     from .db import DB
     from rich.markup import escape
@@ -868,6 +878,7 @@ def main(argv=None):
     s = sub.add_parser("mail", help="sort application emails in Gmail (offer/interview/test/rejected/…) and update statuses")
     s.add_argument("--days", type=int, default=30, help="how far back to read (default 30)")
     s.add_argument("--no-label", action="store_true", help="don't add JobHunter/… labels in Gmail")
+    s.add_argument("--reset", action="store_true", help="forget what was sorted and sort again")
     s.set_defaults(fn=cmd_mail)
 
     s = sub.add_parser("sheet", help="write the Excel tracker (~/Documents/JobHunter/Applications.xlsx)")

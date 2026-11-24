@@ -32,23 +32,33 @@ from .util import iso, norm
 HOST = "imap.gmail.com"
 LABEL_ROOT = "JobHunter"
 
-# Senders that only ever write about applications (ATS platforms, job boards' application mail).
+# Applicant-tracking platforms: their mail is about applications (or tests) you started.
 ATS_SENDERS = re.compile(
-    r"greenhouse|lever\.co|ashbyhq|myworkday|workday|smartrecruiters|icims|successfactors|sap\.com|darwinbox|keka|"
-    r"zohorecruit|zoho\.com|recruitee|workable|jobvite|taleo|oracle(?:cloud)?|phenom|eightfold|freshteam|"
-    r"peoplestrong|hirist|instahyre|cutshort|wellfound|internshala|naukri|foundit|indeed|linkedin\.com|"
-    r"hackerrank|hackerearth|codility|mettl|imocha|testgorilla|unstop|superset", re.I)
+    r"greenhouse|lever\.co|ashbyhq|myworkday|workday|smartrecruiters|icims|successfactors|darwinbox|keka|"
+    r"zohorecruit|recruitee|workable|jobvite|taleo|oraclecloud|phenom|eightfold|freshteam|peoplestrong|"
+    r"hackerrank|hackerearth|codility|mettl|imocha|testgorilla", re.I)
+# Job boards also send ads, alerts and social notifications: only their application mails count.
+BOARD_SENDERS = re.compile(r"linkedin\.com|naukri|foundit|indeed|internshala|unstop|wellfound|cutshort|instahyre|"
+                           r"hirist|glassdoor|apna|shine\.com|superset", re.I)
+BOARD_APP_SUBJECT = re.compile(r"\byour application\b|application (?:sent|viewed|submitted|"
+                               r"received|update|status)|you applied|applied (?:to|for)|recruiter (?:viewed|replied|message)|"
+                               r"(?:interview|assessment|shortlisted)", re.I)
 APP_WORDS = re.compile(
     r"\b(?:your application|applying|applied|application (?:for|to|received|status|update)|candidature|"
-    r"interview|assessment|shortlist|next steps?|recruit|hiring|position|role|offer letter|job id|requisition)\b", re.I)
-NOT_REPLIES = re.compile(r"job alert|jobs? (?:for you|you may like|recommended)|new jobs? matching|"
-                         r"\d+\+? new jobs|people are hiring|weekly digest|newsletter|webinar", re.I)
-
+    r"interview|assessment|shortlist|next steps?|offer letter|job id|requisition)\b", re.I)
+NOT_REPLIES = re.compile(
+    r"job alert|jobs? (?:for you|you may like|recommended)|new jobs? matching|\d+\+? new jobs|(?:is|are) hiring|"
+    r"people are hiring|weekly digest|newsletter|webinar|reacted to|new invitation|invitations? to connect|invited you to (?:connect|join)|you may know|new connection|"
+    r"new opportunit|profile is a good fit|good fit for|stop applying|tips|course|certif|% off|\bsale\b|discount|"
+    r"premium|build, deploy|deploy|free trial|upgrade|top (?:picks|jobs)|trending|viewed your profile|"
+    r"appeared in \d+ searches|who'?s viewed|post|comment|mentioned you|endorse|congratulate|birthday|work anniversary",
+    re.I)
 # order matters: the first kind that matches wins
 KINDS: list[tuple[str, re.Pattern]] = [
     ("offer", re.compile(r"offer letter|pleased to (?:extend|offer)|(?:job|internship) offer|we(?:'re| are) delighted to offer|"
                          r"letter of (?:offer|intent)", re.I)),
-    ("rejected", re.compile(r"\bregret\b|unfortunately|not (?:be )?(?:moving|proceeding) forward|decided to (?:move|proceed) "
+    ("rejected", re.compile(r"\bregret\b|unfortunately|not (?:been )?accepted|has been declined|decided not to|"
+                            r"not to (?:proceed|move forward)|not (?:be )?(?:moving|proceeding) forward|decided to (?:move|proceed) "
                             r"(?:forward )?with other|other candidates|not been (?:selected|shortlisted)|not selected|"
                             r"(?:position|role) has been filled|will not be (?:moving|progressing)|not a (?:fit|match)|"
                             r"unable to (?:offer|move forward)|no longer (?:under consideration|considering)", re.I)),
@@ -159,15 +169,19 @@ def classify(msg: Msg) -> str:
 
 
 def is_job_mail(msg: Msg, companies: list[str]) -> bool:
-    blob = f"{msg.sender} {msg.sender_name} {msg.subject}"
+    """Only mail about YOUR applications: never ads, alerts, newsletters or social notifications."""
+    blob = f"{msg.sender} {msg.sender_name}"
     if NOT_REPLIES.search(msg.subject):
         return False
-    if ATS_SENDERS.search(msg.sender) or ATS_SENDERS.search(msg.sender_name):
+    if BOARD_SENDERS.search(blob):
+        return bool(BOARD_APP_SUBJECT.search(msg.subject))
+    if ATS_SENDERS.search(blob):
         return True
-    low = norm(blob + " " + msg.body[:3000])
+    low = norm(f"{blob} {msg.subject} {msg.body[:3000]}")
     if any(c and f" {c} " in f" {low} " for c in companies) and APP_WORDS.search(msg.subject + " " + msg.body[:3000]):
         return True
-    return bool(APP_WORDS.search(msg.subject)) and bool(re.search(r"application|applied|applying|candidat", msg.subject, re.I))
+    return bool(re.search(r"\byour application\b|\bapplication (?:for|to|received|status|update)\b|"
+                          r"\binterview (?:invitation|invite|schedul)|\boffer letter\b", msg.subject, re.I))
 
 
 def _domain_name(addr: str) -> str:
@@ -256,7 +270,13 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
         "SELECT company FROM jobs WHERE status IN ('applied','interview','offer','rejected','needs_you','filled')")} - {""})
     imap = imap_factory() if imap_factory else imaplib.IMAP4_SSL(HOST)
     if imap_factory is None:
-        imap.login(user, pw)
+        try:
+            imap.login(user, pw)
+        except imaplib.IMAP4.error as exc:
+            if "application-specific" in str(exc).lower() or "invalid credentials" in str(exc).lower():
+                return {"error": "Gmail refused the password: GMAIL_APP_PASSWORD must be a 16-letter app password "
+                                 "(myaccount.google.com/apppasswords), not your normal password"}
+            return {"error": f"Gmail login failed: {exc}"}
     imap.select("INBOX", readonly=not label)
     import datetime as _dt
     since = (_dt.date.today() - _dt.timedelta(days=days)).strftime("%d-%b-%Y")
@@ -274,6 +294,9 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
             continue
         msg.kind = classify(msg)
         msg.job_id, msg.match = match(db, msg)
+        if not msg.job_id and msg.kind in ("other", "viewed") :
+            known.add(msg.msgid)
+            continue                                   # not about an application of yours: leave it alone
         moved = _advance(db, msg.job_id, msg.kind, msg) if msg.job_id else None
         db.c.execute("INSERT OR IGNORE INTO mail VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                      (msg.msgid, uid, msg.at, msg.sender, msg.sender_name, msg.subject,
