@@ -114,7 +114,9 @@ class Bot(unittest.TestCase):
         self.assertIn("Sarvam AI", handle(f"/show_{j.id[:8]}", db))
         self.assertIn("skipped", handle(f"/skip {j.id[:8]}", db))
         self.assertEqual(db.get(j.id)["status"], "skipped")
-        self.assertIn("interview", handle(f"/interview_{j.id[:8]}@JobBot", db))
+        out = handle(f"/interview_{j.id[:8]}@JobBot", db)
+        self.assertIn("<b>interview</b>", out[0])
+        self.assertIn("Interview prep", out[1])                          # the prep pack follows
         self.assertIn("tracked", handle("/stats", db))
         self.assertIn("Unknown", handle("/nope", db))
         self.assertIn("/help", handle("hello", db))
