@@ -115,6 +115,21 @@ class Chat(unittest.TestCase):
         self.assertIn("Python", have)
         self.assertNotIn("Python", miss)
 
+    def test_what_do_i_miss_never_needs_the_model(self):
+        for q in ("what does the Birlasoft job need that I dont have?", "what am I missing for Birlasoft?"):
+            self.fake.calls.clear()
+            out, _ = self.say(q)
+            self.assertEqual(self.fake.calls, [], q)
+            self.assertIn("Kubernetes", re.search(r"Missing:</b> (.*)", out).group(1))
+
+    def test_weak_matches_come_after_strong_ones(self):
+        weak = seed(self.db, "MLOps Engineer", "Weak Co")
+        seed(self.db, "Platform Engineer", "Strong Co", desc="MLOps and Kubernetes")
+        self.db.c.execute("UPDATE jobs SET score=0 WHERE id=?", (weak.id,))
+        self.db.c.commit()
+        out, _ = self.say("search mlops")
+        self.assertLess(out.index("Strong Co"), out.index("Weak Co"))
+
     def test_is_it_a_good_fit(self):
         out, _ = self.say(f"is {self.genai.id[:8]} a good fit for me?")
         self.assertIn("Fit:", out)

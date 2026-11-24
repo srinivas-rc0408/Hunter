@@ -116,7 +116,7 @@ def db_search(db: DB, query: str, location: str = "Karnataka", days: int | None 
         if all(any(_has(hay, s) for s in w) for w in words) and _place_ok(j, location):
             out.append(j)
     title = lambda j: all(any(_has(f"{j['title']} {j['company']}".lower(), s) for s in w) for w in words)   # noqa: E731
-    out.sort(key=lambda j: (not title(j), not j["dream"], -j["score"]))
+    out.sort(key=lambda j: ((j["score"] or 0) < 40, not title(j), not j["dream"], -(j["score"] or 0)))   # weak ones last
     return out
 
 
@@ -516,6 +516,10 @@ FAST = [
     (re.compile(r"^(?:my )?(?:stats|numbers)\??$", re.I), lambda m: ("stats", {})),
     (re.compile(r"^(?:is|would) ([0-9a-f]{6,16}) (?:be )?a (?:good |strong )?(?:fit|match)(?: for me)?\??$|"
                 r"^(?:explain|how do i fit|do i fit|fit for) ([0-9a-f]{6,16})\??$", re.I),
+     lambda m: ("explain_job", {"id": m.group(1) or m.group(2)})),
+    (re.compile(r"^what (?:does|do|would) (?:the )?(.+?) (?:job|role|posting|one|opening) (?:need|want|ask for|require)"
+                r"(?: that)? i (?:don'?t|do not|dont) have\??$|"
+                r"^what (?:am i|i'?m) (?:missing|lacking) for (?:the )?(.+?)(?: job| role)?\??$", re.I),
      lambda m: ("explain_job", {"id": m.group(1) or m.group(2)})),
 ]
 TOP_ROLE = re.compile(r"^(?:show me |give me )?(?:the )?(?:top|best) (\d{1,2}) (.+?) (?:roles?|jobs?|openings?|positions?|internships?)"
