@@ -91,6 +91,16 @@ def pay_text(j: dict) -> str:
     return f"≈ {text} (estimate by {j['pay_estimate']})" if j.get("pay_estimate") else text
 
 
+def pay_line(j: dict) -> str:
+    """The card's pay: the posting's, else 'not listed · ≈ ₹X–Y LPA est.' when a salary estimate is stored."""
+    p = pay_text(j)
+    if p == "not listed" and j.get("est_min") and j.get("est_max"):
+        from .salary import fmt
+        intern = j.get("job_type") == "internship" or bool(re.search(r"\bintern", j.get("title") or "", re.I))
+        return f"not listed · ≈ {fmt(j['est_min'], j['est_max'], intern)} est."
+    return p
+
+
 _REMOTE = re.compile(r"\bremote\b|work from home|\bwfh\b", re.I)
 _HYBRID_LOC, _ONSITE_LOC = re.compile(r"\bhybrid\b", re.I), re.compile(r"\bon-?site\b|in-office|work from office|\bwfo\b", re.I)
 _HYBRID_DESC = re.compile(r"\bhybrid (?:work|working|mode|role|model|setup|position|job|arrangement|schedule)\b|"
@@ -147,7 +157,7 @@ def job_card(j: dict, db=None) -> str:
     lines = [f"{'🏛 ' if j.get('kind') == 'govt' else ''}{'★ ' if j.get('dream') else ''}<b>{_esc(j['title'])}</b>"
              f" · {_esc(j['company'])} · score {j.get('score', 0)}",
              f"📍 {_esc(j.get('location')) or 'location not listed'} ({mode or 'work mode not listed'})",
-             f"💰 {_esc(pay_text(j))}",
+             f"💰 {_esc(pay_line(j))}",
              f"🕒 {when_text(j)}"]
     if j.get("deadline"):
         try:

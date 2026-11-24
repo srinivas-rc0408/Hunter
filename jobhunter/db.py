@@ -133,7 +133,8 @@ class DB:
         self.c.row_factory = sqlite3.Row
         self.c.executescript(SCHEMA)
         cols = {r[1] for r in self.c.execute("PRAGMA table_info(jobs)")}
-        for col, typ in (("pay_estimate", "TEXT"), ("details", "TEXT DEFAULT '{}'")):     # DBs made before 1.7
+        for col, typ in (("pay_estimate", "TEXT"), ("details", "TEXT DEFAULT '{}'"),     # DBs made before 1.7
+                         ("est_min", "REAL"), ("est_max", "REAL"), ("est_source", "TEXT"), ("est_at", "TEXT")):   # 2.1
             if col not in cols:
                 self.c.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typ}")
 
