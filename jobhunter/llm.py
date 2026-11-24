@@ -294,17 +294,23 @@ def _post(p: dict, model: str, key: str | None, system: str, user: str, temperat
 LAST: dict = {}   # provider/model/key that answered last (shown by `hunt llm --test`)
 
 
-def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900) -> str | None:
-    """Reply text, or None if every key, model and provider failed."""
+def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900,
+         models: list[str] | None = None, timeout: float | None = None) -> str | None:
+    """Reply text, or None if every key, model and provider failed.
+    models: cloud models to try first, in order (the assistant's fastest valid-JSON picks); timeout: per cloud call."""
     for p in _providers():
         prov = p["prov"]
-        for model in [m for m in p["models"] if m not in _GONE]:
+        order = p["models"]
+        if models and prov != "ollama":
+            order = [m for m in models if m in p["ids"]] or order
+        for model in [m for m in order if m not in _GONE]:
             ks = _usable(prov) if prov != "ollama" else [None]
             if prov != "ollama" and not ks:
                 break                                   # every key dead or resting: next provider
             next_model = False
             for k in ks:
-                code, text = _post(p, model, k, system, user, temperature, max_tokens)
+                code, text = _post(p, model, k, system, user, temperature, max_tokens,
+                                   timeout if prov != "ollama" else None)
                 if code == 200 and text:
                     _TURN[prov] = _TURN.get(prov, 0) + 1
                     LAST.update(prov=prov, model=model, key=mask(k))

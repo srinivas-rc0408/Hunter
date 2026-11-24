@@ -3,6 +3,7 @@ import json
 import os
 import threading
 import unittest
+import unittest.mock
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from _home import make_home, use
@@ -99,6 +100,19 @@ class Chain(unittest.TestCase):
         self.llm.chat("sys", "again")
         self.assertEqual([k for k, _, _ in Fake.log], ["good"])   # dead and resting keys not retried
         self.assertEqual(self.llm.LAST["prov"], "nvidia")
+
+    def test_assistant_models_go_first_with_a_short_timeout(self):
+        os.environ["NVIDIA_API_KEY"] = "good"
+        with unittest.mock.patch.object(self.llm, "_post", wraps=self.llm._post) as post:
+            self.llm.chat("s", "u", models=["not/listed", "meta/llama-3.3-70b-instruct"], timeout=7)
+        self.assertEqual([m for _, m, _ in Fake.log], ["meta/llama-3.3-70b-instruct"])   # unlisted ones skipped
+        self.assertEqual(post.call_args.args[-1], 7)
+
+    def test_nvidia_down_falls_back_to_local_ollama(self):
+        os.environ["NVIDIA_API_KEYS"] = "bad"
+        self.llm.PRESETS["ollama"] = (self.base, "qwen3:4b")        # "local" Ollama = the fake server, no key
+        self.assertEqual(self.llm.chat("s", "u"), "Hello from the model")
+        self.assertEqual(self.llm.LAST["prov"], "ollama")
 
     def test_all_keys_bad_means_none(self):
         os.environ["NVIDIA_API_KEYS"] = "bad,busy"
