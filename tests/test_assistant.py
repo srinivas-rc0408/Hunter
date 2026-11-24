@@ -153,6 +153,15 @@ class Chat(unittest.TestCase):
         self.assertEqual(self.db.get(self.intern.id)["status"], "interview")
         self.assertIn("→ <b>interview</b>", out)
 
+    def test_yes_confirms_even_when_a_company_is_called_yes(self):
+        seed(DB(), "Beautician", "Yes Madam")      # company names come from the main DB: "yes" matched it for real
+        self.say(f"mark {self.intern.id[:8]} as rejected")
+        with mock.patch("jobhunter.bot._company_cmd") as company:
+            out, _ = self.say("yes")
+        company.assert_not_called()
+        self.assertEqual(self.db.get(self.intern.id)["status"], "rejected")
+        self.assertIn("→ <b>rejected</b>", out)
+
     def test_anything_but_yes_cancels(self):
         self.say(f"mark {self.intern.id[:8]} as rejected")
         self.say("actually never mind")

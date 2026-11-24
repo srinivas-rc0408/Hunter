@@ -342,12 +342,14 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
         if not 1 <= int(t) <= len(items):
             return f"Pick 1 to {len(items)}."
         return _company_report(items[int(t) - 1], db, watch=_PICK.get("cmd") == "watch")
+    from . import assistant
+    if t and not t.startswith("/") and (assistant.YES.match(t) or assistant.NO.match(t) or assistant.MORE.match(t)):
+        return assistant.reply(t, chat, db, progress)  # "yes" confirms a change: never a company called Yes…
     if t and not t.startswith("/") and _is_command(t):
         t = "/" + t                                    # "help", "top 5", "stats" work without the slash
     elif t and not t.startswith("/") and len(t.split()) <= 3 and len(t) >= 3 and _choices(t, online=False):
         return _company_cmd(t, db)                     # just a company name: "Zoho", "aditya birla"
     elif t and not t.startswith("/"):
-        from . import assistant
         return assistant.reply(t, chat, db, progress)  # "find ML intern jobs in Bengaluru posted this week"
     m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t, re.S)
     if not m:

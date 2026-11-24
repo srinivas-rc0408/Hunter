@@ -631,6 +631,7 @@ SHEET = [
      lambda m: ("sheet_show_hidden", {})),
 ]
 NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\W*$", re.I)
+MORE = re.compile(r"^(?:show )?more\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
 
 
@@ -678,7 +679,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         remember(db, chat, "user", t)
         remember(db, chat, "assistant", out if isinstance(out, str) else out[0])
         return out
-    if re.fullmatch(r"(?:show )?more\W*", t, re.I):
+    if MORE.match(t):
         rest = _MORE.get(chat) or []
         if not rest:
             return "Nothing more to show. Ask me for a search."
