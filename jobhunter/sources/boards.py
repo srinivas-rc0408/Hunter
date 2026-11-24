@@ -105,7 +105,9 @@ def _tag_indeed_estimates() -> None:
 
 
 def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = None,
-         hours_old: int | None = None) -> list[Job]:
+         hours_old: int | None = None, queries: list[dict] | None = None,
+         locations: list[str] | None = None, quiet: bool = False) -> list[Job]:
+    """Every enabled board × query × location. queries/locations override search.yaml (search on demand)."""
     try:
         from jobspy import scrape_jobs  # heavy import; only when scanning
     except ImportError:
@@ -118,6 +120,7 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
     s = config.cfg("search")
     boards = s.get("boards", {})
     enabled = [b for b, o in boards.items() if (o or {}).get("enabled") and b in SITE_NAMES]
+    want_q, want_loc = queries, locations
     queries = s.get("queries", [])
     locations = s.get("locations", [s.get("default_location", "India")])
     if light:
@@ -127,6 +130,7 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
         queries = queries[: ls.get("max_queries", 6)] + [q for q in queries if "birla" in q["term"].lower()]
     if sites:
         enabled = [b for b in enabled if b in set(sites)]
+    queries, locations = want_q or queries, want_loc or locations
     proxies = s.get("proxies") or None
     pause = float(s.get("pause_between_queries_sec", 3))
     hours = hours_old or s.get("hours_old", 48)
@@ -158,8 +162,9 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
                     if j:
                         out.append(j)
                         n += 1
-                console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {n}")
-                time.sleep(pause)
+                if not quiet:
+                    console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {n}")
+                    time.sleep(pause)
                 if site == "google":
                     break   # google query already names the city; one location is enough
     return out

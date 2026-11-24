@@ -31,6 +31,21 @@ def watch_careers(db: DB, errors: list[str]) -> list[Job]:
     return out
 
 
+def save(db: DB, jobs: list[Job]) -> list[str]:
+    """Score and store board/ATS jobs exactly as a scan does. Returns the ids new to us."""
+    new_ids: list[str] = []
+    for j in jobs:
+        score(j)
+        if db.upsert(j):
+            db.set_score(j.id, j.score, j.reasons, j.flags, j.dream, j.status)
+            new_ids.append(j.id)
+        else:
+            cur = db.get(j.id)
+            if cur and cur["status"] in ("new", "filtered") and j.score > cur["score"]:
+                db.set_score(j.id, j.score, j.reasons, j.flags, j.dream, j.status)
+    return new_ids
+
+
 def run(light: bool = False, notify_on: bool = True, only: set[str] | None = None,
         offline_ats: str | None = None, baseline_new: bool = False) -> dict:
     db = DB()
@@ -46,17 +61,7 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
         console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
         private += ats.scan(errors, offline=offline_ats)
     found = len(private)
-    new_ids: list[str] = []
-    for j in private:
-        score(j)
-        is_new = db.upsert(j)
-        if is_new:
-            db.set_score(j.id, j.score, j.reasons, j.flags, j.dream, j.status)
-            new_ids.append(j.id)
-        else:
-            cur = db.get(j.id)
-            if cur and cur["status"] in ("new", "filtered") and j.score > cur["score"]:
-                db.set_score(j.id, j.score, j.reasons, j.flags, j.dream, j.status)
+    new_ids = save(db, private)
     extra: list[Job] = []
     if "pages" in want:
         console.print("[bold]Watched career pages[/] (Birla …)")
