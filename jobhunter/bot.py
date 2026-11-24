@@ -42,7 +42,9 @@ KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadl
          "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume", "mail", "sheet",
          *STATUS_CMDS}
 
-HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
+HELP = """<b>🎯 JobHunter</b> · <b>just type what you want</b>: <i>find ML intern jobs in Bengaluru posted this week</i>,
+<i>what does the Birlasoft job need that I don't have?</i>, <i>mark ab12cd34 as interview</i> (changes ask you for a yes first)
+Commands work too, with or without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
 
 <b>Jobs</b>
 /today · posted in the last 3 days · <code>today 2</code> next page
@@ -314,8 +316,23 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
     return [main, "\n".join(lines)]
 
 
-def handle(text: str, db: DB | None = None) -> str | list[str]:
-    """Pure command handler (unit-tested): text in, HTML reply out (a list = several whole messages)."""
+TEXT_ARGS = {"company", "watch", "govt", "eligible", "dream", "undream", "answer", "fix", "mail", "search"}
+
+
+def _is_command(t: str) -> bool:
+    """'top 5', 'skip ab12cd34', 'company Zoho' are commands; 'top 5 GenAI roles at product companies' is a question."""
+    word, _, rest = t.partition(" ")
+    w, rest = word.lower(), rest.strip()
+    if w not in KNOWN:
+        return False
+    if not rest or re.fullmatch(r"[0-9a-f]{6,16}|\d{1,3}(?:\s+\d{1,3})?", rest):
+        return True
+    return w in TEXT_ARGS and "?" not in rest and len(rest.split()) <= (2 if w in ("govt", "eligible") else 4)
+
+
+def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> str | list[str]:
+    """Pure command handler (unit-tested): text in, HTML reply out (a list = several whole messages).
+    Anything that isn't a command goes to the chat assistant (jobhunter/assistant.py)."""
     db = db or DB()
     t = (text or "").strip()
     if t.isdigit() and _PICK.get("items") and time.time() - _PICK.get("at", 0) < 900:
@@ -323,10 +340,13 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         if not 1 <= int(t) <= len(items):
             return f"Pick 1 to {len(items)}."
         return _company_report(items[int(t) - 1], db, watch=_PICK.get("cmd") == "watch")
-    if t and not t.startswith("/") and t.split()[0].lower() in KNOWN:
+    if t and not t.startswith("/") and _is_command(t):
         t = "/" + t                                    # "help", "top 5", "stats" work without the slash
-    elif t and not t.startswith("/") and len(t) >= 3 and _choices(t, online=False):
+    elif t and not t.startswith("/") and len(t.split()) <= 3 and len(t) >= 3 and _choices(t, online=False):
         return _company_cmd(t, db)                     # just a company name: "Zoho", "aditya birla"
+    elif t and not t.startswith("/"):
+        from . import assistant
+        return assistant.reply(t, chat, db, progress)  # "find ML intern jobs in Bengaluru posted this week"
     m = re.match(r"^/(\w+?)(?:_([0-9a-f]{6,16}))?(?:@\w+)?(?:\s+(.*))?$", t, re.S)
     if not m:
         return "Send /help (or just <i>help</i>) for commands."
@@ -476,6 +496,10 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
     if cmd == "search":
         if not arg:
             return "Usage: <code>/search python intern</code> (role, skill or company)"
+        from . import assistant
+        assistant.ensure(db)
+        return assistant._finish(db, {"chat": chat or str(env("TELEGRAM_CHAT_ID") or "me"),
+                                      "progress": progress or (lambda s: None)}, t, "search_jobs", {"query": arg}, "")
         words = [w for w in re.split(r"\s+", arg.lower()) if w and not w.isdigit()]
         page = int(next((w for w in arg.split() if w.isdigit()), 1))
         sql = ("SELECT * FROM jobs WHERE status IN ('new','alerted','queued','needs_you') AND (deadline IS NULL OR deadline >= ?)"
@@ -525,7 +549,7 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
+SLOW = {"search", "today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
 
 
 def log(msg: str) -> None:
@@ -599,7 +623,7 @@ def _reply(api: str, chat: str, text: str) -> None:
         threading.Thread(target=typing, daemon=True).start()
     t0 = time.time()
     try:
-        reply = handle(text)
+        reply = handle(text, chat=chat, progress=lambda s: send(api, chat, s))
     except Exception as exc:                 # never let one bad command kill the bot
         log(f"handler error on {text[:40]!r}: {exc!r}")
         reply = f"⚠️ error: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}"

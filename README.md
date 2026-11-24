@@ -146,7 +146,8 @@ with `STATE_KEY` from your phone notes, then `scripts/install-services.sh`.
 | `hunt company <name>` | type a company → pick → every listing (date, place, type, source, link) → apply / track / watch / referral links |
 | `hunt questions` | answer what forms asked that isn't in your files (asked once, never guessed) |
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
-| `hunt bot` | Telegram command bot: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
+| `hunt bot` | Telegram bot. **Just type what you want**: *find ML intern jobs in Bengaluru posted this week*, *what does the Birlasoft job need that I don't have?*, *mark ab12cd34 as interview* (any change waits for your **yes**). Commands work too: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
+| `scripts/bench_assistant.py` | times every NVIDIA model on the 12 chat examples; the fastest with valid JSON goes in `ASSISTANT_MODEL` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
 | `hunt browser [url]` | the bot's browser: on any form press 🎯 Fill this form, check, Submit (recorded + learned) |
 | `hunt dream add/remove/list "Name"` | dream companies (+15, watched, pushed to the cloud radar); Telegram `/dream Name` |

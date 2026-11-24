@@ -17,7 +17,7 @@ Every command is for **your Arch laptop, in fish**, from `~/jobhunter` unless it
 | Cloud radar: LinkedIn, Naukri, Indeed, Google, company boards, Birla pages, 20 govt sites | GitHub Actions (free, laptop can be off) | every 30 min, full scan every 3 h |
 | Telegram alerts for strong matches + govt notices | your phone | the moment the radar finds them |
 | **Morning brief** (best new jobs, approvals waiting, govt deadlines, GATE countdown, cloud health) | cloud radar → Telegram (laptop fallback) | 07:25 daily from GitHub; the laptop sends at 08:00 only if the cloud one didn't |
-| **Telegram command bot** (`/top`, `/govt`, `/review`, `/skip_…`, `/stats`) | laptop | always on |
+| **Telegram bot: just type what you want** (plain sentences, or `/top`, `/govt`, `/review`, `/skip_…`, `/stats`) | laptop | always on |
 | **Review Center** (http://localhost:8765): every field the bot filled + Approve & Submit | laptop | always on |
 | Laptop scan (backup to the cloud) + cloud sync | laptop | scan every 2 h, sync every 30 min |
 | Encrypted backup of everything not in git | laptop → `~/jobhunter-backups` | Sundays 21:00 |
@@ -87,6 +87,12 @@ gh auth status
 Nothing needs an LLM (templates are the fallback), but letters and rewording are better with one.
 The bot tries **NVIDIA build → local Ollama → Gemini → Groq → templates**, per request. A bad key,
 a rate limit (HTTP 429), a retired model or a timeout just moves on to the next key, model or provider.
+
+The Telegram chat assistant (type a normal sentence to the bot) uses the fastest NVIDIA model that
+returns valid JSON: `nvidia/nemotron-3.5-bolt-e4b`, then 2 fallbacks, and local Ollama only if NVIDIA
+fails (the reply then ends with *(slower backup AI)*). To re-measure after NVIDIA changes its models:
+`.venv/bin/python scripts/bench_assistant.py`, then put the line it prints (`ASSISTANT_MODEL=…`) in `.env`.
+If every AI is down the bot still answers: *I can't think right now: use /help commands*.
 
 **NVIDIA build** (big models in the cloud):
 1. https://build.nvidia.com → sign in → your profile → **API Keys** → **Generate API Key** (starts with `nvapi-`).

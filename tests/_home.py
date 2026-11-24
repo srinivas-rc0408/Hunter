@@ -33,6 +33,8 @@ def make_home() -> Path:
     config.reload()
     from jobhunter.apply import browser
     browser.human_pause = lambda a=0, b=0: None
+    from jobhunter import assistant
+    assistant.live_scan = lambda *a, **k: 0       # no test ever searches LinkedIn/Naukri for real
     return home
 
 

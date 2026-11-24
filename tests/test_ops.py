@@ -227,6 +227,7 @@ class InterviewPrep(unittest.TestCase):
 
 class BotHTML(unittest.TestCase):
     def test_every_reply_is_valid_telegram_html(self):
+        from unittest import mock
         from jobhunter.bot import handle
         db = DB(HOME / "data" / "html.db")
         j = seed(db, "ML <Intern> & R&D", "A&B <Labs>")
@@ -234,11 +235,14 @@ class BotHTML(unittest.TestCase):
                     f"/show_{j.id[:8]}", "/show", "/answer", "/answer x", "/company", "/nope", "hello", "",
                     f"/queue {j.id[:8]}", "/skip", "/search", "search ml intern", "search <x&y>", "/search a&b 2",
                     "stats", "applied", "/applied 2", "/deadlines", "/eligible", "govt karnataka", "govt central", "govt all"):
-            out = handle(cmd, db)
-            self.assertTrue(out.strip(), cmd)
-            assert_telegram_html(self, out)
+            with mock.patch("jobhunter.assistant.live_scan", return_value=0):
+                out = handle(cmd, db)
+            for part in (out if isinstance(out, list) else [out]):
+                self.assertTrue(part.strip(), cmd)
+                assert_telegram_html(self, part)
         self.assertIn("JobHunter", handle("help", db))
-        self.assertIn("ML &lt;Intern&gt;", handle("search intern", db))
+        with mock.patch("jobhunter.assistant.live_scan", return_value=0):
+            self.assertIn("ML &lt;Intern&gt;", "".join(handle("search intern", db)))
         self.assertIn("Response rate", handle("stats", db))
         self.assertIn("alive", handle("ping", db))
 
