@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jobhunter"
-version = "1.9.1"
+version = "1.9.2"
 description = "Find every relevant job early (private + Karnataka govt), rank it, fill applications, track everything."
 requires-python = ">=3.10"
 dependencies = [

@@ -458,7 +458,8 @@ def cmd_mail(a):
         return
     if a.reset:
         from .db import DB
-        db = DB(); mail.ensure(db); n = db.c.execute("DELETE FROM mail").rowcount; db.c.commit()
+        db = DB(); mail.ensure(db); n = db.c.execute("DELETE FROM mail").rowcount
+        db.c.execute("DELETE FROM mail_state"); db.c.commit()
         c.print(f"forgot {n} sorted emails: they'll be re-read and re-sorted now. To remove old Gmail labels, "
                 "delete the 'JobHunter' label in Gmail (your emails stay).")
     r = mail.sync(days=a.days, label=not a.no_label, quiet=False)

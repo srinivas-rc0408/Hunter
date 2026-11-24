@@ -51,7 +51,9 @@ NOT_REPLIES = re.compile(
     r"people are hiring|weekly digest|newsletter|webinar|reacted to|new invitation|invitations? to connect|invited you to (?:connect|join)|you may know|new connection|"
     r"new opportunit|profile is a good fit|good fit for|stop applying|tips|course|certif|% off|\bsale\b|discount|"
     r"premium|build, deploy|deploy|free trial|upgrade|top (?:picks|jobs)|trending|viewed your profile|"
-    r"appeared in \d+ searches|who'?s viewed|post|comment|mentioned you|endorse|congratulate|birthday|work anniversary",
+    r"appeared in \d+ searches|who'?s viewed|post|comment|mentioned you|endorse|congratulate|birthday|work anniversary|"
+    r"complete your application|finish your application|receive these benefits|incomplete application|"
+    r"don'?t miss|last chance|reminder to apply|apply now",
     re.I)
 # order matters: the first kind that matches wins
 KINDS: list[tuple[str, re.Pattern]] = [
@@ -94,12 +96,18 @@ class Msg:
     why: list[str] = field(default_factory=list)
 
 
+# "SrinivaS, your application was sent to Codemonk" · "Your application to ML Engineer at Zoho"
+SENT_TO = [re.compile(r"your application was sent to (?P<co>.+?)\s*$", re.I),
+           re.compile(r"your application (?:to|for) (?P<role>.+?) (?:at|with) (?P<co>.+?)\s*$", re.I),
+           re.compile(r"(?:successfully )?applied (?:to|for) (?P<role>.+?) (?:at|with) (?P<co>.+?)\s*$", re.I)]
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mail (
   msgid TEXT PRIMARY KEY, uid TEXT, at TEXT, sender TEXT, sender_name TEXT, subject TEXT, snippet TEXT,
   kind TEXT, job_id TEXT, match TEXT, seen_at TEXT
 );
 CREATE INDEX IF NOT EXISTS mail_at ON mail(at);
+CREATE TABLE IF NOT EXISTS mail_state (k TEXT PRIMARY KEY, v TEXT);
 """
 
 
@@ -232,6 +240,41 @@ def match(db: DB, msg: Msg) -> tuple[str | None, str]:
     return best[2], best[3]
 
 
+def applied_outside(db: DB, msg: Msg) -> tuple[str | None, str]:
+    """You applied yourself (LinkedIn / Naukri app): record it, so the sheet has every application.
+    Uses the job we already track at that company (best title match), or adds it."""
+    for rx in SENT_TO:
+        m = rx.search(msg.subject)
+        if m:
+            break
+    else:
+        return None, ""
+    co = m.group("co").strip(" .·-|")
+    role = (m.groupdict().get("role") or "").strip(" .·-|")
+    if not co or len(co) > 80:
+        return None, ""
+    key = norm(co)
+    best = None
+    for jid, title, company, status in db.c.execute("SELECT id, title, company, status FROM jobs"):
+        if norm(company) != key and not norm(company).startswith(key + " "):
+            continue
+        sc = 2 if role and norm(role) == norm(title) else 1 if role and norm(role) in norm(title) else 0
+        if best is None or sc > best[0]:
+            best = (sc, jid, status)
+    if best and (best[0] > 0 or not role):
+        jid, status = best[1], best[2]
+    else:
+        from .db import Job
+        j = Job(role or "(role: see the LinkedIn email)", co, "", url="", source="email")
+        db.upsert(j)
+        jid, status = j.id, "new"
+    if status not in ("applied", "interview", "offer", "rejected"):
+        db.c.execute("UPDATE jobs SET status='applied', status_at=? WHERE id=?", (msg.at, jid))
+        db.c.execute("INSERT INTO events VALUES (?,?,?,?)", (jid, msg.at, "applied", "email: " + msg.subject[:150]))
+        db.c.commit()
+    return jid, f"{co} (you applied: recorded from the email)"
+
+
 def _advance(db: DB, jid: str, kind: str, msg: Msg) -> str | None:
     new = STATUS_FOR.get(kind)
     j = db.get(jid)
@@ -280,12 +323,34 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
     imap.select("INBOX", readonly=not label)
     import datetime as _dt
     since = (_dt.date.today() - _dt.timedelta(days=days)).strftime("%d-%b-%Y")
+    last = int((db.c.execute("SELECT v FROM mail_state WHERE k='last_uid'").fetchone() or ["0"])[0] or 0)
     typ, data = imap.uid("SEARCH", None, f"(SINCE {since})")
-    uids = (data[0] or b"").split() if typ == "OK" else []
+    uids = [int(u) for u in ((data[0] or b"").split() if typ == "OK" else [])]
+    uids = [u for u in uids if u > last][-2000:]          # only mail not looked at before (fast after the first run)
     counts: dict[str, int] = {}
     urgent: list[Msg] = []
-    for u in uids[-800:]:
-        uid = u.decode()
+    # 1) headers only, 200 at a time: sender + subject decide if the body is worth downloading
+    cand: list[int] = []
+    for i in range(0, len(uids), 200):
+        part = ",".join(str(u) for u in uids[i:i + 200])
+        typ, d = imap.uid("FETCH", part, "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])")
+        if typ != "OK":
+            continue
+        for item in d or []:
+            if not isinstance(item, tuple):
+                continue
+            mu = re.search(rb"UID (\d+)", item[0])
+            if not mu:
+                continue
+            h = parse(mu.group(1).decode(), item[1])
+            if h.msgid not in known and is_job_mail(h, companies):
+                cand.append(int(mu.group(1)))
+            elif h.msgid not in known and companies and any(
+                    c and c.split()[0] in norm(h.sender + " " + h.sender_name + " " + h.subject) for c in companies):
+                cand.append(int(mu.group(1)))      # names a company you applied to: read the body to decide
+    # 2) full message only for candidates
+    for uid_i in cand:
+        uid = str(uid_i)
         typ, d = imap.uid("FETCH", uid, "(BODY.PEEK[])")
         if typ != "OK" or not d or not isinstance(d[0], tuple):
             continue
@@ -294,9 +359,16 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
             continue
         msg.kind = classify(msg)
         msg.job_id, msg.match = match(db, msg)
-        if not msg.job_id and msg.kind in ("other", "viewed") :
-            known.add(msg.msgid)
-            continue                                   # not about an application of yours: leave it alone
+        if not msg.job_id:
+            msg.job_id, msg.match = applied_outside(db, msg)
+            if msg.job_id and msg.kind == "other":
+                msg.kind = "received"
+        if not msg.job_id:
+            sub = classify(Msg(uid, msg.msgid, msg.at, msg.sender, msg.sender_name, msg.subject, ""))
+            msg.kind = sub if sub in ("offer", "interview", "assessment", "rejected") else "other"
+            if msg.kind == "other":
+                known.add(msg.msgid)
+                continue                          # not about an application of yours: leave it alone
         moved = _advance(db, msg.job_id, msg.kind, msg) if msg.job_id else None
         db.c.execute("INSERT OR IGNORE INTO mail VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                      (msg.msgid, uid, msg.at, msg.sender, msg.sender_name, msg.subject,
@@ -313,6 +385,9 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
         if not quiet:
             print(f"{LABEL[msg.kind]:<10} {msg.at[:16]}  {msg.subject[:70]}  → {msg.match or 'not matched'}"
                   + (f"  [status → {moved}]" if moved else ""))
+    if uids:
+        db.c.execute("INSERT OR REPLACE INTO mail_state VALUES ('last_uid', ?)", (str(max(uids)),))
+        db.c.commit()
     try:
         imap.logout()
     except Exception:

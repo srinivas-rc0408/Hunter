@@ -37,7 +37,15 @@ class FakeIMAP:
         if cmd == "SEARCH":
             return "OK", [" ".join(str(i) for i in range(1, len(self.msgs) + 1)).encode()]
         if cmd == "FETCH":
-            return "OK", [(b"1", self.msgs[int(a[0]) - 1])]
+            ids = [int(x) for x in a[0].split(",")]
+            self.fetched = getattr(self, "fetched", []) + [(a[1], ids)]
+            if "HEADER.FIELDS" in a[1]:
+                out = []
+                for i in ids:
+                    head = self.msgs[i - 1].split(b"\n\n", 1)[0] + b"\n\n"
+                    out += [(f"{i} (UID {i} BODY[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] {{{len(head)}}}".encode(), head), b")"]
+                return "OK", out
+            return "OK", [(f"{ids[0]} (UID {ids[0]} BODY[] {{1}}".encode(), self.msgs[ids[0] - 1]), b")"]
         if cmd == "STORE":
             self.labels[a[0]] = a[2]
             return "OK", [b""]
@@ -51,6 +59,9 @@ class Mail(unittest.TestCase):
         self.db = DB()
         mail.ensure(self.db)
         self.db.c.execute("DELETE FROM mail")
+        self.db.c.execute("DELETE FROM mail_state")
+        self.db.c.execute("DELETE FROM jobs")
+        self.db.c.execute("DELETE FROM events")
         self.jobs = {}
         for t, c in [("Generative AI Engineer", "Birlasoft Limited"), ("ML Intern", "Zoho Corporation"),
                      ("Data Analyst", "Zoho Corporation"), ("AI Engineer", "Astra Security")]:
@@ -107,6 +118,17 @@ class Mail(unittest.TestCase):
         m = self.m("jobs-noreply@linkedin.com", "Your application was sent to Zoho Corporation", "")
         self.assertTrue(mail.is_job_mail(m, []))
 
+    def test_applications_you_made_yourself_are_recorded(self):
+        msgs = [raw("jobs-noreply@linkedin.com", "SrinivaS, your application was sent to Codemonk", "AI Engineer", mid="<o1@x>"),
+                raw("jobs-noreply@linkedin.com", "Your application to ML Engineer at Fractal Analytics", "", mid="<o2@x>"),
+                raw("jobs-noreply@linkedin.com", "Complete your application and receive these benefits",
+                    "We will invite you to an interview", mid="<o3@x>")]
+        r = mail.sync(imap_factory=lambda: FakeIMAP(msgs), quiet=True)
+        self.assertEqual(r, {"received": 2})                                # the ad is ignored, not an "interview"
+        rows = {(x["company"], x["title"]): x["status"] for x in self.db.query(status=["applied"], limit=100)}
+        self.assertEqual(rows[("Fractal Analytics", "ML Engineer")], "applied")
+        self.assertIn(("Codemonk", "(role: see the LinkedIn email)"), rows)
+
     def test_bad_password_is_one_plain_line(self):
         import imaplib
         class Bad:
@@ -155,8 +177,12 @@ class Mail(unittest.TestCase):
         self.assertEqual(st(("AI Engineer", "Astra Security")), "offer")     # a later 'rejected' mail never undoes an offer
         self.assertIn('"JobHunter/Interview"', fake.labels["1"])
         self.assertEqual(len(sent), 2)                                      # interview + offer pinged; rejections are not
+        bodies = [ids for what, ids in fake.fetched if "HEADER" not in what]
+        self.assertNotIn([5], bodies)                                       # a job alert's body is never downloaded
+        fake.fetched = []
         again = mail.sync(imap_factory=lambda: fake, quiet=True)
         self.assertEqual(again, {})                                         # every message handled once
+        self.assertEqual(fake.fetched, [])                                  # and the next run reads nothing old
         # the Excel tracker
         from openpyxl import load_workbook
         p = tracker.write(self.db, HOME / "data" / "t.xlsx")
