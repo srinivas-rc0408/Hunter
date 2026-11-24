@@ -303,7 +303,7 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
              f"Bengaluru office: {'yes, ' + str(blr) + ' open role(s) there' if blr else 'unknown'}",
              f"Dream: {'★ yes' if dreams.find(info['name']) else 'no · <code>/dream ' + _e(info['name']) + '</code>'}",
              "<b>Your applications</b>", *(apps or ["none yet"]),
-             f"<b>News, last 30 days</b>"]
+             "<b>News, last 30 days</b>"]
     lines += [f"• {n['date'][8:]} {dt.date.fromisoformat(n['date']):%b} · <a href=\"{html.escape(n['url'], quote=True)}\">"
               f"{_e(n['title'][:110])}</a> <i>({_e(n['source'])})</i>" for n in news] or ["none found"]
     for label, site in (("Careers", info.get("careers_url")), ("Website", not info.get("careers_url") and info.get("website"))):

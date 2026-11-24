@@ -120,11 +120,6 @@ def applied_before(db: DB, job: dict, days: int = 30) -> str | None:
     return None
 
 
-def already_applied(db: DB, job: dict) -> bool:
-    """Sent before (not a dry run), past that stage, or the same role at the same company this month: never twice."""
-    return applied_before(db, job) is not None
-
-
 def cap_reached(db: DB, site: str) -> str | None:
     """The daily caps (all sites, and per site) as plain words, or None. flows.gate() enforces them too."""
     s = config.cfg("search").get("apply", {})

@@ -15,7 +15,6 @@ and caste/diversity questions (your category is never typed into private forms).
 """
 from __future__ import annotations
 
-import json
 import time
 
 from .. import config
@@ -262,5 +261,3 @@ def say_learned(saved: list[dict]) -> None:
                       f"(bot had {(_shown(c['before']) or 'nothing')!r})")
 
 
-def dump(saved: list[dict]) -> str:
-    return json.dumps([{k: c[k] for k in ("label", "before", "after")} for c in saved], default=str)

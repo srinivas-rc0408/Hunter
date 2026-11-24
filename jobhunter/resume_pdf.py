@@ -20,7 +20,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
 from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
@@ -339,13 +338,3 @@ def build(out: Path, data: dict | None = None) -> Path:
     return out
 
 
-def for_job(job: dict | None) -> Path:
-    """The resume to upload for this job. Tailored one-page PDF by default;
-    search.yaml → apply.resume: own  uploads config/resume.pdf as-is."""
-    mode = config.cfg("search").get("apply", {}).get("resume", "tailored")
-    own = config.path("config", "resume.pdf")
-    if mode == "own" and own.is_file():
-        return own
-    if job:
-        return Path(tailor_job(job, use_llm=True)["pdf"])
-    return build(pdf_path(None))

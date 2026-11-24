@@ -100,7 +100,7 @@ it *would* send in the Review Center.
 
 Everything runs by itself: cloud radar on GitHub, laptop scans every 2 h, the 07:25 brief (from the cloud; the laptop sends at 08:00 only if it didn't), a health
 check every 30 min (an alert arrives on Telegram the first time something breaks, and once when it's
-fixed), the Sunday 21:00 weekly report and backup. From your phone: `today`, `top 5`, `search python`,
+fixed), the Sunday 21:00 weekly report and backup (also deletes form screenshots older than 7 days, keeping sent ones, and compacts jobs.db). From your phone: `today`, `top 5`, `search python`,
 `company Zoho`, `govt karnataka`, `eligible`, `deadlines`, `stats`, `health`, `help`.
 
 ```bash

@@ -153,14 +153,6 @@ def _get_models(base: str, key: str | None) -> tuple[int, list[str] | None]:
         return 0, None
 
 
-def _models(base: str, key: str | None) -> list[str] | None:
-    return _get_models(base, key)[1]
-
-
-def _reachable(base: str, key: str | None) -> bool:
-    return _models(base, key) is not None
-
-
 def _version(mid: str) -> tuple:
     return tuple(int(x) for x in re.findall(r"\d+", mid)[:3])
 
@@ -233,16 +225,6 @@ def _providers() -> list[dict]:
     if not _PICKED:
         _PICKED.append({p: _resolve(p) for p in chain()})
     return [r for r in _PICKED[0].values() if r]
-
-
-def settings() -> tuple[str, str, str | None]:
-    """(base_url, model, first key) of the provider tried first."""
-    ps = _providers()
-    if not ps:
-        return ("", "none", None)
-    p = ps[0]
-    ks = _usable(p["prov"])
-    return p["base"], p["models"][0], (ks[0] if ks else None)
 
 
 def available() -> bool:

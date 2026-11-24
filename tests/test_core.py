@@ -408,11 +408,11 @@ class Retries(unittest.TestCase):
         from jobhunter.apply import runner
         db = DB()
         j = self._job(db, "Retry Engineer C")
-        self.assertFalse(runner.already_applied(db, j))
+        self.assertFalse((runner.applied_before(db, j) is not None))
         db.add_application(j["id"], "linkedin", "applied", False, False, True, "", [], "", "", None, "", "")
-        self.assertFalse(runner.already_applied(db, j))                       # a dry run is not an application
+        self.assertFalse((runner.applied_before(db, j) is not None))                       # a dry run is not an application
         db.add_application(j["id"], "linkedin", "applied", False, False, False, "", [], "", "", None, "", "")
-        self.assertTrue(runner.already_applied(db, j))
+        self.assertTrue((runner.applied_before(db, j) is not None))
 
     def test_same_role_same_company_within_30_days(self):
         from jobhunter.apply import runner

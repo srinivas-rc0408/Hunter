@@ -64,8 +64,3 @@ def question(label: str, options: list[str] | None, required: bool, note: str = 
     return a.strip()
 
 
-def confirm(text: str, default: bool = False) -> bool:
-    a = read(f"{text} [{'Y/n' if default else 'y/N'}] ")
-    if a is None or not a.strip():
-        return default
-    return a.strip().lower().startswith("y")

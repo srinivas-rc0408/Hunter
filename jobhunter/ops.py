@@ -68,6 +68,16 @@ def backup(keep: int = 8) -> Path:
     return out
 
 
+def tidy(db) -> int:
+    """Weekly: delete data/screens files older than 7 days (sent applications kept) and VACUUM jobs.db.
+    Returns how many screen files went."""
+    from .apply.runner import prune_screens
+    n = prune_screens(db)
+    db.c.commit()
+    db.c.execute("VACUUM")
+    return n
+
+
 def restore(path: str, key: str | None = None) -> None:
     key = key or env("STATE_KEY")
     if not key:

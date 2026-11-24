@@ -199,7 +199,13 @@ def cmd_health(a):
     if a.weekly:                                        # jobhunter-weekly.timer, Sunday 21:00
         from .db import DB
         from .notify import telegram
-        msg = health.weekly(DB())
+        from .ops import tidy
+        db = DB()
+        try:
+            print(f"tidy: {tidy(db)} old screen file(s) deleted, jobs.db vacuumed")
+        except Exception as e:                          # a busy db must not cost the report
+            print(f"tidy skipped: {e}")
+        msg = health.weekly(db)
         print(msg if not a.send else ("sent" if telegram(msg) else "NOT sent (Telegram not set?)"))
         return
     c = _console()

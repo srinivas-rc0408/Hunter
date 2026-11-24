@@ -21,6 +21,7 @@ Every command is for **your Arch laptop, in fish**, from `~/jobhunter` unless it
 | **Review Center** (http://localhost:8765): every field the bot filled + Approve & Submit | laptop | always on |
 | Laptop scan (backup to the cloud) + cloud sync | laptop | scan every 2 h, sync every 30 min |
 | Encrypted backup of everything not in git | laptop → `~/jobhunter-backups` | Sundays 21:00 |
+| Tidy: screenshots older than 7 days (sent applications kept), VACUUM jobs.db | laptop (`hunt health --weekly`) | Sundays 21:00 |
 | Daily email digest (optional) | GitHub → Gmail | 20:15 |
 
 Cost: ₹0. Everything uses free tiers.

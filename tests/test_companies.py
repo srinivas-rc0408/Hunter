@@ -1,11 +1,9 @@
 """Company search: suggestions, ATS detection/parsers (real responses), resolve, listings, watch,
 questions (ask, never guess), Telegram + Review Center wiring."""
 import json
-import os
 import threading
 import time
 import unittest
-from pathlib import Path
 
 from _home import ROOT, make_home, use
 

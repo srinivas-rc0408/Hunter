@@ -143,7 +143,7 @@ def as_telegram_pages(b: dict) -> list[str]:
     if b.get("govt_top"):
         from .notify import govt_card
         today = dt.date.fromisoformat(b["date"])
-        blocks.append(f"<b>🏛 Top govt notices</b> (all: /govt · next 14 days: /deadlines)")
+        blocks.append("<b>🏛 Top govt notices</b> (all: /govt · next 14 days: /deadlines)")
         blocks += [govt_card(j, today=today) for j in b["govt_top"]]
         rest = [j for _, j in b["govt_soon"] if j["id"] not in {g["id"] for g in b["govt_top"]}]
         if rest:

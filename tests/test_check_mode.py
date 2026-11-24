@@ -3,7 +3,6 @@ Plus: browser lock/profile fixes, field corrections, dream companies, resume upl
 import json
 import os
 import unittest
-from pathlib import Path
 
 from _home import use, ROOT, make_home, write_pdf
 

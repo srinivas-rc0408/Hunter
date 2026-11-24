@@ -200,10 +200,6 @@ class FormResult:
     def non_basic_filled(self) -> list[Fill]:
         return [f for f in self.fills if f.ok and not f.answer.basic and f.answer.key not in ("resume", "cover_letter_file")]
 
-    def all_basic(self) -> bool:
-        return not self.blockers and not self.missing and not self.non_basic_filled
-
-
 class BrowserBusy(RuntimeError):
     """The bot's browser profile is already open in another window."""
 

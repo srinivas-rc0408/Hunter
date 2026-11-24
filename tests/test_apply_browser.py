@@ -5,7 +5,6 @@ needs_you.html       expected CTC + essay + per-skill years → fills, WAITS for
 linkedin_modal.html  3-step Easy Apply modal (select, radio, number, follow-company) → AUTO-SUBMIT
 """
 import unittest
-from pathlib import Path
 
 from _home import use, ROOT, make_home, write_pdf
 

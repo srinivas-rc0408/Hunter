@@ -3,7 +3,6 @@ import datetime as dt
 import os
 import tempfile
 import unittest
-from pathlib import Path
 
 from _home import use, make_home
 
@@ -289,6 +288,26 @@ class Backup(unittest.TestCase):
         self.assertTrue((HOME / "data" / "answers.yaml").is_file())
         with self.assertRaises(SystemExit):
             ops.restore(str(f), key="wrong-key")
+
+
+class Tidy(unittest.TestCase):
+    def test_weekly_tidy_prunes_screens_and_vacuums(self):
+        import time
+        from jobhunter import ops
+        db = DB()
+        db.c.execute("CREATE TABLE IF NOT EXISTS junk (x TEXT)")
+        db.c.executemany("INSERT INTO junk VALUES (?)", [("x" * 2000,)] * 500)
+        db.c.execute("DELETE FROM junk")
+        db.c.commit()
+        self.assertGreater(db.c.execute("PRAGMA freelist_count").fetchone()[0], 0)
+        shot = HOME / "data" / "screens" / "old.png"
+        shot.parent.mkdir(parents=True, exist_ok=True)
+        shot.write_text("x")
+        old = time.time() - 8 * 86400
+        os.utime(shot, (old, old))
+        self.assertEqual(ops.tidy(db), 1)
+        self.assertFalse(shot.exists())
+        self.assertEqual(db.c.execute("PRAGMA freelist_count").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

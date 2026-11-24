@@ -301,9 +301,6 @@ class DB:
                        (iso(), kind, found, new, alerted, json.dumps(errors[:50])))
         self.c.commit()
 
-    def last_runs(self, n: int = 10) -> list[dict]:
-        return [dict(r) for r in self.c.execute("SELECT * FROM runs ORDER BY at DESC LIMIT ?", (n,))]
-
     # ── page watcher memory ─────────────────────────────────────────────────
     def link_is_new(self, page: str, href: str, text: str) -> bool:
         # OR IGNORE, never IntegrityError: a failed INSERT left its implicit transaction open, holding the
