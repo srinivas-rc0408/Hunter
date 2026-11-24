@@ -39,7 +39,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
 
 
 KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch",
-         "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume",
+         "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume", "mail", "sheet",
          *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
@@ -68,6 +68,8 @@ HELP = """<b>🎯 JobHunter</b> · words work without the slash: <i>top 5</i>, <
 <b>You</b>
 /stats · applied today, this week, total, interviews, offers, response rate
 /applied · every application with its date
+/mail · application emails sorted: offers, interviews, tests, rejections · <code>mail 30</code>
+/sheet · the Excel tracker (every application + email replies), updated now
 /review · forms waiting for you · /questions · then <code>answer 1 Yes</code>
 /dream · <code>dream Zoho</code> (★ +15, watched) · /dreams · <code>undream Zoho</code>
 /watch · add a company to every scan · <code>watch Bosch</code>
@@ -385,6 +387,12 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
                 f"on the panel. Not at the laptop? /check_{j['id'][:8]} gives you the link to apply from your phone.")
     if cmd == "resume":
         return "__RESUME__"
+    if cmd == "sheet":
+        return "__SHEET__"
+    if cmd == "mail":
+        from .mail import summary_text
+        days = int(arg) if arg.strip().isdigit() else 7
+        return summary_text(db, min(days, 90))
     if cmd == "ping":
         return f"🟢 alive · {time.strftime('%d %b %H:%M')} · {db.count('1=1')} jobs tracked"
     if cmd == "questions":
@@ -503,6 +511,8 @@ def handle(text: str, db: DB | None = None) -> str | list[str]:
         if not j:
             return f"Usage: /{cmd} &lt;id&gt;"
         db.set_status(j["id"], STATUS_CMDS[cmd], "telegram")
+        from .tracker import refresh
+        refresh(db)
         done = f"✓ {_e(j['title'][:60])} · {_e(j['company'])} → <b>{STATUS_CMDS[cmd]}</b>"
         if cmd == "interview":                          # one-screen prep pack, facts from resume.yaml only
             from .prep import pack
@@ -595,6 +605,19 @@ def _reply(api: str, chat: str, text: str) -> None:
         reply = f"⚠️ error: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}"
     finally:
         done.set()
+    if reply == "__SHEET__":
+        from .tracker import write
+        try:
+            x = write()
+            with open(x, "rb") as fh:
+                requests.post(f"{api}/sendDocument", timeout=60, data={"chat_id": chat,
+                              "caption": "Your applications and email replies, updated just now."},
+                              files={"document": (x.name, fh,
+                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+        except Exception as exc:
+            send(api, chat, f"couldn't make the sheet: {_e(type(exc).__name__)}: {_e(str(exc)[:200])}")
+        log(f"{text[:40]!r} → sheet sent")
+        return
     if reply == "__RESUME__":
         _send_resume(api, chat)
         log(f"{text[:40]!r} → resume sent")

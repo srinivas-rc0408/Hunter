@@ -170,3 +170,15 @@ cd .. && python -m unittest discover -s tests/hunter   # hunter-skill's own suit
   never run against a real LinkedIn or Naukri login, so do your first runs with `--dry-run`.
 - **Cloud IPs get rate-limited** by LinkedIn/Glassdoor sometimes. The laptop scans every 2 h as backup.
 - **Scanned (image) govt PDFs** can't be read, so open those yourself.
+
+## Email replies and the Excel tracker
+- **`hunt mail`** reads your Gmail (read-only) and sorts every reply to an application: offer, interview,
+  assessment, rejected, viewed, received. Each one gets a Gmail label (`JobHunter/Interview` …), is matched
+  to the job you applied for, and moves that job's status forward (never backwards). Interview, test and
+  offer emails ping Telegram at once. It runs by itself every 30 min with the sync timer.
+  One-time setup: Google Account → Security → 2-Step Verification → **App passwords** → create "JobHunter",
+  then put `GMAIL_USER=` and `GMAIL_APP_PASSWORD=` in `.env`.
+- **Excel tracker** `~/Documents/JobHunter/Applications.xlsx`, rewritten after every application, status
+  change and email check. Sheets: Summary, Applications (date, time, company, role, location, work mode, pay,
+  where you applied, status, last email, next step, link, resume…), Email replies. `hunt sheet --open`;
+  Telegram **/sheet** sends you the file, **/mail** lists the replies.

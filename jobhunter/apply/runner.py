@@ -303,6 +303,11 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
     a = sum(1 for _, o in done if o.status == "applied")
     w = sum(1 for _, o in done if o.status == "needs_you")
     console.print(f"\n[bold]Applied {a} · waiting for you {w} · other {len(done) - a - w}[/]")
+    if not dry:
+        from ..tracker import refresh
+        x = refresh(db)
+        if x:
+            console.print(f"   Excel tracker updated: {x}")
     return done
 
 

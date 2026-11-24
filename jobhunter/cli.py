@@ -431,6 +431,43 @@ def cmd_sync(a):
     added, updated = DB().merge_from(tmp)
     tmp.unlink(missing_ok=True)
     _console().print(f"synced from cloud radar: +{added} jobs, {updated} status updates")
+    _mail_and_sheet(quiet=True)
+
+
+def _mail_and_sheet(quiet: bool = True) -> None:
+    """After every sync: read new application emails (if set up) and rewrite the Excel tracker."""
+    from . import mail, tracker
+    if all(mail.creds()):
+        try:
+            r = mail.sync(quiet=quiet)
+            if r and not quiet:
+                _console().print(r)
+        except Exception as exc:
+            _console().print(f"[yellow]email check failed: {type(exc).__name__}: {str(exc)[:150]}[/]")
+    tracker.refresh()
+
+
+def cmd_mail(a):
+    from . import mail
+    c = _console()
+    if not all(mail.creds()):
+        c.print("Set up once: Google Account → Security → 2-Step Verification → App passwords → create one "
+                "named JobHunter.\nThen add to .env:\n  GMAIL_USER=you@gmail.com\n  GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx")
+        return
+    r = mail.sync(days=a.days, label=not a.no_label, quiet=False)
+    c.print(r if r else "no new application emails")
+    from .db import DB
+    from rich.markup import escape
+    import re as _re
+    c.print(escape(_re.sub(r"<[^>]+>", "", mail.summary_text(DB(), 7))))
+
+
+def cmd_sheet(a):
+    from . import tracker
+    p = tracker.write()
+    _console().print(f"[green]✓[/] {p}")
+    if a.open:
+        subprocess.Popen(["xdg-open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def cmd_secrets(a):
@@ -827,6 +864,15 @@ def main(argv=None):
 
     s = sub.add_parser("sync", help="merge jobs found by the GitHub Actions radar")
     s.set_defaults(fn=cmd_sync)
+
+    s = sub.add_parser("mail", help="sort application emails in Gmail (offer/interview/test/rejected/…) and update statuses")
+    s.add_argument("--days", type=int, default=30, help="how far back to read (default 30)")
+    s.add_argument("--no-label", action="store_true", help="don't add JobHunter/… labels in Gmail")
+    s.set_defaults(fn=cmd_mail)
+
+    s = sub.add_parser("sheet", help="write the Excel tracker (~/Documents/JobHunter/Applications.xlsx)")
+    s.add_argument("--open", action="store_true", help="open it after writing")
+    s.set_defaults(fn=cmd_sheet)
 
     s = sub.add_parser("advantages", help="your SC / Karnataka / GATE advantages as a checklist")
     s.set_defaults(fn=cmd_advantages)
