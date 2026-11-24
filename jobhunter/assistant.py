@@ -455,12 +455,11 @@ TOOLS = {
 }
 
 SYSTEM = """You are the job-search assistant of one Indian fresher. Reply with ONE JSON object and nothing else:
-{"tool": "<name>", "args": {...}, "note": "<only if needed: e.g. a filter no tool can apply>"} to use a tool, or
+{"tool": "<name>", "args": {...}} to use a tool, or
 {"answer": "<plain words>"} when you can answer.
 Facts come ONLY from tool results and the chat. Never invent requirements, pay, salaries, dates, companies or facts about the user.
 If a posting doesn't say something, answer "not in the posting". If no tool gives it, say you don't have that data.
-If no tool does what the user asks, answer that you can't do that yet. If the user asks for a filter no tool has
-(product companies, startups, salary above X), use the closest tool and say in "note" that you couldn't apply that filter.
+If no tool does what the user asks, answer that you can't do that yet. 
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
 search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
 Tools:
@@ -609,7 +608,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             return _join([out] + ([card] if card else []))
         name, args = obj["tool"], obj.get("args") or {}
         if TOOLS[name][1] or name not in ("job_details",):
-            return _finish(db, ctx, t, name, args, str(obj.get("note") or ""))
+            return _finish(db, ctx, t, name, args, "")    # the model's own side remarks are never shown
         res = run_tool(db, ctx, name, args)
         steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card")})
     return _join(["I couldn't finish that in 4 steps. Try asking more simply, or use /help." + _backup()])

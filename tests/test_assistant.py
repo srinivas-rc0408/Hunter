@@ -196,6 +196,13 @@ class Chat(unittest.TestCase):
         self.assertIn('"you_have": ["Docker", "Python"]', sent)
         self.assertIn('"you_miss": ["Kubernetes", "Spark"]', sent)
 
+    def test_model_side_remarks_are_never_shown(self):
+        self.fake.plans = {"find ml intern jobs": {"tool": "search_jobs", "args": {"query": "ML intern"},
+                                                   "note": "couldn't apply the filter product companies"}}
+        out, _ = self.say("find ml intern jobs")
+        self.assertIn("Acme AI", out)
+        self.assertNotIn("product companies", out)
+
     def test_intern_never_matches_international(self):
         seed(self.db, "Applied Scientist, International ML", "Big Co", desc="International machine learning team")
         out, _ = self.say("search ML intern")
