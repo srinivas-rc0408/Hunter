@@ -35,8 +35,10 @@ LABEL_ROOT = "JobHunter"
 # Applicant-tracking platforms: their mail is about applications (or tests) you started.
 ATS_SENDERS = re.compile(
     r"greenhouse|lever\.co|ashbyhq|myworkday|workday|smartrecruiters|icims|successfactors|darwinbox|keka|"
-    r"zohorecruit|recruitee|workable|jobvite|taleo|oraclecloud|phenom|eightfold|freshteam|peoplestrong|"
-    r"hackerrank|hackerearth|codility|mettl|imocha|testgorilla", re.I)
+    r"zohorecruit|recruitee|workable|jobvite|taleo|oraclecloud|phenom|eightfold|freshteam|peoplestrong", re.I)
+# Coding-test platforms also send promos ("solve your first problem"): only real invites count.
+TEST_SENDERS = re.compile(r"hackerrank|hackerearth|codility|mettl|imocha|testgorilla|codesignal|hirepro", re.I)
+TEST_INVITE = re.compile(r"invited you|your assessment for", re.I)
 # Job boards also send ads, alerts and social notifications: only their application mails count.
 BOARD_SENDERS = re.compile(r"linkedin\.com|naukri|foundit|indeed|internshala|unstop|wellfound|cutshort|instahyre|"
                            r"hirist|glassdoor|apna|shine\.com|superset", re.I)
@@ -183,9 +185,12 @@ def is_job_mail(msg: Msg, companies: list[str]) -> bool:
         return False
     if BOARD_SENDERS.search(blob):
         return bool(BOARD_APP_SUBJECT.search(msg.subject))
+    low = norm(f"{blob} {msg.subject} {msg.body[:3000]}")
+    if TEST_SENDERS.search(blob):
+        return bool(TEST_INVITE.search(f"{msg.subject} {msg.body[:3000]}")
+                    or any(c and f" {c} " in f" {low} " for c in companies))
     if ATS_SENDERS.search(blob):
         return True
-    low = norm(f"{blob} {msg.subject} {msg.body[:3000]}")
     if any(c and f" {c} " in f" {low} " for c in companies) and APP_WORDS.search(msg.subject + " " + msg.body[:3000]):
         return True
     return bool(re.search(r"\byour application\b|\bapplication (?:for|to|received|status|update)\b|"

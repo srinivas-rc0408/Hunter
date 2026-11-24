@@ -108,6 +108,14 @@ class Mail(unittest.TestCase):
         for s, sub in noise:
             self.assertFalse(mail.is_job_mail(self.m(s, sub, "interview tips and more"), ["zoho", "birlasoft"]), sub)
 
+    def test_coding_platform_promos_ignored(self):
+        for s, sub in [("noreply@hackerearth.com", "Solve your first problem"),
+                       ("no-reply@hackerrank.com", "Participate in your first contest")]:
+            self.assertFalse(mail.is_job_mail(self.m(s, sub, "Sharpen your coding skills"), ["zoho"]), sub)
+        self.assertTrue(mail.is_job_mail(self.m("no-reply@hackerrank.com", "Zoho Corporation has invited you to an assessment", ""), []))
+        self.assertTrue(mail.is_job_mail(self.m("support@mettl.com", "Your assessment for Data Analyst", ""), []))
+        self.assertTrue(mail.is_job_mail(self.m("noreply@codility.com", "Coding test", "Birlasoft: complete the test"), ["birlasoft"]))
+
     def test_real_replies_are_kept_and_sorted(self):
         m = self.m("info@naukri.com", "Update: Your application has not been accepted", "Regards, recruiter")
         self.assertTrue(mail.is_job_mail(m, []))
