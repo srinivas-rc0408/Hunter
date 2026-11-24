@@ -147,6 +147,8 @@ with `STATE_KEY` from your phone notes, then `scripts/install-services.sh`.
 | `hunt questions` | answer what forms asked that isn't in your files (asked once, never guessed) |
 | `hunt morning [--send]` | morning brief: cloud health, best new jobs, approvals waiting, govt deadlines, GATE countdown |
 | `hunt bot` | Telegram bot. **Just type what you want**: *find ML intern jobs in Bengaluru posted this week*, *what does the Birlasoft job need that I don't have?*, *mark ab12cd34 as interview* (any change waits for your **yes**). Commands work too: `/top /govt /review /stats /scan /show_<id> /skip_<id> /applied_<id>` |
+| Telegram: *add a column Referral* · *put 'text' in Referral for ab12cd34* · *remove ab12cd34 from the sheet* · *show hidden* | your own tracker columns and hidden rows live in the DB and survive every rewrite; Notes and your columns typed into the .xlsx itself are read back on the next refresh (nothing else is) |
+| Telegram: *how much would a fresher AI engineer get at Zoho?* | **≈ ₹X–Y LPA (estimate, not from the posting)** from AmbitionBox (company + role, 0–1 yr; the role in your city) and Glassdoor/Levels.fyi/Naukri search results, with links, dates and confidence; internships as a monthly stipend; cached 30 days; cards then say *💰 not listed · ≈ ₹X–Y LPA est.* |
 | `scripts/bench_assistant.py` | times every NVIDIA model on the 12 chat examples; the fastest with valid JSON goes in `ASSISTANT_MODEL` |
 | `hunt backup` / `hunt restore <file>` / `hunt update` | encrypted backups, restore, self-update |
 | `hunt browser [url]` | the bot's browser: on any form press 🎯 Fill this form, check, Submit (recorded + learned) |

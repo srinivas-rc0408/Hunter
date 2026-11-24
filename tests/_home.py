@@ -35,6 +35,9 @@ def make_home() -> Path:
     browser.human_pause = lambda a=0, b=0: None
     from jobhunter import assistant
     assistant.live_scan = lambda *a, **k: 0       # no test ever searches LinkedIn/Naukri for real
+    from jobhunter import salary                  # … or AmbitionBox / the web for salaries
+    salary.company_source = salary.role_source = lambda *a, **k: None
+    salary.web_sources = lambda *a, **k: []
     return home
 
 

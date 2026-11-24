@@ -72,6 +72,8 @@ Commands work too, with or without the slash: <i>top 5</i>, <i>govt karnataka</i
 /applied · every application with its date
 /mail · application emails sorted: offers, interviews, tests, rejections · <code>mail 30</code>
 /sheet · the Excel tracker (every application + email replies), updated now
+   <i>add a column Referral</i> · <i>put 'asked Rahul' in Referral for ab12cd34</i> · <i>remove ab12cd34 from the sheet</i> · <i>show hidden</i>
+💰 <i>how much would a fresher AI engineer get at Zoho?</i> · an estimate with sources and confidence, never the posting's pay
 /review · forms waiting for you · /questions · then <code>answer 1 Yes</code>
 /dream · <code>dream Zoho</code> (★ +15, watched) · /dreams · <code>undream Zoho</code>
 /watch · add a company to every scan · <code>watch Bosch</code>

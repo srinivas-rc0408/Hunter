@@ -37,7 +37,7 @@ PLANS = {   # what a good model answers for each example (first step)
     "top 5 GenAI roles at product companies": {"tool": "search_jobs", "args": {"query": "GenAI", "limit": 5},
                                                "note": "I can't tell product from service companies from the postings: here are the best GenAI roles."},
     "what does the Birlasoft job need that I don't have?": {"tool": "explain_job", "args": {"id": "Birlasoft"}},
-    "how much would a fresher AI engineer get at Zoho?": {"answer": "I don't have salary data for that yet."},
+    "what should i focus on this week?": {"answer": "I don't have that data."},
     r"is ([0-9a-f]{8}) a good fit for me\?": lambda m: {"tool": "explain_job", "args": {"id": m.group(1)}},
 }
 
@@ -136,8 +136,10 @@ class Chat(unittest.TestCase):
         self.assertIn("Gen Labs", out)
 
     def test_salary_question_never_invents_a_number(self):
-        out, _ = self.say("how much would a fresher AI engineer get at Zoho?")
+        out, _ = self.say("how much would a fresher AI engineer get at Zoho?")     # no salary data reachable in tests
         self.assertNotRegex(out, r"₹|\d+\s*LPA")
+        self.assertIn("I won't guess", out)
+        self.assertEqual(self.fake.calls, [])
 
     def test_mark_as_interview_needs_yes(self):
         jid = self.intern.id[:8]
@@ -257,10 +259,10 @@ class Chat(unittest.TestCase):
 
     def test_local_backup_ai_is_named(self):
         self.fake.prov = "ollama"
-        out, _ = self.say("how much would a fresher AI engineer get at Zoho?")
+        out, _ = self.say("what should i focus on this week?")
         self.assertIn("(slower backup AI)", out)
         self.fake.prov = "nvidia"
-        out, _ = self.say("how much would a fresher AI engineer get at Zoho?")
+        out, _ = self.say("what should i focus on this week?")
         self.assertNotIn("backup", out)
 
     def test_question_about_a_posting_uses_its_text(self):
@@ -282,14 +284,14 @@ class Chat(unittest.TestCase):
         self.assertIn("4 steps", out)
 
     def test_history_is_kept_per_chat(self):
-        self.say("how much would a fresher AI engineer get at Zoho?")
-        self.say("and at Infosys?")
-        self.assertIn("Zoho", self.fake.calls[-1][1])                            # last turns go to the model
+        self.say("what should i focus on this week?")
+        self.say("and next week?")
+        self.assertIn("focus on this week", self.fake.calls[-1][1])                            # last turns go to the model
         self.assertEqual(len(assistant.history(self.db, "42")), 4)
         self.assertEqual(assistant.history(self.db, "other"), [])
 
     def test_fast_settings_reach_the_model(self):
-        self.say("how much would a fresher AI engineer get at Zoho?")
+        self.say("what should i focus on this week?")
         kw = self.fake.calls[-1][2]
         self.assertEqual(kw["temperature"], 0)
         self.assertEqual(kw["models"][0], assistant.MODELS[0])

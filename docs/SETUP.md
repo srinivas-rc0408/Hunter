@@ -93,6 +93,9 @@ returns valid JSON: `nvidia/nemotron-3.5-bolt-e4b`, then 2 fallbacks, and local 
 fails (the reply then ends with *(slower backup AI)*). To re-measure after NVIDIA changes its models:
 `.venv/bin/python scripts/bench_assistant.py`, then put the line it prints (`ASSISTANT_MODEL=…`) in `.env`.
 If every AI is down the bot still answers: *I can't think right now: use /help commands*.
+Salary estimates (*how much would a fresher AI engineer get at Zoho?*) read AmbitionBox directly and, if
+`FIRECRAWL_API_KEY` is in `.env`, Glassdoor / Levels.fyi / Naukri search results too. They are always shown as
+estimates and never stored as the posting's pay.
 
 **NVIDIA build** (big models in the cloud):
 1. https://build.nvidia.com → sign in → your profile → **API Keys** → **Generate API Key** (starts with `nvapi-`).

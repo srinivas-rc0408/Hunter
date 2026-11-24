@@ -20,7 +20,7 @@ import time
 from . import config, llm
 from .config import env
 from .db import DB, _row
-from .notify import govt_card, job_card, pages, pay_text, mode_text, when_text
+from .notify import govt_card, job_card, mode_text, pages, pay_line, when_text
 
 LIMIT = 3500
 STEPS = 4
@@ -154,7 +154,7 @@ def live_scan(query: str, location: str, days: int | None = None, wait: float = 
 def _brief(j: dict) -> dict:
     """What the model sees of a job: never the whole DB row."""
     return {"id": j["id"][:8], "title": j["title"], "company": j["company"], "location": j.get("location") or "",
-            "mode": mode_text(j) or "not listed", "pay": pay_text(j), "posted": when_text(j), "score": j.get("score"),
+            "mode": mode_text(j) or "not listed", "pay": pay_line(j), "posted": when_text(j), "score": j.get("score"),
             "status": j["status"], "deadline": j.get("deadline")}
 
 
@@ -355,10 +355,31 @@ def t_explain_job(db: DB, ctx: dict, id: str):
              f"✅ <b>You have:</b> {_e(', '.join(have)) if have else 'none of the listed skills matched resume.yaml'}",
              f"❌ <b>Missing:</b> {_e(', '.join(miss)) if miss else ('nothing listed that you lack' if asked else 'the posting lists no skills')}",
              f"🎤 <b>Interview topics:</b> {_e(', '.join(topics)) if topics else 'not in the posting'}",
-             f"💰 {_e(pay_text(j))} · 📍 {_e(j.get('location') or 'location not listed')}",
+             f"💰 {_e(pay_line(j))} · 📍 {_e(j.get('location') or 'location not listed')}",
              f"📱 /check_{j['id'][:8]} · ✅ /applied_{j['id'][:8]} · /skip_{j['id'][:8]}"]
     return {"data": {**_brief(j), "skills_asked": asked, "you_have": have, "missing": miss, "fit": verdict},
             "show": ["\n".join(lines)]}
+
+
+def t_salary_estimate(db: DB, ctx: dict, role: str, company: str = "", location: str = "Bengaluru",
+                      experience: str = "fresher", id: str = ""):
+    """Approximate pay from AmbitionBox / Glassdoor / Levels.fyi / Naukri; never from the model, never pay_min/pay_max."""
+    from . import salary
+    j = find_job(db, id) if id else None
+    if j:
+        role, company = role or j["title"], company or j["company"]
+    key = "|".join(x.lower().strip() for x in (role, company, location, experience))
+    salary.ensure(db)
+    if not db.c.execute("SELECT 1 FROM salary_cache WHERE key=? AND at > ?", (key, time.time() - 30 * 86400)).fetchone():
+        ctx["progress"]("🔎 searching…")
+    res = salary.estimate(role, company, location, experience, db)
+    targets = [j] if j else [x for x in map(_row, db.c.execute(
+        "SELECT * FROM jobs WHERE LOWER(company) LIKE ? AND pay_min IS NULL AND pay_max IS NULL",
+        (f"%{company.lower().strip()}%",))) if company and all(any(_has(x["title"].lower(), sp) for sp in w) for w in _words(role))]
+    for x in targets:
+        salary.store(db, x["id"], res)
+    data = {k: res.get(k) for k in ("min", "max", "confidence", "note")}
+    return {"data": data, "show": [salary.as_html(res)]}
 
 
 def t_sheet_send(db: DB, ctx: dict):
@@ -435,6 +456,68 @@ def w_undream(db: DB, name: str, run: bool = False):
     return _dream(db, name, False, run)
 
 
+def _sheet_job(db: DB, id: str) -> dict:
+    j = _job_or_err(db, id)
+    return j
+
+
+def _on_sheet(j: dict) -> str:
+    return "" if j["status"] in ("applied", "interview", "offer", "rejected") else " (it shows on the sheet once you apply)"
+
+
+def w_sheet_add_column(db: DB, name: str, run: bool = False):
+    from . import tracker
+    name = " ".join((name or "").strip(" '\"“”‘’").split())
+    if not name:
+        raise Nope("What should the column be called?")
+    if tracker.column_name(db, name) or name.lower() in {h.lower() for h in tracker.H}:
+        raise Nope(f"The sheet already has a column “{_e(name)}”.")
+    if not run:
+        return f"add a column <b>{_e(name)}</b> to the sheet (after the standard ones; it survives every rewrite)"
+    tracker.add_column(db, name)
+    tracker.refresh(db)
+    return f"✓ column <b>{_e(name)}</b> added. Fill it: <i>put 'text' in {_e(name)} for ab12cd34</i>"
+
+
+def w_sheet_set(db: DB, id: str, column: str, value: str, run: bool = False):
+    from . import tracker
+    j = _sheet_job(db, id)
+    col = tracker.column_name(db, column)
+    if not col:
+        raise Nope(f"There's no column “{_e(column)}” in the sheet. Say <i>add a column {_e(column)}</i> first.")
+    value = (value or "").strip()
+    if not run:
+        return (f"put “{_e(value)}” in <b>{_e(col)}</b> for {_e(j['title'][:60])} · {_e(j['company'])}" + _on_sheet(j)
+                if value else f"clear <b>{_e(col)}</b> for {_e(j['title'][:60])} · {_e(j['company'])}")
+    tracker.set_value(db, j["id"], col, value)
+    tracker.refresh(db)
+    return f"✓ {_e(col)} for {_e(j['title'][:60])} · {_e(j['company'])}: “{_e(value)}”"
+
+
+def w_sheet_remove_row(db: DB, id: str, run: bool = False):
+    from . import tracker
+    j = _sheet_job(db, id)
+    if not run:
+        return (f"hide <b>{_e(j['title'][:60])}</b> · {_e(j['company'])} from the sheet (the job and your application "
+                "record stay; <i>show hidden</i> brings it back)")
+    tracker.hide(db, j["id"])
+    tracker.refresh(db)
+    return f"✓ {_e(j['title'][:60])} · {_e(j['company'])} hidden from the sheet. <i>show hidden</i> brings it back."
+
+
+def w_sheet_show_hidden(db: DB, run: bool = False):
+    from . import tracker
+    tracker.ensure(db)
+    n = db.c.execute("SELECT COUNT(*) FROM sheet_hidden").fetchone()[0]
+    if not n:
+        raise Nope("No rows are hidden.")
+    if not run:
+        return f"put the {n} hidden row{'s' if n > 1 else ''} back on the sheet"
+    tracker.show_hidden(db)
+    tracker.refresh(db)
+    return f"✓ {n} row{'s' if n > 1 else ''} back on the sheet"
+
+
 # name → (function, changes something?, one-line description for the model)
 TOOLS = {
     "search_jobs": (t_search_jobs, False, "search_jobs(query, location='Karnataka', limit=5, days=null): open jobs for a role/skill, best first; days=7 for 'this week'"),
@@ -446,10 +529,15 @@ TOOLS = {
     "company": (t_company, False, "company(name): a company's open roles (live) and news"),
     "applied": (t_applied, False, "applied(filter=''): your applications; filter today|week|month|interview|rejected|a company"),
     "stats": (t_stats, False, "stats(): applied today/week/total, interviews, offers, response rate"),
+    "salary_estimate": (t_salary_estimate, False, "salary_estimate(role, company='', location='Bengaluru', experience='fresher', id=''): approximate pay from salary sites when a posting doesn't list it"),
     "sheet_send": (t_sheet_send, False, "sheet_send(): send the Excel tracker"),
     "set_status": (w_set_status, True, "set_status(id, status): mark applied|interview|offer|rejected|skipped|queued"),
     "add_note": (w_add_note, True, "add_note(id, text): add a note to a job"),
     "skip": (w_skip, True, "skip(id): hide a job"),
+    "sheet_add_column": (w_sheet_add_column, True, "sheet_add_column(name): add your own column to the Excel tracker"),
+    "sheet_set": (w_sheet_set, True, "sheet_set(id, column, value): put a value in a column (yours or Notes) for a job"),
+    "sheet_remove_row": (w_sheet_remove_row, True, "sheet_remove_row(id): hide a job's row from the sheet (nothing is deleted)"),
+    "sheet_show_hidden": (w_sheet_show_hidden, True, "sheet_show_hidden(): put hidden rows back on the sheet"),
     "dream": (w_dream, True, "dream(name): add a dream company"),
     "undream": (w_undream, True, "undream(name): remove a dream company"),
 }
@@ -459,6 +547,7 @@ SYSTEM = """You are the job-search assistant of one Indian fresher. Reply with O
 {"answer": "<plain words>"} when you can answer.
 Facts come ONLY from tool results and the chat. Never invent requirements, pay, salaries, dates, companies or facts about the user.
 If a posting doesn't say something, answer "not in the posting". If no tool gives it, say you don't have that data.
+Pay questions: use salary_estimate (it is marked as an estimate); never state a number yourself.
 If no tool does what the user asks, answer that you can't do that yet. 
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
 search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
@@ -522,8 +611,25 @@ FAST = [
                 r"^what (?:am i|i'?m) (?:missing|lacking) for (?:the )?(.+?)(?: job| role)?\??$", re.I),
      lambda m: ("explain_job", {"id": m.group(1) or m.group(2)})),
 ]
+SALARY = re.compile(r"^(?:roughly |approximately |about )?how much (?:would|does|do|will|can|might) (?:a |an )?"
+                    r"(fresher |freshers |intern |entry[- ]level |new grad )?(.+?) (?:get|earn|make|be paid)(?: paid)?"
+                    r"(?: as a fresher)? (?:at|in|with) (.+?)\??$|"
+                    r"^(?:what(?:'s| is) the )?(?:salary|pay|stipend|ctc) (?:for|of) (?:a |an )?(fresher )?(.+?) at (.+?)\??$", re.I)
 TOP_ROLE = re.compile(r"^(?:show me |give me )?(?:the )?(?:top|best) (\d{1,2}) (.+?) (?:roles?|jobs?|openings?|positions?|internships?)"
                       r"(?: (?:at|in|for|from|with) (.+?))?\??$", re.I)
+Q = "['\"“”‘’]"
+SHEET = [
+    (re.compile(rf"^(?:please )?add (?:a |one )?(?:new )?column (?:called |named )?{Q}?(.+?){Q}?"
+                r"(?: (?:in|to|on) (?:the |my )?(?:sheet|tracker|excel))?\.?$", re.I),
+     lambda m: ("sheet_add_column", {"name": m.group(1)})),
+    (re.compile(rf"^(?:put|write|set|add) {Q}(.+?){Q} (?:in|into|under|as) (?:the )?(.+?)(?: column)?"
+                r" for ([0-9a-f]{6,16})\.?$", re.I),
+     lambda m: ("sheet_set", {"id": m.group(3), "column": m.group(2), "value": m.group(1)})),
+    (re.compile(r"^(?:remove|hide|delete|drop) ([0-9a-f]{6,16}) from (?:the |my )?(?:sheet|tracker|excel)\.?$", re.I),
+     lambda m: ("sheet_remove_row", {"id": m.group(1)})),
+    (re.compile(r"^(?:show|unhide) (?:the )?hidden(?: rows?)?(?: (?:in|on) (?:the )?(?:sheet|tracker))?\.?$|^unhide all\.?$", re.I),
+     lambda m: ("sheet_show_hidden", {})),
+]
 NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
 
@@ -578,6 +684,12 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             return "Nothing more to show. Ask me for a search."
         _MORE[chat] = rest[5:]
         return _join(rest[:5] + ([f"{len(rest) - 5} more: say 'more'"] if len(rest) > 5 else []))
+    if m := SALARY.match(t):                           # "how much would a fresher AI engineer get at Zoho?"
+        lvl, role, at = (m.group(1), m.group(2), m.group(3)) if m.group(2) else (m.group(4), m.group(5), m.group(6))
+        role = (role + " intern") if (lvl or "").strip().lower() == "intern" and "intern" not in role.lower() else role
+        where = at if at.lower().split(",")[0].strip() in CITY else "Bengaluru"
+        company = "" if at.lower().split(",")[0].strip() in CITY else at
+        return _finish(db, ctx, t, "salary_estimate", {"role": role, "company": company, "location": where}, "")
     if m := TOP_ROLE.match(t):                         # "top 5 GenAI roles at product companies"
         where, note = "Karnataka", ""
         extra = (m.group(3) or "").strip()
@@ -586,7 +698,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         elif extra:
             note = f"I can't tell “{extra}” from the postings: these are the best {m.group(2)} roles."
         return _finish(db, ctx, t, "search_jobs", {"query": m.group(2), "location": where, "limit": int(m.group(1))}, note)
-    for rx, make in FAST:
+    for rx, make in SHEET + FAST:
         if m := rx.match(t):
             name, args = make(m)
             return _finish(db, ctx, t, name, args, "")
