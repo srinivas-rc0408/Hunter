@@ -114,6 +114,29 @@ class Chain(unittest.TestCase):
         self.assertEqual(self.llm.chat("s", "u"), "Hello from the model")
         self.assertEqual(self.llm.LAST["prov"], "ollama")
 
+    def test_nvidia_only_never_touches_ollama_and_wants_valid_replies(self):
+        os.environ["NVIDIA_API_KEYS"] = "bad"
+        self.llm.PRESETS["ollama"] = (self.base, "qwen3:4b")        # Ollama would answer, but isn't asked
+        self.assertIsNone(self.llm.chat("s", "u", provs=("nvidia",)))
+        self.assertNotIn("ollama", self.llm._PICKED)                # not even probed
+        os.environ["NVIDIA_API_KEYS"] = "good"
+        self.llm._PICKED.clear(); self.llm._DEAD.clear(); Fake.log.clear()
+        out = self.llm.chat("s", "u", provs=("nvidia",), valid=lambda t: t.startswith("{"))
+        self.assertIsNone(out)                                     # prose isn't JSON: every model tried, then None
+        self.assertEqual(len({m for _, m, _ in Fake.log}), len(Fake.log))   # one try per model, no repeats
+
+    def test_timeout_moves_to_the_next_model_on_the_next_key(self):
+        os.environ["NVIDIA_API_KEYS"] = "k1,k2,k3"
+        seen = []
+        def post(p, model, key, *a, **kw):
+            seen.append((model, key))
+            return (408, None) if len(seen) == 1 else (200, "ok")
+        with unittest.mock.patch.object(self.llm, "_post", post):
+            self.assertEqual(self.llm.chat("s", "u", provs=("nvidia",)), "ok")
+        self.assertNotEqual(seen[0], seen[1])
+        self.assertNotEqual(seen[0][0], seen[1][0])                # next model
+        self.assertNotEqual(seen[0][1], seen[1][1])                # next key
+
     def test_all_keys_bad_means_none(self):
         os.environ["NVIDIA_API_KEYS"] = "bad,busy"
         self.assertIsNone(self.llm.chat("sys", "hi"))              # Ollama is down too → templates

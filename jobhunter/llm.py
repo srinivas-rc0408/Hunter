@@ -103,7 +103,7 @@ TIMEOUT = {"ollama": 240, "nvidia": 45}      # first Ollama call loads the model
 FALLBACK_MODELS = 2                           # extra models tried per provider before moving on
 
 _GONE: set[str] = set()    # models that answered 404/410 this run
-_PICKED: list = []          # cache: [{prov: resolved or None}]
+_PICKED: dict = {}          # cache: prov -> resolved or None (resolved on first use only)
 _DEAD: set[str] = set()     # keys refused with 401/403 this run
 _REST: dict[str, float] = {}  # key -> time it may be used again (after 429)
 _TURN: dict[str, int] = {}  # round-robin start per provider
@@ -221,10 +221,12 @@ def chain() -> list[str]:
     return list(CHAIN) if prov == "auto" else [prov]
 
 
-def _providers() -> list[dict]:
-    if not _PICKED:
-        _PICKED.append({p: _resolve(p) for p in chain()})
-    return [r for r in _PICKED[0].values() if r]
+def _providers(only=None) -> list[dict]:
+    """only: providers to use (the chat assistant passes ("nvidia",), so Ollama is never even probed)."""
+    for p in chain():
+        if (only is None or p in only) and p not in _PICKED:
+            _PICKED[p] = _resolve(p)
+    return [_PICKED[p] for p in chain() if (only is None or p in only) and _PICKED.get(p)]
 
 
 def available() -> bool:
@@ -236,7 +238,7 @@ def status() -> list[dict]:
     _providers()
     rows = []
     for prov in chain():
-        r = (_PICKED[0] or {}).get(prov)
+        r = _PICKED.get(prov)
         n = len(keys(prov))
         if r:
             note = f"{len(r['ids'])} models live"
@@ -295,10 +297,12 @@ LAST: dict = {}   # provider/model/key that answered last (shown by `hunt llm --
 
 
 def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900,
-         models: list[str] | None = None, timeout: float | None = None) -> str | None:
+         models: list[str] | None = None, timeout: float | None = None, provs=None,
+         valid=None) -> str | None:
     """Reply text, or None if every key, model and provider failed.
-    models: cloud models to try first, in order (the assistant's fastest valid-JSON picks); timeout: per cloud call."""
-    for p in _providers():
+    models: cloud models to try first, in order (the assistant's fastest valid-JSON picks); timeout: per cloud call;
+    provs: only these providers; valid(text) -> bool: a reply that fails it counts as a failure (next model)."""
+    for p in _providers(provs):
         prov = p["prov"]
         order = p["models"]
         if models and prov != "ollama":
@@ -311,6 +315,8 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
             for k in ks:
                 code, text = _post(p, model, k, system, user, temperature, max_tokens,
                                    timeout if prov != "ollama" else None)
+                if code == 200 and text and valid and not valid(text):
+                    code = 0                            # answered, but not what was asked for: next model
                 if code == 200 and text:
                     _TURN[prov] = _TURN.get(prov, 0) + 1
                     LAST.update(prov=prov, model=model, key=mask(k))
@@ -326,12 +332,13 @@ def chat(system: str, user: str, temperature: float = 0.3, max_tokens: int = 900
                     continue
                 if code == 408 and prov != "ollama":
                     _remember(prov, model, False)       # queued/overloaded: try it last for 6 h
+                    _TURN[prov] = _TURN.get(prov, 0) + 1   # and the next model starts on the next key
                 if code in (404, 410):
                     _GONE.add(model)                    # listed but retired (410 Gone): never again this run
                 next_model = True                       # 404/410 model gone, 5xx, timeout, empty reply
                 break
             if not next_model and prov != "ollama" and not _usable(prov):
                 break
-    if _providers():
+    if _providers(provs):
         _mark_down(True)                                # configured, and nothing answered
     return None

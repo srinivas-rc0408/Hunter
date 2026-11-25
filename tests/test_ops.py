@@ -118,7 +118,7 @@ class Bot(unittest.TestCase):
         self.assertIn("Interview prep", out[1])                          # the prep pack follows
         self.assertIn("tracked", handle("/stats", db))
         self.assertIn("Unknown", handle("/nope", db))
-        self.assertIn("/help", handle("hello", db))
+        self.assertIn("AI is busy", handle("hello", db))
         self.assertIn("Usage", handle("/show", db))
 
 
@@ -549,4 +549,4 @@ class CompanySearch(unittest.TestCase):
         assert_telegram_html(self, out)
         self.assertIn("0 open roles", out)
         self.assertIn("/watch Zzzcorp", out)
-        self.assertIn("/help", handle("hello there", self.db))             # not a company: the help hint
+        self.assertIn("AI is busy", handle("hello there", self.db))        # not a company: the no-AI reply

@@ -22,7 +22,7 @@ what a site looks like: open it, read it, then change code.
 | Bot browser + 🎯 Fill this form | `apply/assist.py`, `hunt browser` | tested on fixtures |
 | Dashboard / Review Center | `jobhunter/review.py`, http://localhost:8765 | tested (all tabs, no script errors) |
 | Telegram bot | `jobhunter/bot.py` (systemd `jobhunter-bot`) | /help fixed; new commands untested live |
-| LLM chain | `jobhunter/llm.py` | NVIDIA (3 keys) → Ollama qwen3:4b-instruct → Gemini → Groq → templates |
+| LLM chain | `jobhunter/llm.py` | NVIDIA (3 keys) → Ollama qwen3:4b-instruct → Gemini → Groq → templates. Chat assistant: NVIDIA only (`provs=("nvidia",)`) |
 | Tests | `tests/` | 102 + 157 hunter-skill, all pass |
 
 Live problems seen on 18 Nov (before 1.6.1, which targets them):

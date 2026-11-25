@@ -264,15 +264,15 @@ class Chat(unittest.TestCase):
     def test_all_llms_down_still_answers(self):
         with mock.patch("jobhunter.llm.chat", return_value=None):
             out, _ = self.say("tell me something about my search")
-        self.assertEqual(out, "I can't think right now: use /help commands")
+        self.assertEqual(out, "AI is busy, try again in a minute (commands like top 5 still work)")
 
-    def test_local_backup_ai_is_named(self):
-        self.fake.prov = "ollama"
-        out, _ = self.say("what should i focus on this week?")
-        self.assertIn("(slower backup AI)", out)
-        self.fake.prov = "nvidia"
-        out, _ = self.say("what should i focus on this week?")
-        self.assertNotIn("backup", out)
+    def test_chat_asks_nvidia_only_for_valid_json(self):
+        with mock.patch("jobhunter.llm.chat", return_value=None) as chat:
+            self.say("tell me something about my search")
+        kw = chat.call_args.kwargs
+        self.assertEqual(kw["provs"], ("nvidia",))
+        self.assertTrue(kw["valid"]('{"answer": "hi"}'))
+        self.assertFalse(kw["valid"]("Sure! Here is what I think"))
 
     def test_question_about_a_posting_uses_its_text(self):
         self.fake.plans = {r"does .* need java\?": {"tool": "job_details", "args": {"id": self.birla.id[:8]}}}

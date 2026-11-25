@@ -5,7 +5,7 @@ existing functions; it never writes SQL or code. It replies with JSON, {"answer"
 at most 4 tool steps per message. Facts come only from tool results (the posting, resume.yaml, the DB).
 Any change (status, note, skip, dream) is described first and runs only after you reply "yes".
 Obvious questions ("what did I apply to this week", "send me the sheet", "more") skip the model.
-Cloud first (ASSISTANT_MODEL, then 2 fallbacks), local Ollama only when NVIDIA fails: the reply says so.
+NVIDIA only (ASSISTANT_MODEL, then 2 fallbacks, every key): Ollama is never used for chat. All of them down → FAIL.
 """
 from __future__ import annotations
 
@@ -24,8 +24,7 @@ from .notify import govt_card, job_card, mode_text, pages, pay_line, when_text
 
 LIMIT = 3500
 STEPS = 4
-FAIL = "I can't think right now: use /help commands"
-BACKUP = " <i>(slower backup AI)</i>"
+FAIL = "AI is busy, try again in a minute (commands like top 5 still work)"
 # fastest NVIDIA models that returned valid JSON on the 12 examples (scripts/bench_assistant.py); ASSISTANT_MODEL overrides
 # (24 Nov 2026: bolt 0.8 s median, 12/12 JSON, 11/12 right tool; nano-omni 2.7 s 10/12; laguna 1.2 s 9/12)
 MODELS = ["nvidia/nemotron-3.5-bolt-e4b", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "poolside/laguna-xs-2.1"]
@@ -709,7 +708,8 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         user = ("Chat so far:\n" + "\n".join(f"{r}: {x}" for r, x in hist) + "\n\n" if hist else "") + f"User: {t}"
         if steps:
             user += "\n\nTool results:\n" + json.dumps(steps, ensure_ascii=False, default=str)[:6000] + "\n\nNext JSON:"
-        raw = llm.chat(_system(), user, temperature=0, max_tokens=500, models=_models(), timeout=8)
+        raw = llm.chat(_system(), user, temperature=0, max_tokens=500, models=_models(), timeout=8,
+                       provs=("nvidia",), valid=lambda x: _parse(x) is not None)
         if raw is None:
             return FAIL
         obj = _parse(raw)
@@ -719,7 +719,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
                 continue
             ans = str((obj or {}).get("answer") or llm.clean(raw))
             card = next((s["card"] for s in reversed(steps) if s.get("card")), None)
-            out = _e(ans) + _backup()
+            out = _e(ans)
             remember(db, chat, "user", t)
             remember(db, chat, "assistant", ans)
             return _join([out] + ([card] if card else []))
@@ -728,7 +728,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             return _finish(db, ctx, t, name, args, "")    # the model's own side remarks are never shown
         res = run_tool(db, ctx, name, args)
         steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card")})
-    return _join(["I couldn't finish that in 4 steps. Try asking more simply, or use /help." + _backup()])
+    return _join(["I couldn't finish that in 4 steps. Try asking more simply, or use /help."])
 
 
 def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str | list[str]:
@@ -746,7 +746,7 @@ def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str 
         db.c.commit()
         out = f"I'll {what}. Reply <b>yes</b> to confirm."
         remember(db, chat, "assistant", out)
-        return out + _backup()
+        return out
     try:
         res = run_tool(db, ctx, name, args)
     except Exception as exc:                         # a tool failing never silences the bot
@@ -756,12 +756,8 @@ def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str 
         remember(db, chat, "assistant", "sent the sheet")
         return "__SHEET__"
     remember(db, chat, "assistant", f"[{name} {json.dumps(args)}] " + json.dumps(res["data"], default=str)[:400])
-    head = [_e(note) + _backup()] if note or _backup() else []
+    head = [_e(note)] if note else []
     return _join(head + list(show))
-
-
-def _backup() -> str:
-    return BACKUP if llm.LAST.get("prov") == "ollama" else ""
 
 
 def _models() -> list[str]:
