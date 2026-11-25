@@ -1,0 +1,4 @@
+# Optional semantic ranking (CPU-only torch). pip install -r requirements.txt -r requirements-ml.txt
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.15.0
+sentence-transformers==6.3.0
