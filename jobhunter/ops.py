@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import datetime as dt
 import os
+import re
 import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from pathlib import Path
 
 from . import config
@@ -69,13 +71,65 @@ def backup(keep: int = 8) -> Path:
 
 
 def tidy(db) -> int:
-    """Weekly: delete data/screens files older than 7 days (sent applications kept) and VACUUM jobs.db.
-    Returns how many screen files went."""
+    """Weekly: delete data/screens files older than 7 days (sent applications kept), data/logs files
+    older than 14 days, and VACUUM jobs.db. Returns how many screen files went."""
     from .apply.runner import prune_screens
     n = prune_screens(db)
-    db.c.commit()
+    cutoff = time.time() - 14 * 86400
+    for f in (config.data_dir() / "logs").glob("*"):
+        if f.is_file() and f.stat().st_mtime < cutoff:
+            f.unlink()
+    db.c.commit()                 # VACUUM fails inside an open transaction
     db.c.execute("VACUUM")
     return n
+
+
+REPO = Path(__file__).resolve().parent.parent
+REQ_FILES = (REPO / "requirements.txt", REPO / "requirements-radar.txt", REPO / "pyproject.toml")
+
+
+def _vtuple(v: str) -> tuple:
+    # ponytail: numeric parts only, pre-release tags ignored (PyPI's info.version is the latest stable)
+    return tuple(int(x) for x in re.findall(r"\d+", v))
+
+
+def update_check(packages=("python-jobspy", "playwright"), run=subprocess.run, req_files=REQ_FILES) -> dict:
+    """Try each newer library in a throwaway --target dir against both test suites; install it and
+    rewrite its pin only if they pass, so an upstream release can never break scans."""
+    from importlib.metadata import version
+    import requests
+    py, out = sys.executable, {}
+    for pkg in packages:
+        r = out[pkg] = {"installed": version(pkg), "latest": None, "action": "up to date"}
+        try:
+            r["latest"] = requests.get(f"https://pypi.org/pypi/{pkg}/json", timeout=15).json()["info"]["version"]
+            if _vtuple(r["latest"]) <= _vtuple(r["installed"]):
+                continue
+            spec = f"{pkg}=={r['latest']}"
+            with tempfile.TemporaryDirectory(prefix="jh-upd-") as td:
+                run([py, "-m", "pip", "install", "-q", "--target", td, spec], check=True)
+                env = {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [td, str(REPO), os.environ.get("PYTHONPATH")]))}
+                if pkg == "playwright":           # a new playwright needs its own Chromium build for the tests
+                    run([py, "-m", "playwright", "install", "chromium"], env=env, check=True)
+                failed = next((t for t in (run([py, "-m", "unittest", "discover"], cwd=REPO / "tests", env=env,
+                                               capture_output=True, text=True),
+                                           run([py, "-m", "unittest", "discover", "-s", "tests/hunter"], cwd=REPO,
+                                               env=env, capture_output=True, text=True)) if t.returncode), None)
+            if failed:
+                tail = (failed.stderr or failed.stdout or "").strip().splitlines()
+                r["action"] = f"kept (tests failed: {tail[-1] if tail else failed.returncode})"
+                continue
+            run([py, "-m", "pip", "install", "-q", spec], check=True)
+            if pkg == "playwright":
+                run([py, "-m", "playwright", "install", "chromium"], check=True)
+            pin = re.compile(rf"(?im)^(\s*\"?){re.escape(pkg)}==[^\s\",]+")
+            for f in map(Path, req_files):
+                if f.exists():
+                    f.write_text(pin.sub(lambda m: f"{m[1]}{spec}", f.read_text()))
+            r["action"] = "upgraded"
+        except Exception as e:  # noqa: BLE001 - one bad package must not stop the report
+            r["action"] = f"error: {e}"
+    return out
 
 
 def restore(path: str, key: str | None = None) -> None:
