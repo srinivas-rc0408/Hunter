@@ -507,7 +507,7 @@ class CompanySearch(unittest.TestCase):
                           "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel")]
         info = {"name": "Acme & Co", "boards": [], "careers_url": "https://acme.example/careers", "website": None}
         self.p = [mock.patch.object(companies, "live", lambda n, d=None, w=None, budget=22: (dict(info, name=n), rows if "Acme" in n else [], [])),
-                  mock.patch.object(companies, "news", lambda n: [{"date": "2026-11-18", "title": "Acme <raises> & grows",
+                  mock.patch.object(companies, "news", lambda n, *a: [{"date": "2026-11-18", "title": "Acme <raises> & grows",
                                                                    "source": "ET", "url": "https://news.example/a?x=1&y=2"}]),
                   mock.patch.object(companies, "about", lambda i: {"description": "AI <lab>", "employees": "1200"}),
                   mock.patch.object(companies, "suggest", lambda q, online=True, limit=12: [

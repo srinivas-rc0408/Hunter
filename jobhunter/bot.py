@@ -38,7 +38,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
                "offer": "offer", "queue": "queued"}
 
 
-KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch",
+KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch", "intel",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume", "mail", "sheet",
          *STATUS_CMDS}
 
@@ -51,6 +51,8 @@ Commands work too, with or without the slash: <i>top 5</i>, <i>govt karnataka</i
 /top · best open jobs · <code>top 5</code>
 /search · any open job by role, skill or company · <code>search python intern</code>
 /company · one company: every open role, news, your applications · <code>company Zoho</code>
+/intel · what a company hires for, from our scans + 90 days of news · <code>intel Birlasoft</code>
+Paste any company or job link (or <i>tell me about Zoho</i>) · a full profile, every fact with its source
 /deadlines · every last date in the next 14 days
 /brief · the morning brief now
 
@@ -261,7 +263,7 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
                 else f"{_e(info['name'])}: already watched, or no platform/careers page found")
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=2) as ex:                 # news + about run while the boards are searched
-        f_news = ex.submit(companies.news, name)
+        f_news = ex.submit(companies.news, name, 90, 6)
         info, rows, errors = companies.live(name, pick.get("domain"), pick.get("wikidata"))
         f_about = ex.submit(companies.about, info)
         res = companies.listings(info, rows=rows)
@@ -280,9 +282,13 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
             fit += r["fit"]
             cards.append(job_card(j, db) + ("" if r["fit"] else f"\n<i>outside your filters: {_e(r['why'][:90])}</i>"))
         try:
-            news, ab = f_news.result(timeout=10), f_about.result(timeout=10)
+            news = f_news.result(timeout=10)
+        except Exception:                                 # news down must not hide what it does (and vice versa)
+            news = []
+        try:
+            ab = f_about.result(timeout=10)
         except Exception:
-            news, ab = [], {}
+            ab = {}
     when = _clock_ist()
     missed = [e for e in errors if "not included" in e or "still" in e]
     head = (f"<b>🏢 {_e(info['name'])}</b> · {len(cards)} open roles · checked {when}"
@@ -304,13 +310,15 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
             for j in mine[:8]]
     size = ab.get("employees")
     lines = [f"<b>ℹ️ {_e(info['name'])}</b>",
-             f"What it does: {_e(ab.get('description') or info.get('description') or 'unknown')}",
+             f"What it does: {_e(ab.get('description') or info.get('description') or 'unknown')}"
+             + (" <i>(Wikidata)</i>" if ab.get("description") or info.get("description") else ""),
              f"Size: {_e(f'{int(float(size)):,} employees' if size and str(size).replace('.', '').isdigit() else 'unknown')}"
              + (f" · founded {_e(ab['founded'])}" if ab.get("founded") else ""),
              f"Bengaluru office: {'yes, ' + str(blr) + ' open role(s) there' if blr else 'unknown'}",
              f"Dream: {'★ yes' if dreams.find(info['name']) else 'no · <code>/dream ' + _e(info['name']) + '</code>'}",
              "<b>Your applications</b>", *(apps or ["none yet"]),
-             "<b>News, last 30 days</b>"]
+             f"Watch it in every scan: <code>/watch {_e(info['name'])}</code>",
+             "<b>News, last 90 days</b>"]
     lines += [f"• {n['date'][8:]} {dt.date.fromisoformat(n['date']):%b} · <a href=\"{html.escape(n['url'], quote=True)}\">"
               f"{_e(n['title'][:110])}</a> <i>({_e(n['source'])})</i>" for n in news] or ["none found"]
     for label, site in (("Careers", info.get("careers_url")), ("Website", not info.get("careers_url") and info.get("website"))):
@@ -319,7 +327,63 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
     return [main, "\n".join(lines)]
 
 
-TEXT_ARGS = {"company", "watch", "govt", "eligible", "dream", "undream", "answer", "fix", "mail", "search"}
+ABOUT = re.compile(r"^(?:tell me about|about|profile of|research) (?:the company )?(.{2,60}?)\W*$", re.I)
+_LINKS: dict[str, tuple[float, list[str]]] = {}         # company key → (when, messages): a pasted link is cached 24 h
+
+
+def _link_report(t: str, db: DB, progress=None) -> str | list[str]:
+    """A pasted link or "tell me about <company>": our DB first (fast), then the live profile, every fact sourced."""
+    from . import companies, intel, linkinfo
+    m = ABOUT.match(t)
+    ident = ({"name": m.group(1), "read": True, "why": "", "facts": [], "domain": None} if m
+             else linkinfo.identify(t, companies._get, db))
+    if not ident["name"]:
+        return f"⚠ {_e(ident['why'])}.\nSend the company name instead: <i>tell me about &lt;company&gt;</i>"
+    name, key = ident["name"], companies.cname(ident["name"])
+    hit = _LINKS.get(key)
+    if hit and time.time() - hit[0] < 86400:
+        return hit[1]
+    hist = intel.rows(db, name)
+    mine = [j for j in hist if j["status"] in ("applied", "interview", "offer", "rejected")]
+    known = sorted((j for j in hist if j["status"] in ("new", "alerted", "queued", "needs_you", "filled")),
+                   key=lambda j: -j["score"])
+    fast = (f"<b>🏢 {_e(name)}</b> · from our scans: {len(hist)} postings seen, {len(known)} open, {len(mine)} applied"
+            + (f"\n<i>{_e(ident['why'])}: nothing on this profile is filled in from memory.</i>" if not ident["read"] else "")
+            + "".join(f"\n• {_e(j['title'][:60])} · {j['score']} · /check_{j['id']}" for j in known[:5])
+            + "\n<i>Checking its careers site and news now…</i>")
+    if progress:
+        progress(fast)
+    msgs = _company_report({"name": name, "domain": ident.get("domain")}, db)
+    msgs = [msgs] if isinstance(msgs, str) else list(msgs)
+    live_open = [j for j in intel.rows(db, name) if j["status"] in ("new", "alerted", "queued", "needs_you", "filled")]
+    a = intel.analyse(live_open, intel._skills())                      # its open roles, incl. the ones just fetched
+    L = [f"<b>🔍 {_e(name)}: what it hires for vs your resume</b> <i>({a['n']} open postings)</i>"]
+    top = a["skills"][:8]
+    if top:
+        have = {x.lower() for x in intel._skills()}
+        hit_n = sum(s.lower() in have for s, _ in top)
+        L.append(f"Match: {hit_n} of its top {len(top)} skills ({hit_n / len(top):.0%}): "
+                 + ", ".join(("✓ " if s.lower() in have else "✗ ") + f"{_e(s)} {v:.0%}" for s, v in top))
+        gaps = [s for s, _ in top if s.lower() not in have][:3]
+        L.append("Top gaps: " + (", ".join(_e(g) for g in gaps) if gaps else "none"))
+    else:
+        L.append("No open postings with a description to compare yet")
+    for label, value, src in ident["facts"]:
+        L.append(f"{_e(label)}: {_e(value)} <i>(<a href=\"{html.escape(src, quote=True)}\">source</a>)</i>")
+    try:
+        news = companies.news(name, 90, 8)
+    except Exception:
+        news = []
+    sig = intel.signals(news)
+    L.append("<b>Hiring signals, 90 days</b>\n" + ("\n".join(f"• {k}: {n['date']} <a href=\"{html.escape(n['url'], quote=True)}\">"
+                                                             f"{_e(n['title'][:100])}</a>" for k, n in sig[:5]) or "none in the news"))
+    L.append(f"<code>/dream {_e(name)}</code> · <code>/watch {_e(name)}</code> · <code>/intel {_e(name)}</code>")
+    out = ([] if progress else [fast]) + msgs + ["\n".join(L)]
+    _LINKS[key] = (time.time(), out)
+    return out
+
+
+TEXT_ARGS = {"company", "watch", "intel", "govt", "eligible", "dream", "undream", "answer", "fix", "mail", "search"}
 
 
 def _is_command(t: str) -> bool:
@@ -346,6 +410,9 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
     from . import assistant
     if t and not t.startswith("/") and (assistant.YES.match(t) or assistant.NO.match(t) or assistant.MORE.match(t)):
         return assistant.reply(t, chat, db, progress)  # "yes" confirms a change: never a company called Yes…
+    from . import linkinfo
+    if t and not t.startswith("/") and (linkinfo.is_url(t) or ABOUT.match(t)):
+        return _link_report(t, db, progress)            # a pasted link, or "tell me about Zoho"
     if t and not t.startswith("/") and _is_command(t):
         t = "/" + t                                    # "help", "top 5", "stats" work without the slash
     elif t and not t.startswith("/") and len(t.split()) <= 3 and len(t) >= 3 and _choices(t, online=False):
@@ -443,6 +510,9 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
             return f"✗ {_e(exc)}"
         return (f"✓ saved: {_e(res['label'][:70])} → <b>{_e(res['value'])}</b>" +
                 (f"\n{len(res['requeued'])} job(s) back in the apply queue" if res["requeued"] else ""))
+    if cmd == "intel":
+        from . import intel
+        return intel.report(db, arg) if arg else "Usage: <code>/intel Birlasoft</code>"
     if cmd in ("company", "watch"):
         if not arg:
             return f"Usage: <code>/{cmd} Zoho</code>"
@@ -564,7 +634,7 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"search", "today", "brief", "company", "watch", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
+SLOW = {"search", "today", "brief", "company", "watch", "intel", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
 
 
 def log(msg: str) -> None:
@@ -701,7 +771,8 @@ def run() -> None:
         requests.post(f"{api}/setMyCommands", timeout=20, json={"commands": [
             {"command": c, "description": d} for c, d in [
                 ("today", "jobs posted in the last 3 days"), ("top", "best open jobs"), ("search", "search open jobs: search python"),
-                ("company", "a company: every open role + news"), ("govt", "govt notices, eligible first"),
+                ("company", "a company: every open role + news"),
+                ("intel", "a company's hiring pattern from our scans"), ("govt", "govt notices, eligible first"),
                 ("eligible", "govt posts you can apply to"), ("deadlines", "last dates in the next 14 days"),
                 ("brief", "morning brief now"), ("review", "forms waiting for approval"),
                 ("questions", "questions only you can answer"), ("stats", "applied, interviews, response rate"), ("health", "is everything working? fixes"), ("scan", "scan now"),
