@@ -17,6 +17,15 @@ queries:
   - {term: "data science intern", job_type: internship}
   - {term: "software engineer intern", job_type: internship}
   - {term: "python developer intern", job_type: internship}
+  # v2.4: the rest of the resume stack (GenAI/RAG, LangGraph, FastAPI, CV) as fresher/intern searches.
+  # Internship terms carry job_type internship (LinkedIn/Indeed filter on it); fresher terms say "fresher" for Naukri.
+  # No "Senior/Lead/Architect" terms: score.py drops those titles anyway. Light scans take only the first 8.
+  - {term: "GenAI intern", job_type: internship}
+  - {term: "SDE intern", job_type: internship}
+  - {term: "LLM engineer fresher", job_type: fulltime}
+  - {term: "computer vision engineer fresher", job_type: fulltime}
+  - {term: "FastAPI developer", job_type: fulltime}
+  - {term: "RAG developer", job_type: fulltime}
   - {term: "Aditya Birla", job_type: null}      # dream company sweep
   - {term: "Birlasoft", job_type: null}         # dream company sweep
 
