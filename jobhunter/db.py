@@ -54,10 +54,16 @@ CREATE INDEX IF NOT EXISTS jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS jobs_score ON jobs(score);
 CREATE INDEX IF NOT EXISTS jobs_found ON jobs(found_at);
 CREATE INDEX IF NOT EXISTS jobs_posted ON jobs(posted_at);
+-- the WHERE clauses of db.query, bot.py and assistant.py: /top, /today, deadlines, company lookups
+CREATE INDEX IF NOT EXISTS jobs_kind_status_score ON jobs(kind, status, score);
+CREATE INDEX IF NOT EXISTS jobs_company ON jobs(company);
+CREATE INDEX IF NOT EXISTS jobs_deadline ON jobs(deadline);
 CREATE TABLE IF NOT EXISTS events (
   job_id TEXT, at TEXT, kind TEXT, detail TEXT
 );
-CREATE INDEX IF NOT EXISTS events_job ON events(job_id, kind);
+DROP INDEX IF EXISTS events_job;                -- (job_id, kind): a prefix of the one below
+CREATE INDEX IF NOT EXISTS events_job_kind_at ON events(job_id, kind, at);
+CREATE INDEX IF NOT EXISTS events_kind_at ON events(kind, at);   -- applied today / ever
 CREATE TABLE IF NOT EXISTS seen_links (      -- page watcher memory
   page TEXT, href TEXT, text TEXT, first_seen TEXT,
   PRIMARY KEY (page, href)
@@ -67,6 +73,7 @@ CREATE TABLE IF NOT EXISTS applications (   -- one row per apply attempt: what t
   job_id TEXT, at TEXT, site TEXT, outcome TEXT, auto INTEGER, approved INTEGER, dry INTEGER,
   why TEXT, fields TEXT, screenshot TEXT, resume TEXT, resume_report TEXT, cover TEXT, page_url TEXT
 );
+CREATE INDEX IF NOT EXISTS applications_job ON applications(job_id);
 CREATE TABLE IF NOT EXISTS runs (
   at TEXT, kind TEXT, found INTEGER, new INTEGER, alerted INTEGER, errors TEXT
 );
@@ -196,6 +203,27 @@ class DB:
                            (job.pay_min, job.pay_max, job.pay_period, job.currency, job.pay_estimate, jid))
         self.c.commit()
         return False
+
+    def find_repost(self, company: str, title: str, location: str | None, days: int = 30) -> str | None:
+        """Id of a job found in the last `days` with the same company, title and city under another id
+        (the same role re-listed with a different company suffix or location wording), else None."""
+        from .companies import cname                    # lazy: companies imports this module
+        import datetime as dt
+        c, t, city = cname(company), norm(title), city_key(location)
+        since = (dt.datetime.now() - dt.timedelta(days=days)).isoformat(timespec="seconds")
+        # ponytail: LIKE on the first word, then exact match in Python; fine for a few thousand rows a month
+        for r in self.c.execute("SELECT id, company, title, location FROM jobs WHERE found_at >= ? AND id != ? "
+                                "AND company LIKE ? ORDER BY found_at",
+                                (since, job_id(company, title, location), f"%{c.split(' ')[0] if c else ''}%")):
+            if cname(r["company"]) == c and norm(r["title"]) == t and city_key(r["location"]) == city:
+                return r["id"]
+        return None
+
+    def add_url(self, jid: str, url: str) -> None:
+        urls = json.loads(self.c.execute("SELECT urls FROM jobs WHERE id=?", (jid,)).fetchone()[0] or "[]")
+        if (url := canonical_url(url)) and url not in urls:
+            self.c.execute("UPDATE jobs SET urls=? WHERE id=?", (json.dumps(urls + [url]), jid))
+            self.c.commit()
 
     def set_score(self, jid: str, score: int, reasons: list[str], flags: list[str], dream: bool,
                   status: str | None = None) -> None:

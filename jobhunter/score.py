@@ -22,20 +22,29 @@ from .util import norm
 # "Engineer II", "SDE-3", "Data Scientist III", "Level 4": experienced levels, not fresher roles ("Engineer I" stays).
 LEVEL = re.compile(r"\b(?:engineer|developer|scientist|analyst|sde|swe|programmer|consultant)\s*[-–]?\s*"
                    r"(?:ii|iii|iv|v|vi|[2-6])\b(?!\s*\d)|\b(?:level|grade)\s*[3-9]\b|\bl[4-9]\b")
-GIG = re.compile(r"\$\s?\d|/\s?hr\b|per hour|\bai training\b|\bfreelance\b")
+# A "$" is a gig only when it's paid per hour/task; "$140k – $160k" is an annual salary.
+GIG = re.compile(r"\$\s?[\d,.]+\s*k?\s*(?:/|per)\s*(?:hour|hr|task)\b|/\s?hr\b|per (?:hour|task)\b|"
+                 r"\bai training\b|\bannotation\b|\bfreelance\b")
+# Agencies companies.is_agency misses (it's tuned for "HR Solutions"/"Staffing" names).
+AGENCY_EXTRA = re.compile(r"talent mobility|recruit(?:ment|ers)|\bantal\b|executive search|hr services", re.I)
 TECH_WORDS = ("engineer", "developer", "scientist", "data", "machine learning", "ml", "ai", "software",
               "sde", "analyst", "research", "python", "backend", "full stack", "fullstack", "frontend",
               "devops", "mlops", "cloud", "nlp", "computer vision", "llm", "genai", "intern", "trainee",
               "programmer", "automation", "qa", "sdet", "platform", "technology", "it ")
-EARLY = ("intern", "internship", "fresher", "freshers", "graduate", "entry level", "entry-level", "trainee",
-         "new grad", "campus", "2026 batch", "2027 batch", "0-1 year", "0 - 1 year", "0-2 years", "junior",
-         "associate", "apprentice", "early career")
+# Whole words only: "intern" must not hit "International"/"internal", nor "graduate" "postgraduate".
+EARLY = re.compile(r"\b(?:interns?(?:hips?)?|freshers?|graduates?|entry[- ]level|trainees?|new grads?|campus|"
+                   r"202[67] batch|0 ?- ?1 years?|0-2 years|junior|associates?|apprentices?(?:hip)?|early career)\b")
+INTERN = re.compile(r"\binterns?(?:hips?)?\b")
 ROLE_SYNONYMS = {
     "ai/ml engineer": ["ai ml", "aiml", "ai engineer", "ml engineer", "machine learning engineer"],
     "machine learning engineer": ["machine learning", "ml engineer", "ml ops", "mlops"],
-    "ai engineer": ["ai engineer", "artificial intelligence", "generative ai", "genai", "llm", "applied ai"],
+    "ai engineer": ["ai engineer", "artificial intelligence", "generative ai", "genai", "gen ai", "llm", "applied ai",
+                    "ai developer", "ai programmer", "computer vision engineer", "nlp engineer", "ml intern",
+                    "ai intern", "machine learning intern"],
     "data scientist": ["data scientist", "data science", "applied scientist"],
-    "software engineer": ["software engineer", "software developer", "swe", "backend", "full stack", "python developer"],
+    "software engineer": ["software engineer", "software developer", "swe", "backend", "full stack", "python developer",
+                          "python development", "python dev", "software development intern", "software engineer intern",
+                          "sde intern"],
     "sde": ["sde", "software development engineer"],
     "mlops engineer": ["mlops", "ml ops", "ml platform"],
     "research engineer": ["research engineer", "research intern", "research associate"],
@@ -45,6 +54,31 @@ ROLE_SYNONYMS = {
 
 def _profile():
     return config.cfg("profile")
+
+
+# Skill spellings that mean the same: compared after both sides go through _canon.
+_SKILL_SYN = [(r"\bartificial intelligence\b", "ai"), (r"\bgen(?:erative)? ?ai\b", "genai"),
+              (r"\bmachine learning\b", "ml")]
+
+
+def _canon(text: str) -> str:
+    """Lower-case, synonyms to one spelling, trailing plural 's' dropped ("REST APIs" = "REST API").
+    No cv→computer vision: "send your CV" would count as the skill."""
+    t = text.lower()
+    for pat, to in _SKILL_SYN:
+        t = re.sub(pat, to, t)
+    return re.sub(r"(?<=[a-z]{2}[a-rt-z])s\b", "", t)
+
+
+def rank_key(j: dict, today: dt.date | None = None) -> tuple:
+    """sorted(rows, key=rank_key): higher score first, then the newest posting (else the day we found it).
+    A date in the future (a board's bad data) counts as today."""
+    try:
+        d = min(dt.date.fromisoformat(str(j.get("posted_at") or j.get("found_at") or "")[:10]),
+                today or dt.date.today()).toordinal()
+    except ValueError:
+        d = 0
+    return -(j.get("score") or 0), -d
 
 
 def is_dream(company: str, prof: dict | None = None) -> str | None:
@@ -138,7 +172,7 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     title = norm(job.title)
     text = (job.title + "\n" + (job.description or "")).lower()
     reasons: list[str] = []
-    flags: list[str] = []
+    flags = [f for f in job.flags if f in ("few-applicants", "repost")]   # set by sources; the rest is ours to recompute
     job.status = "new"
 
     dream = is_dream(job.company, prof)
@@ -163,7 +197,7 @@ def score(job: Job, today: dt.date | None = None) -> Job:
         return drop("not a tech role")
     yrs = years_required(job.description or "")
     max_yrs = tg.get("max_years_experience_required", 1)
-    is_intern = job.job_type == "internship" or "intern" in title
+    is_intern = job.job_type == "internship" or bool(INTERN.search(title))     # "SDE Interns" listed as fulltime
     if yrs is not None and yrs > max_yrs and not is_intern and not dream:
         return drop(f"asks {yrs}+ years")
     lvl = LEVEL.search(job.title.lower())
@@ -190,7 +224,7 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     best = 0
     for i, r in enumerate(roles):
         syns = ROLE_SYNONYMS.get(r, [r]) + [r]
-        if any(norm(x) in title for x in syns):
+        if any(re.search(rf"\b{norm(x)}\b", title) for x in syns):
             best = max(best, 35 - min(i, 6) * 3)
     if best:
         reasons.append(f"title fits target roles (+{best})")
@@ -200,16 +234,17 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     pts += best
 
     skills = [x for grp in prof.get("skills", {}).values() for x in (grp or [])]
-    hits = [sk for sk in skills if re.search(rf"(?<![a-z]){re.escape(sk.lower())}(?![a-z])", text)]
+    ctext = _canon(text)
+    hits = [sk for sk in skills if re.search(rf"(?<![a-z]){re.escape(_canon(sk))}(?![a-z])", ctext)]
     sk_pts = min(25, len(hits) * 4)
     if hits:
         reasons.append(f"skills match: {', '.join(hits[:7])} (+{sk_pts})")
     pts += sk_pts
 
-    early = [w for w in EARLY if w in text]
+    early = EARLY.search(text)
     if early or is_intern or yrs == 0:
         pts += 12
-        reasons.append(f"early-career ({(early or ['intern'])[0]}) (+12)")
+        reasons.append(f"early-career ({early.group(0) if early else 'intern'}) (+12)")
 
     posted = None
     try:
@@ -222,8 +257,17 @@ def score(job: Job, today: dt.date | None = None) -> Job:
         pts += f
         if f:
             reasons.append(f"posted {age}d ago (+{f})")
+        if age <= 2:                                       # on top: the first 48 h is when applying counts most
+            pts += 6
+            reasons.append("posted < 48 h (+6)")
     else:
         pts += 5
+    if "few-applicants" in flags or re.search(r"be an early applicant|fewer than 10 applicants", text):
+        pts += 4
+        reasons.append("few applicants (+4)")
+    if "repost" in flags:
+        pts -= 10
+        reasons.append("⚠ repost (−10)")
 
     if mon is not None:
         good = tg.get("good_stipend_inr_month", 30000) if is_intern else tg.get("good_ctc_inr_year", 800000) / 12
@@ -237,6 +281,11 @@ def score(job: Job, today: dt.date | None = None) -> Job:
     if GIG.search(job.title.lower() + " " + (job.description or "")[:600].lower()):
         pts -= 20
         reasons.append("⚠ hourly / AI-training gig, not a job with a CTC (−20)")
+    from .companies import is_agency                     # lazy: companies imports this module
+    if not dream and (AGENCY_EXTRA.search(job.company or "") or is_agency(job.company)):
+        pts -= 15
+        reasons.append("⚠ recruitment agency (−15)")
+        flags.append("agency")
     if dream:
         pts += 15
         reasons.insert(0, f"★ dream company: {dream} (+15)")

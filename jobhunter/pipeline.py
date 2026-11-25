@@ -34,8 +34,19 @@ def watch_careers(db: DB, errors: list[str]) -> list[Job]:
 def save(db: DB, jobs: list[Job]) -> list[str]:
     """Score and store board/ATS jobs exactly as a scan does. Returns the ids new to us."""
     new_ids: list[str] = []
+    old_cut = dt.date.today() - dt.timedelta(days=14)
     for j in jobs:
         score(j)
+        if j.status != "filtered" and not db.c.execute("SELECT 1 FROM jobs WHERE id=?", (j.id,)).fetchone():
+            why = None
+            if j.posted_at and str(j.posted_at)[:10] < str(old_cut):
+                why = f"old posting (posted {str(j.posted_at)[:10]})"
+            elif old := db.find_repost(j.company, j.title, j.location):
+                db.add_url(old, j.url)
+                j.flags.append("repost")
+                why = f"repost of {old}"
+            if why:
+                j.status, j.score, j.reasons = "filtered", 0, [f"filtered: {why}"]
         if db.upsert(j):
             db.set_score(j.id, j.score, j.reasons, j.flags, j.dream, j.status)
             new_ids.append(j.id)
