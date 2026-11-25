@@ -482,6 +482,10 @@ def w_sheet_set(db: DB, id: str, column: str, value: str, run: bool = False):
     from . import tracker
     j = _sheet_job(db, id)
     col = tracker.column_name(db, column)
+    std = next((h for h in tracker.H if h.lower() == (column or "").strip().lower()), None)
+    if not col and std:
+        raise Nope(f"<b>{_e(std)}</b> is filled from the job record on every rewrite, so I can't type into it. "
+                   f"For status say <i>mark {_e(id)} as interview</i>; for anything else, add your own column.")
     if not col:
         raise Nope(f"There's no column “{_e(column)}” in the sheet. Say <i>add a column {_e(column)}</i> first.")
     value = (value or "").strip()
@@ -531,10 +535,10 @@ TOOLS = {
     "salary_estimate": (t_salary_estimate, False, "salary_estimate(role, company='', location='Bengaluru', experience='fresher', id=''): approximate pay from salary sites when a posting doesn't list it"),
     "sheet_send": (t_sheet_send, False, "sheet_send(): send the Excel tracker"),
     "set_status": (w_set_status, True, "set_status(id, status): mark applied|interview|offer|rejected|skipped|queued"),
-    "add_note": (w_add_note, True, "add_note(id, text): add a note to a job"),
+    "add_note": (w_add_note, True, "add_note(id, text): add a note to a job, ONLY when the user says note / add a note"),
     "skip": (w_skip, True, "skip(id): hide a job"),
     "sheet_add_column": (w_sheet_add_column, True, "sheet_add_column(name): add your own column to the Excel tracker"),
-    "sheet_set": (w_sheet_set, True, "sheet_set(id, column, value): put a value in a column (yours or Notes) for a job"),
+    "sheet_set": (w_sheet_set, True, "sheet_set(id, column, value): 'put X in <column> for <id>': X goes in that sheet column (Referral, Notes, ...)"),
     "sheet_remove_row": (w_sheet_remove_row, True, "sheet_remove_row(id): hide a job's row from the sheet (nothing is deleted)"),
     "sheet_show_hidden": (w_sheet_show_hidden, True, "sheet_show_hidden(): put hidden rows back on the sheet"),
     "dream": (w_dream, True, "dream(name): add a dream company"),
@@ -621,14 +625,31 @@ SHEET = [
     (re.compile(rf"^(?:please )?add (?:a |one )?(?:new )?column (?:called |named )?{Q}?(.+?){Q}?"
                 r"(?: (?:in|to|on) (?:the |my )?(?:sheet|tracker|excel))?\.?$", re.I),
      lambda m: ("sheet_add_column", {"name": m.group(1)})),
-    (re.compile(rf"^(?:put|write|set|add) {Q}(.+?){Q} (?:in|into|under|as) (?:the )?(.+?)(?: column)?"
-                r" for ([0-9a-f]{6,16})\.?$", re.I),
-     lambda m: ("sheet_set", {"id": m.group(3), "column": m.group(2), "value": m.group(1)})),
     (re.compile(r"^(?:remove|hide|delete|drop) ([0-9a-f]{6,16}) from (?:the |my )?(?:sheet|tracker|excel)\.?$", re.I),
      lambda m: ("sheet_remove_row", {"id": m.group(1)})),
     (re.compile(r"^(?:show|unhide) (?:the )?hidden(?: rows?)?(?: (?:in|on) (?:the )?(?:sheet|tracker))?\.?$|^unhide all\.?$", re.I),
      lambda m: ("sheet_show_hidden", {})),
 ]
+# "put X in <column> for <id>": the LAST " in " splits value from column, so "asked Rahul for referral" stays whole
+PUT = re.compile(r"^(?:please )?(?:put|write|set|add|fill(?: in)?|enter) (.+) (?:in|into|under|as|to) (?:the |my )?(.+?)"
+                 r"(?: column)?(?: (?:for|on|of) (?:job )?)([0-9a-f]{6,16})\.?$", re.I)
+NOTE = re.compile(rf"^(?:please )?(?:add|write|put) (?:a |this )?note {Q}?(.+?){Q}? (?:to|for|on) (?:job )?([0-9a-f]{{6,16}})\.?$|"
+                  rf"^(?:add (?:a )?)?note (?:for|on|to) (?:job )?([0-9a-f]{{6,16}}):? {Q}?(.+?){Q}?$", re.I)
+
+
+def _put(db: DB, t: str) -> tuple[str, dict] | None:
+    """Sheet writes without the model: a sheet column (yours or standard) → sheet_set; "note"/"add a note" → add_note."""
+    from . import tracker
+    if m := NOTE.match(t):
+        return "add_note", {"id": m.group(2) or m.group(3), "text": m.group(1) or m.group(4)}
+    if not (m := PUT.match(t)):
+        return None
+    value, column = m.group(1).strip(" '\"“”‘’"), m.group(2).strip(" '\"“”‘’")
+    quoted = bool(re.match(Q, m.group(1).strip()))
+    on_sheet = tracker.column_name(db, column) or column.lower() in {h.lower() for h in tracker.H}
+    return ("sheet_set", {"id": m.group(3), "column": column, "value": value}) if on_sheet or quoted else None
+
+
 NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\W*$", re.I)
 MORE = re.compile(r"^(?:show )?more\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
@@ -698,6 +719,8 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         elif extra:
             note = f"I can't tell “{extra}” from the postings: these are the best {m.group(2)} roles."
         return _finish(db, ctx, t, "search_jobs", {"query": m.group(2), "location": where, "limit": int(m.group(1))}, note)
+    if hit := _put(db, t):
+        return _finish(db, ctx, t, *hit, "")
     for rx, make in SHEET + FAST:
         if m := rx.match(t):
             name, args = make(m)

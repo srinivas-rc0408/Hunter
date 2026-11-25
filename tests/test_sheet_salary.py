@@ -116,6 +116,27 @@ class Sheet(unittest.TestCase):
         acme = next(r for r in rows if r["Company"] == "Acme")
         self.assertEqual(acme["Referral"], "asked Rahul for referral")
 
+    def test_put_x_in_a_column_is_sheet_set_and_note_is_add_note(self):
+        tracker.add_column(self.db, "Referral")
+        jid = self.a.id[:8]
+        no_model = mock.patch("jobhunter.llm.chat", side_effect=AssertionError("must not need the model"))
+        with mock.patch("jobhunter.tracker.path", return_value=self.f), no_model:
+            for msg in (f"put 'asked Rahul for referral' in Referral for {jid}",      # quoted
+                        f"put asked Rahul for referral in the Referral column for {jid}"):   # unquoted, "for" inside
+                out = self.say(msg)
+                self.assertIn("put “asked Rahul for referral” in <b>Referral</b>", out)
+                self.say("yes")
+                self.assertEqual(self.db.c.execute("SELECT value FROM sheet_custom WHERE job_id=? AND column='Referral'",
+                                                   (self.a.id,)).fetchone()[0], "asked Rahul for referral")
+                tracker.set_value(self.db, self.a.id, "Referral", "")
+            self.assertFalse(self.db.get(self.a.id)["notes"])                        # nothing leaked into Notes
+            for msg in (f"add a note 'call HR Monday' to {jid}", f"note for {jid}: call HR Monday"):
+                self.assertIn("add the note “call HR Monday”", self.say(msg))
+                self.say("yes")
+            self.assertIn("call HR Monday", self.db.get(self.a.id)["notes"])
+            self.assertIsNone(self.db.c.execute("SELECT 1 FROM sheet_custom WHERE job_id=?", (self.a.id,)).fetchone())
+            self.assertIn("filled from the job record", self.say(f"put interview in Status for {jid}"))
+
     def test_unknown_column_and_job_are_explained(self):
         self.assertIn("no column “Referral”", self.say(f"put 'x' in Referral for {self.a.id[:8]}"))
         tracker.add_column(self.db, "Referral")
