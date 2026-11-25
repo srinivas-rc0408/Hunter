@@ -797,7 +797,7 @@ def main(argv=None):
 
     s = sub.add_parser("scan", help="scan every source, score, alert new matches")
     s.add_argument("--light", action="store_true", help="quick scan (subset of boards/locations)")
-    s.add_argument("--only", help="comma list: boards,ats,pages,govt")
+    s.add_argument("--only", help="comma list: boards,ats,intern,pages,govt")
     s.add_argument("--no-notify", action="store_true")
     s.add_argument("--include-existing", action="store_true", help="first run: treat notices already on pages as new")
     s.add_argument("--json", action="store_true")

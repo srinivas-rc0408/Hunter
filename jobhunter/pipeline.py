@@ -6,7 +6,7 @@ import datetime as dt
 from . import config, notify
 from .db import DB, Job
 from .score import is_dream, score
-from .sources import ats, boards, govt, pages
+from .sources import ats, boards, govt, intern, pages
 from .util import Http, console, iso
 
 
@@ -51,7 +51,7 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     db = DB()
     s = config.cfg("search")
     errors: list[str] = []
-    want = only or {"boards", "ats", "pages", "govt"}
+    want = only or {"boards", "ats", "intern", "pages", "govt"}
     private: list[Job] = []
     t0 = dt.datetime.now()
     if "boards" in want:
@@ -60,6 +60,9 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     if "ats" in want and s.get("company_boards", {}).get("enabled", True):
         console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
         private += ats.scan(errors, offline=offline_ats)
+    if "intern" in want and not light:
+        console.print("[bold]Internships + fresher sites[/] (Internshala/Unstop/Wellfound)")
+        private += intern.scan(errors)
     found = len(private)
     new_ids = save(db, private)
     extra: list[Job] = []

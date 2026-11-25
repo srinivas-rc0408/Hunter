@@ -43,7 +43,7 @@ boards:
   indeed:    {enabled: true,  results: 40}
   naukri:    {enabled: true,  results: 40}
   glassdoor: {enabled: false, results: 20}   # blocks most cloud IPs; enable on laptop if you like
-  google:    {enabled: true,  results: 20}
+  google:    {enabled: false, results: 20}   # off: Google Jobs now needs JavaScript; jobspy 1.4.1 and 1.5.0 both return 0. It re-lists LinkedIn/Naukri/Indeed, scanned above
 
 hours_old: 48         # normal scans look back 2 days; dedupe stops repeats
 proxies: []           # optional: ["user:pass@host:port"] if LinkedIn starts returning 429
@@ -55,6 +55,27 @@ light_scan:
   boards: [linkedin, naukri]
   locations: ["Bengaluru, Karnataka, India"]
   max_queries: 8
+
+# Internships + fresher roles from sites JobSpy doesn't cover (public pages/APIs their robots.txt allows).
+# Your internship queries map to: AI intern / GenAI intern → artificial-intelligence-ai · ML intern → machine-learning
+# · data science intern → data-science · Python developer intern → python-django · SDE intern → software-development
+# (+ computer-vision). Stipend floor: scoring.targets.min_stipend_inr_month (score.py).
+internships:
+  pause_sec: 2
+  internshala:
+    enabled: true
+    places: [bangalore, work-from-home]         # work-from-home = remote India
+    internships: [artificial-intelligence-ai, machine-learning, data-science, python-django, software-development, computer-vision]
+    jobs: [artificial-intelligence-ai, machine-learning, data-science, python-django, software-development]
+    max_details: 20                             # detail pages read per scan (start date, apply-by, full text), newest first
+  unstop:
+    enabled: true
+    terms: ["AI intern", "ML intern", "data science intern", "GenAI intern", "Python developer intern", "SDE intern"]
+    per_page: 20
+  wellfound:
+    enabled: true
+    roles: [artificial-intelligence-engineer, machine-learning-engineer, data-scientist, software-engineer, python-developer]
+    places: [bangalore, remote]
 
 company_boards:
   enabled: true       # Greenhouse / Lever / Ashby / Workday boards from config/companies.yaml

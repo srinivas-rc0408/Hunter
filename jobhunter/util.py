@@ -5,7 +5,6 @@ import hashlib
 import re
 import time
 import unicodedata
-import urllib.robotparser
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from urllib.parse import urlparse
@@ -114,23 +113,58 @@ class Http:
         return r  # type: ignore[possibly-undefined]
 
 
+def parse_robots(text: str, agent: str = "jobhunter") -> list[tuple[bool, str]]:
+    """The (allow, pattern) rules that apply to us: the group naming our agent, else the "*" group."""
+    groups: list[tuple[list[str], list[tuple[bool, str]]]] = []
+    agents_open = False
+    for line in text.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if ":" not in line:
+            continue
+        k, v = (x.strip() for x in line.split(":", 1))
+        k = k.lower()
+        if k == "user-agent":
+            if not agents_open:
+                groups.append(([], []))
+                agents_open = True
+            groups[-1][0].append(v.lower())
+        elif k in ("allow", "disallow") and groups:
+            agents_open = False
+            groups[-1][1].append((k == "allow", v))
+    mine = [r for a, r in groups if any(x != "*" and x in agent.lower() for x in a)]
+    return [x for r in (mine or [r for a, r in groups if "*" in a]) for x in r]
+
+
+def robots_match(rules: list[tuple[bool, str]], path: str) -> bool:
+    """Google's rules: * matches anything, $ ends the URL, the longest matching rule wins, Allow wins a tie."""
+    best: tuple[int, bool] | None = None
+    for allow, pat in rules:
+        if not pat:
+            continue                                     # "Disallow:" with nothing = allow everything
+        end = pat.endswith("$")
+        rx = "^" + re.escape(pat.rstrip("$")).replace(r"\*", ".*") + ("$" if end else "")
+        if re.match(rx, path):
+            cand = (len(pat), allow)
+            if best is None or cand[0] > best[0] or (cand[0] == best[0] and allow):
+                best = cand
+    return True if best is None else best[1]
+
+
 @lru_cache(maxsize=256)
-def _robots(base: str) -> urllib.robotparser.RobotFileParser | None:
-    rp = urllib.robotparser.RobotFileParser()
+def _robots(base: str) -> list[tuple[bool, str]] | None:
     try:
         r = requests.get(base + "/robots.txt", timeout=15, headers={"User-Agent": UA})
         if r.status_code >= 400:
             return None          # no robots.txt → allowed
-        rp.parse(r.text.splitlines())
-        return rp
+        return parse_robots(r.text)
     except requests.RequestException:
         return None
 
 
 def robots_allows(url: str) -> bool:
     u = urlparse(url)
-    rp = _robots(f"{u.scheme}://{u.netloc}")
-    return True if rp is None else rp.can_fetch(UA, url)
+    rules = _robots(f"{u.scheme}://{u.netloc}")
+    return True if rules is None else robots_match(rules, (u.path or "/") + (f"?{u.query}" if u.query else ""))
 
 
 # "Application ID: 12345" · "Reference no. REF-88A" · "Your application number is 4471" · "Requisition #R-203"
