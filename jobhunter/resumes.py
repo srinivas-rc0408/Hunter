@@ -53,9 +53,12 @@ def use(src: Path | None = None, data: bytes | None = None) -> tuple[bool, str]:
         shutil.copyfile(dst, hist / time.strftime("resume-%Y%m%d-%H%M%S.pdf"))
         for old in sorted(hist.glob("resume-*.pdf"))[:-10]:
             old.unlink()
+    from .selection import register, versions
+    versions()                                  # the resume you had until now becomes v1 before it's replaced
     dst.write_bytes(data)
+    ver = register(data)
     s = config.cfg("search").get("apply", {}).get("resume", "own")
     from .apply.runner import my_resume
     up = my_resume()
-    return True, (f"saved ({pages} pages, {len(data) // 1024} KB). Every application now uploads it as {up.name}."
+    return True, (f"saved as {ver} ({pages} pages, {len(data) // 1024} KB). Every application now uploads it as {up.name}."
                   + ("" if s == "own" else "  Note: config/search.yaml apply.resume is 'tailored': set it to 'own'."))

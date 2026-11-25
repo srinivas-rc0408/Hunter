@@ -109,6 +109,10 @@ def mobile_apply(db, jid: str) -> str:
     desc = " ".join((j.get("description") or "").split())
     if desc:
         out.append("<b>What they ask</b>\n" + _e(desc[:500]) + ("…" if len(desc) > 500 else ""))
+    from .selection import talking_points
+    tp = talking_points(j)
+    out.append("<b>Your 3 talking points</b> (from your resume)\n" + ("\n".join(f"{i}. {_e(x)}" for i, x in enumerate(tp, 1))
+               if tp else "none of your projects' skills appear in this posting"))
     p = config.cfg("profile")
     ans, loc = p.get("answers") or {}, p.get("location") or {}
     links_p = p.get("links") or {}
@@ -176,18 +180,22 @@ def _stats(db: DB) -> str:
     applied = "SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='applied'"
     total = q(applied) or db.count("status IN ('applied','interview','offer','rejected')")
     ever = lambda k: q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind=?", k) or db.count("status=?", (k,))  # noqa: E731
-    from .tracker import numbers
-    n = numbers(db)                                  # real answers only: viewed, test, interview, rejection, offer
+    from .tracker import numbers, rows as app_rows
+    R = app_rows(db)
+    n = numbers(db, R)                               # real answers only: viewed, test, interview, rejection, offer
     total = max(total, n["Applied"])
     rate = (f"{n['Response rate']} ({n['answered']} of {n['Applied']} got a real answer: viewed, test, interview, "
             f"rejection or offer; automatic confirmations don't count) · interview rate {n['Interview rate']}"
             if n["Applied"] else "no applications yet")
+    from .selection import version_lines
+    ver = version_lines(R)
     opened = db.count("kind='private' AND status IN ('new','alerted','queued') AND score >= 40")
     govt_open = db.count("kind='govt' AND status IN ('new','alerted') AND (deadline IS NULL OR deadline >= ?)", (str(today),))
     return (f"<b>📊 Your numbers</b>\n"
             f"Applied: today {q(applied + ' AND at >= ?', str(today))} · this week {q(applied + ' AND at >= ?', str(week))} · total {total}\n"
             f"Interviews {ever('interview')} · Offers {ever('offer')} · Rejected {ever('rejected')}\n"
             f"Response rate: {rate}\n"
+            + (f"{_e(ver)}\n" if ver else "") +
             f"Open matches {opened} · tracked {db.count()} · waiting for you {db.count('status=?', ('needs_you',))} · govt open {govt_open}")
 
 
