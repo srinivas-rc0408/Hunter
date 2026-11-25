@@ -91,7 +91,12 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     to_alert.sort(key=lambda j: (not j["dream"], j["kind"] != "govt", -j["score"]))
     sent = 0
     if notify_on and to_alert:
-        sent = notify.alert_jobs(to_alert[:25])
+        from . import urgent
+        hot, to_alert = urgent.split(db, to_alert)        # score ≥ 95: 🚨 APPLY NOW, pinned, max 3 a day
+        for j in hot:
+            urgent.send(db, j)
+            sent += 1
+        sent += notify.alert_jobs(to_alert[:25])
         for j in to_alert[:25]:
             db.set_status(j["id"], "alerted", "telegram")
     db.log_run("light" if light else "full", found, len(new_ids), sent, errors)

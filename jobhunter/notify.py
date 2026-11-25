@@ -203,19 +203,36 @@ def format_job(j: dict, db=None) -> str:
 
 def telegram(text: str) -> bool:
     """Send as HTML; if Telegram rejects the markup (or it was cut mid-tag), resend it as plain text."""
+    return telegram_id(text) is not None
+
+
+def telegram_id(text: str) -> int | None:
+    """telegram(), returning the sent message's id (for pinning), or None."""
     tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
     if not tok or not chat:
-        return False
+        return None
     for payload in ({"parse_mode": "HTML", "text": text[:4000]},
                     {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
         try:
             r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
                               json={"chat_id": chat, "disable_web_page_preview": True, **payload}, timeout=20)
             if r.ok:
-                return True
-        except requests.RequestException:
+                return int((r.json().get("result") or {}).get("message_id") or 0)
+        except (requests.RequestException, ValueError):
             pass
-    return False
+    return None
+
+
+def tg(method: str, **params) -> bool:
+    """Any other Bot API call on your chat (pinChatMessage, unpinChatMessage). False if unset or refused."""
+    tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
+    if not tok or not chat:
+        return False
+    try:
+        return requests.post(f"https://api.telegram.org/bot{tok}/{method}", json={"chat_id": chat, **params},
+                             timeout=20).ok
+    except requests.RequestException:
+        return False
 
 
 SRC_WORDS = {"profile": "your details", "consent": "consent", "learned": "learned from you", "you": "you changed it",

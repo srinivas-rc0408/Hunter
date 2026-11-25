@@ -69,7 +69,7 @@ Commands work too, with or without the slash: <i>top 5</i>, <i>govt karnataka</i
 
 <b>You</b>
 /stats · applied today, this week, total, interviews, offers, response rate
-/applied · every application with its date
+/applied · every application with its date, application ID and form link
 /mail · application emails sorted: offers, interviews, tests, rejections · <code>mail 30</code>
 /sheet · the Excel tracker (every application + email replies), updated now
    <i>add a column Referral</i> · <i>put 'asked Rahul' in Referral for ab12cd34</i> · <i>remove ab12cd34 from the sheet</i> · <i>show hidden</i>
@@ -174,11 +174,12 @@ def _stats(db: DB) -> str:
     applied = "SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='applied'"
     total = q(applied) or db.count("status IN ('applied','interview','offer','rejected')")
     ever = lambda k: q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind=?", k) or db.count("status=?", (k,))  # noqa: E731
-    answered = q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind IN ('interview','offer','rejected') AND job_id IN "
-                 "(SELECT job_id FROM events WHERE kind='applied')")
-    answered = max(answered, db.count("status IN ('interview','offer','rejected')"))     # status set by hand, no event
-    total = max(total, answered)
-    rate = f"{answered / total:.0%} ({answered} of {total} answered: interview, offer or rejection)" if total else "no applications yet"
+    from .tracker import numbers
+    n = numbers(db)                                  # real answers only: viewed, test, interview, rejection, offer
+    total = max(total, n["Applied"])
+    rate = (f"{n['Response rate']} ({n['answered']} of {n['Applied']} got a real answer: viewed, test, interview, "
+            f"rejection or offer; automatic confirmations don't count) · interview rate {n['Interview rate']}"
+            if n["Applied"] else "no applications yet")
     opened = db.count("kind='private' AND status IN ('new','alerted','queued') AND score >= 40")
     govt_open = db.count("kind='govt' AND status IN ('new','alerted') AND (deadline IS NULL OR deadline >= ?)", (str(today),))
     return (f"<b>📊 Your numbers</b>\n"
@@ -377,8 +378,12 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
             return "Usage: /form_&lt;id&gt;"
         if not app:
             return f"{_e(j['title'])} · {_e(j['company'])}: not filled yet. /check_{j['id'][:8]} fills it on the laptop."
+        meta = db.app_meta(j["id"])
+        form_url = meta["form_url"] or app.get("page_url") or ""
         head = (f"<b>{_e(j['title'])}</b> · {_e(j['company'])}\n"
                 f"{'preview' if app.get('dry') else app.get('outcome')} · {_e(app.get('site'))} · {_e((app.get('at') or '')[:16])}\n"
+                + (f"Application ID: <code>{_e(meta['conf_id'])}</code>\n" if meta["conf_id"] else "")
+                + (f"<a href=\"{html.escape(form_url, quote=True)}\">Open form</a>\n" if form_url else "") +
                 f"<i>{_e((app.get('why') or '')[:200])}</i>\n")
         body = "\n".join(form_lines(app.get("fields") or [])) or "No form fields were recorded."
         return head + body + (f"\n\nChange one: <code>/fix_{j['id'][:8]} 3 new value</code>\n"
@@ -530,7 +535,11 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
         if not rows:
             return "<b>Your applications</b>\nnone yet. Mark one: <code>/applied_&lt;id&gt;</code>"
         mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "applied": "·"}
-        lines = [f"{mark[j['status']]} {_e(on[:10])} · {_e(j['title'][:60])} · {_e(j['company'])} /show_{j['id'][:8]}"
+        def extra(j):
+            m = db.app_meta(j["id"])
+            return ((f" · ID <code>{_e(m['conf_id'])}</code>" if m["conf_id"] else "")
+                    + (f" · <a href=\"{html.escape(m['form_url'], quote=True)}\">form</a>" if m["form_url"] else ""))
+        lines = [f"{mark[j['status']]} {_e(on[:10])} · {_e(j['title'][:60])} · {_e(j['company'])}{extra(j)} /show_{j['id'][:8]}"
                  for on, j in rows]
         page = int(arg) if arg.isdigit() else 1
         return _paged(f"<b>Your applications: {len(rows)}</b>", lines, "/applied", page)
@@ -539,6 +548,8 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
         if not j:
             return f"Usage: /{cmd} &lt;id&gt;"
         db.set_status(j["id"], STATUS_CMDS[cmd], "telegram")
+        from . import urgent
+        urgent.tick(db)                                 # applied / skipped: its 🚨 pin comes off now
         from .tracker import refresh
         refresh(db)
         done = f"✓ {_e(j['title'][:60])} · {_e(j['company'])} → <b>{STATUS_CMDS[cmd]}</b>"
@@ -665,6 +676,15 @@ def offline_note(since: float, secs: float) -> str | None:
             f"anything you sent meanwhile is answered next.")
 
 
+def _tick() -> None:
+    from . import urgent
+    try:
+        if n := urgent.tick(DB()):
+            log(f"sent {n} urgent reminder(s)")
+    except Exception as exc:                 # a reminder problem never stops the bot
+        log(f"urgent tick failed: {type(exc).__name__}: {exc}")
+
+
 def run() -> None:
     from concurrent.futures import ThreadPoolExecutor
     tok, chat = env("TELEGRAM_BOT_TOKEN"), str(env("TELEGRAM_CHAT_ID") or "")
@@ -691,7 +711,11 @@ def run() -> None:
         log(f"startup: Telegram unreachable ({type(exc).__name__}); retrying in the loop")
     pool = ThreadPoolExecutor(max_workers=3)   # a slow /company never blocks /help
     fails, down = 0, None                   # down: (wall time, monotonic) of the first failed poll
+    ticked = 0.0
     while True:
+        if time.time() - ticked > 60:        # 🚨 urgent alerts: 2 h / 6 h reminders, unpin once applied or skipped
+            ticked = time.time()
+            pool.submit(_tick)
         try:
             r = requests.get(f"{api}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60).json()
         except (requests.RequestException, ValueError) as exc:

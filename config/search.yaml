@@ -63,6 +63,10 @@ company_boards:
 govt:
   enabled: true
 
+alerts:
+  urgent_score: 95           # 🚨 APPLY NOW: own pinned message, queued first, reminders at 2 h and 6 h
+  urgent_per_day: 3          # more than this a day go out as normal alerts
+
 scoring:
   alert_threshold: 60        # Telegram alert at or above this score
   dream_alert_threshold: 35  # dream companies alert lower

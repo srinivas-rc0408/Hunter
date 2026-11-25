@@ -469,7 +469,7 @@ def w_sheet_add_column(db: DB, name: str, run: bool = False):
     name = " ".join((name or "").strip(" '\"“”‘’").split())
     if not name:
         raise Nope("What should the column be called?")
-    if tracker.column_name(db, name) or name.lower() in {h.lower() for h in tracker.H}:
+    if tracker.column_name(db, name) or name.lower() in {h.lower() for h in tracker.H + tracker.TAIL}:
         raise Nope(f"The sheet already has a column “{_e(name)}”.")
     if not run:
         return f"add a column <b>{_e(name)}</b> to the sheet (after the standard ones; it survives every rewrite)"
@@ -482,7 +482,7 @@ def w_sheet_set(db: DB, id: str, column: str, value: str, run: bool = False):
     from . import tracker
     j = _sheet_job(db, id)
     col = tracker.column_name(db, column)
-    std = next((h for h in tracker.H if h.lower() == (column or "").strip().lower()), None)
+    std = next((h for h in tracker.H + tracker.TAIL if h.lower() == (column or "").strip().lower()), None)
     if not col and std:
         raise Nope(f"<b>{_e(std)}</b> is filled from the job record on every rewrite, so I can't type into it. "
                    f"For status say <i>mark {_e(id)} as interview</i>; for anything else, add your own column.")
@@ -646,7 +646,7 @@ def _put(db: DB, t: str) -> tuple[str, dict] | None:
         return None
     value, column = m.group(1).strip(" '\"“”‘’"), m.group(2).strip(" '\"“”‘’")
     quoted = bool(re.match(Q, m.group(1).strip()))
-    on_sheet = tracker.column_name(db, column) or column.lower() in {h.lower() for h in tracker.H}
+    on_sheet = tracker.column_name(db, column) or column.lower() in {h.lower() for h in tracker.H + tracker.TAIL}
     return ("sheet_set", {"id": m.group(3), "column": column, "value": value}) if on_sheet or quoted else None
 
 

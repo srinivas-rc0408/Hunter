@@ -131,3 +131,17 @@ def robots_allows(url: str) -> bool:
     u = urlparse(url)
     rp = _robots(f"{u.scheme}://{u.netloc}")
     return True if rp is None else rp.can_fetch(UA, url)
+
+
+# "Application ID: 12345" · "Reference no. REF-88A" · "Your application number is 4471" · "Requisition #R-203"
+_CONF = re.compile(r"\b(?:application|applicant|reference|ref|candidate|requisition|confirmation|tracking|submission)"
+                   r"\s*(?:id|no\.?|number|num|#|code)\s*(?:is|:|#|-|–)?\s*[:#]?\s*([A-Z0-9][A-Z0-9_/\-]{2,39})", re.I)
+
+
+def confirmation_id(text: str | None) -> str:
+    """The application / reference / candidate / requisition number a confirmation shows, or "" (never made up)."""
+    for m in _CONF.finditer(text or ""):
+        v = m.group(1).strip("-/_")
+        if re.search(r"\d", v) and len(v) >= 3:
+            return v
+    return ""

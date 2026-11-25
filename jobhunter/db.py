@@ -137,6 +137,10 @@ class DB:
                          ("est_min", "REAL"), ("est_max", "REAL"), ("est_source", "TEXT"), ("est_at", "TEXT")):   # 2.1
             if col not in cols:
                 self.c.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typ}")
+        acols = {r[1] for r in self.c.execute("PRAGMA table_info(applications)")}
+        for col in ("conf_id", "form_url"):                                                  # 2.3
+            if col not in acols:
+                self.c.execute(f"ALTER TABLE applications ADD COLUMN {col} TEXT DEFAULT ''")
 
     # ── jobs ────────────────────────────────────────────────────────────────
     def upsert(self, job: Job) -> bool:
@@ -258,12 +262,34 @@ class DB:
     # ── application records (Review Center) ─────────────────────────────────
     def add_application(self, job_id: str, site: str, outcome: str, auto: bool, approved: bool, dry: bool,
                         why: str, fields: list, screenshot: str, resume: str, resume_report: dict | None,
-                        cover: str, page_url: str) -> None:
+                        cover: str, page_url: str, conf_id: str = "", form_url: str = "") -> None:
         self.c.execute("""INSERT INTO applications (job_id, at, site, outcome, auto, approved, dry, why, fields,
-                          screenshot, resume, resume_report, cover, page_url) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                          screenshot, resume, resume_report, cover, page_url, conf_id, form_url)
+                          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                        (job_id, iso(), site, outcome, int(auto), int(approved), int(dry), why,
                         json.dumps(fields, default=str), screenshot, resume,
-                        json.dumps(resume_report or {}, default=str), cover, page_url))
+                        json.dumps(resume_report or {}, default=str), cover, page_url, conf_id or "", form_url or ""))
+        self.c.commit()
+
+    def app_meta(self, job_id: str) -> dict:
+        """{conf_id, form_url} of your application: the newest real record that has each one ("" if none)."""
+        out = {"conf_id": "", "form_url": ""}
+        for r in self.c.execute("SELECT conf_id, form_url FROM applications WHERE job_id=? AND dry=0 ORDER BY n DESC",
+                                (job_id,)):
+            for k in out:
+                out[k] = out[k] or (r[k] or "")
+        return out
+
+    def set_app_meta(self, job_id: str, site: str = "email", conf_id: str = "", form_url: str = "") -> None:
+        """Fill a missing confirmation number / form link on your application record (one is added if there's none)."""
+        row = self.c.execute("SELECT n, conf_id, form_url FROM applications WHERE job_id=? AND dry=0 AND outcome='applied' "
+                             "ORDER BY n DESC LIMIT 1", (job_id,)).fetchone()
+        if row is None:
+            self.add_application(job_id, site, "applied", False, True, False, "recorded from the email", [], "", "",
+                                 None, "", "", conf_id, form_url)
+            return
+        self.c.execute("UPDATE applications SET conf_id=COALESCE(NULLIF(conf_id,''), ?), "
+                       "form_url=COALESCE(NULLIF(form_url,''), ?) WHERE n=?", (conf_id or "", form_url or "", row["n"]))
         self.c.commit()
 
     def applications(self, job_id: str | None = None, limit: int = 300) -> list[dict]:

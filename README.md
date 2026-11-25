@@ -179,9 +179,17 @@ cd .. && python -m unittest discover -s tests/hunter   # hunter-skill's own suit
   assessment, rejected, viewed, received. Each one gets a Gmail label (`JobHunter/Interview` …), is matched
   to the job you applied for, and moves that job's status forward (never backwards). Interview, test and
   offer emails ping Telegram at once. It runs by itself every 30 min with the sync timer.
+  A confirmation ("your application was sent to X") marks that job applied on the email's date, and an
+  application / reference number in it is saved (never guessed). Response rate counts only real answers
+  (viewed, test, interview, rejection, offer); interview rate = (interview + offer) / applied.
   One-time setup: Google Account → Security → 2-Step Verification → **App passwords** → create "JobHunter",
   then put `GMAIL_USER=` and `GMAIL_APP_PASSWORD=` in `.env`.
 - **Excel tracker** `~/Documents/JobHunter/Applications.xlsx`, rewritten after every application, status
-  change and email check. Sheets: Summary, Applications (date, time, company, role, location, work mode, pay,
-  where you applied, status, last email, next step, link, resume…), Email replies. `hunt sheet --open`;
-  Telegram **/sheet** sends you the file, **/mail** lists the replies.
+  change and email check, in place (one file, never a copy). Sheets: **Dashboard** (KPI tiles, applications
+  per week, by status, next actions), **Applications** (an Excel Table: dates, IST times, pay or "≈ est.",
+  score, status chips, application ID, "Open job" / "Open form" links, days waiting in red after 14 days,
+  your own columns, notes), **Email replies**. Prints landscape, one page wide. `hunt sheet --open`,
+  `hunt sheet --png DIR` (a PNG of each sheet); Telegram **/sheet** sends you the file, **/mail** lists the replies.
+- **🚨 APPLY NOW**: a job scoring 95+ (`alerts.urgent_score` in `config/search.yaml`) gets its own pinned
+  Telegram message, is queued first for `hunt apply` when the laptop is on (it still waits for your Submit),
+  and reminds you after 2 h and 6 h until you apply or skip (then it unpins). At most 3 a day (`urgent_per_day`).

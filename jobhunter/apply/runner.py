@@ -20,7 +20,7 @@ def queue(db: DB, ids: list[str] | None, top: int, min_score: int) -> list[dict]
     if ids:
         return [j for j in (db.get(i) for i in ids) if j]
     jobs = db.query(status=["new", "alerted", "queued"], kind="private", min_score=min_score, limit=top * 3)
-    jobs.sort(key=lambda j: (not j["dream"], -j["score"]))
+    jobs.sort(key=lambda j: (j["status"] != "queued", not j["dream"], -j["score"]))   # 🚨 urgent ones are queued: first
     return jobs[:top]
 
 
@@ -196,6 +196,7 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                     notify.telegram(f"⏸ {notify._esc(cap)}, continues tomorrow (human pace, never spam)")
                 continue
             B.RECORD.clear()
+            B.FORM_URL = ""
             shots = config.data_dir() / "screens"
             shots.mkdir(exist_ok=True)
             B.SNAP_PATH = shots / f"{job['id']}-{int(time.time())}.png"
@@ -254,9 +255,13 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                 if nq:
                     console.print(f"[yellow]❓ {nq} new question(s) for you[/]: answer once with `hunt questions` "
                                   "(or Review Center → Questions, or Telegram /questions)")
+            conf = B.confirmation(page) if out.status == "applied" and not dry else ""
+            form_url = (job.get("details") or {}).get("apply_url") or B.FORM_URL or url_now
             db.add_application(job["id"], out.site, out.status, out.auto, approve, dry, out.why, list(B.RECORD),
                                str(B.SNAP_PATH) if B.SNAP_PATH.exists() else "", str(resume or ""), rrep,
-                               cover or "", url_now)
+                               cover or "", url_now, conf, form_url)
+            if conf:
+                console.print(f"   application ID: {conf}")
             if out.site in ("linkedin", "naukri"):              # /health alert: "run hunt login linkedin"
                 from .. import health
                 out_of = bool(re.search(r"logged out|not logged in", out.why or ""))

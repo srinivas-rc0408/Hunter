@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from . import notify
 from .config import env
 from .db import DB
-from .util import iso, norm
+from .util import confirmation_id, iso, norm
 
 HOST = "imap.gmail.com"
 LABEL_ROOT = "JobHunter"
@@ -273,11 +273,20 @@ def applied_outside(db: DB, msg: Msg) -> tuple[str | None, str]:
         j = Job(role or "(role: see the LinkedIn email)", co, "", url="", source="email")
         db.upsert(j)
         jid, status = j.id, "new"
-    if status not in ("applied", "interview", "offer", "rejected"):
-        db.c.execute("UPDATE jobs SET status='applied', status_at=? WHERE id=?", (msg.at, jid))
-        db.c.execute("INSERT INTO events VALUES (?,?,?,?)", (jid, msg.at, "applied", "email: " + msg.subject[:150]))
-        db.c.commit()
+    mark_applied(db, jid, msg)
     return jid, f"{co} (you applied: recorded from the email)"
+
+
+def mark_applied(db: DB, jid: str, msg: Msg) -> bool:
+    """A confirmation ("received", "your application was sent to X") means you applied, on the email's date.
+    Only moves a job that isn't applied / interview / offer / rejected yet. True if it moved."""
+    j = db.get(jid)
+    if not j or j["status"] in ("applied", "interview", "offer", "rejected"):
+        return False
+    db.c.execute("UPDATE jobs SET status='applied', status_at=? WHERE id=?", (msg.at, jid))
+    db.c.execute("INSERT INTO events VALUES (?,?,?,?)", (jid, msg.at, "applied", "email: " + msg.subject[:150]))
+    db.c.commit()
+    return True
 
 
 def _advance(db: DB, jid: str, kind: str, msg: Msg) -> str | None:
@@ -374,6 +383,13 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
             if msg.kind == "other":
                 known.add(msg.msgid)
                 continue                          # not about an application of yours: leave it alone
+        if msg.job_id and (msg.kind == "received" or any(rx.search(msg.subject) for rx in SENT_TO)):
+            msg.kind = "received" if msg.kind == "other" else msg.kind
+            if mark_applied(db, msg.job_id, msg) and not quiet:
+                print(f"  ↳ marked applied on {msg.at[:10]} (from this email)")
+            cid = confirmation_id(f"{msg.subject}\n{msg.body[:8000]}")
+            if cid:
+                db.set_app_meta(msg.job_id, site=_domain_name(msg.sender) or "email", conf_id=cid)
         moved = _advance(db, msg.job_id, msg.kind, msg) if msg.job_id else None
         db.c.execute("INSERT OR IGNORE INTO mail VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                      (msg.msgid, uid, msg.at, msg.sender, msg.sender_name, msg.subject,

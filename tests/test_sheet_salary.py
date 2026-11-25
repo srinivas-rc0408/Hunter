@@ -56,7 +56,7 @@ class Sheet(unittest.TestCase):
         tracker.hide(self.db, self.b.id)
         for _ in range(2):                                         # rewritten again: still there
             head, rows, _ = table(tracker.write(self.db, self.f))
-            self.assertEqual(head[-2:], ["Notes", "Referral"])     # custom columns after the standard ones
+            self.assertEqual(head[-3:], ["Referral", "Notes", "Job id"])   # your columns, then Notes and Job id
             self.assertEqual([r["Company"] for r in rows], ["Acme"])
             self.assertEqual(rows[0]["Referral"], "asked a friend")
         self.assertEqual(self.db.get(self.b.id)["status"], "applied")     # hidden ≠ deleted

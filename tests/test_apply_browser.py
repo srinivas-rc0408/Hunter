@@ -50,6 +50,18 @@ class Browser(unittest.TestCase):
         self.assertEqual((o.status, o.auto), ("applied", True), o.why)
         self.assertIn("thank you", p.inner_text("body").lower())
 
+    def test_form_url_and_confirmation_number_are_kept(self):
+        from jobhunter.apply import browser as B
+        p = self.page("basic_ats")
+        B.FORM_URL = ""
+        B.fill_form(p, JOB, self.resume)
+        self.assertEqual(B.FORM_URL, (FX / "basic_ats.html").as_uri())            # the page the form was on
+        p.set_content("<h1>Thank you for applying!</h1><p>Your application number is <b>APP-2026-0412</b>.</p>")
+        self.assertEqual(B.confirmation(p), "APP-2026-0412")                     # case kept, not lower-cased
+        p.set_content("<h1>Thanks for applying</h1><p>We'll be in touch.</p>")
+        self.assertEqual(B.confirmation(p), "")                                  # none shown: none saved
+        p.close()
+
     def test_basic_form_fills_correctly(self):
         p = self.page("basic_ats")
         o = flows.single_page(p, self.db, JOB, self.resume, None, "greenhouse", dry=True)

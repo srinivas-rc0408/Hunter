@@ -468,6 +468,10 @@ def cmd_mail(a):
         return
     c.print(r if r else "no new application emails")
     from .db import DB
+    from .tracker import numbers
+    n = numbers(DB())
+    c.print(f"Applications: {n['Applied']} · waiting {n['Waiting']} · interviews {n['Interviews']} · offers {n['Offers']} · "
+            f"rejected {n['Rejected']} · response rate {n['Response rate']} · interview rate {n['Interview rate']}")
     from rich.markup import escape
     import re as _re
     c.print(escape(_re.sub(r"<[^>]+>", "", mail.summary_text(DB(), 7))))
@@ -477,6 +481,9 @@ def cmd_sheet(a):
     from . import tracker
     p = tracker.write()
     _console().print(f"[green]✓[/] {p}")
+    if a.png:
+        for f in tracker.preview(Path(a.png).expanduser()):
+            _console().print(f"[green]✓[/] {f}")
     if a.open:
         subprocess.Popen(["xdg-open", str(p)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
@@ -884,6 +891,7 @@ def main(argv=None):
 
     s = sub.add_parser("sheet", help="write the Excel tracker (~/Documents/JobHunter/Applications.xlsx)")
     s.add_argument("--open", action="store_true", help="open it after writing")
+    s.add_argument("--png", metavar="DIR", help="also save a PNG of each sheet there (LibreOffice headless)")
     s.set_defaults(fn=cmd_sheet)
 
     s = sub.add_parser("advantages", help="your SC / Karnataka / GATE advantages as a checklist")

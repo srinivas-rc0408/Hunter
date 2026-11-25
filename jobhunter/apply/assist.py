@@ -77,6 +77,7 @@ def assist(db: DB, page) -> None:
     flows.TITLE = f"{job['title']} · {job['company']}"
     flows.VISIBLE, flows.APPROVED, flows.SUBMIT_NOW = True, False, False
     B.RECORD.clear()
+    B.FORM_URL = page.url
     shots = config.data_dir() / "screens"
     shots.mkdir(exist_ok=True)
     B.SNAP_PATH = shots / f"{job['id']}-browser.png"
@@ -91,7 +92,9 @@ def assist(db: DB, page) -> None:
         out = flows.check_form(page, db, job, res, site, resume, None)
     console.print(f"[bold]{out.status.upper()}[/] · {out.why}" + (f" · learned {out.learned}" if out.learned else ""))
     db.add_application(job["id"], site, out.status, False, True, False, out.why, list(B.RECORD),
-                       str(B.SNAP_PATH) if B.SNAP_PATH.exists() else "", str(resume or ""), None, "", page.url)
+                       str(B.SNAP_PATH) if B.SNAP_PATH.exists() else "", str(resume or ""), None, "", page.url,
+                       B.confirmation(page) if out.status == "applied" else "",
+                       (job.get("details") or {}).get("apply_url") or B.FORM_URL)
     if out.status == "applied":
         db.set_status(job["id"], "applied", "bot browser")
         notify.telegram(f"✅ <b>Applied</b>: {notify._esc(job['title'])} · {notify._esc(job['company'])} (bot browser)")

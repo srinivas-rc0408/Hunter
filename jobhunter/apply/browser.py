@@ -327,6 +327,19 @@ def page_text(page) -> str:
             return ""
 
 
+def confirmation(page) -> str:
+    """The application / reference number the confirmation page shows, or "" (never made up)."""
+    from ..util import confirmation_id
+    try:
+        raw = page.evaluate(TEXT_JS) or ""
+    except Exception:
+        try:
+            raw = page.inner_text("body", timeout=3000)
+        except Exception:
+            return ""
+    return confirmation_id(raw)
+
+
 def succeeded(page) -> bool:
     t = page_text(page)
     return any(w in t for w in SUCCESS_WORDS)
@@ -349,6 +362,7 @@ RECORD: list[dict] = []
 
 
 SNAP_PATH: Path | None = None        # set per job by the runner
+FORM_URL = ""                        # the page the form was on (first fill_form); the runner resets it per job
 
 
 def snap(page) -> None:
@@ -396,6 +410,12 @@ def _answer(f: dict, opts: list, job) -> "F.Answer":
 def fill_form(page, job: dict | None, resume_path: Path | None, root: str | None = None,
               cover_text: str | None = None, skip_jh: set[str] | None = None) -> FormResult:
     """Fill every field we can. Leaves unknowns alone. Never clicks submit."""
+    global FORM_URL
+    if not FORM_URL:
+        try:
+            FORM_URL = page.url                      # where the form was: saved on the application record
+        except Exception:
+            pass
     res = FormResult(blockers=blocked(page))
     skip_jh = skip_jh or set()
     for i, f0 in enumerate(scan(page, root)):
