@@ -22,6 +22,8 @@ from ..db import Job
 from ..util import IST, Http, console
 
 UNIS = "https://internshala.com"
+INDIA = re.compile(r"india|bengaluru|bangalore|karnataka|mysuru|mysore|mangaluru|hubli|hyderabad|chennai|pune|mumbai|"
+                   r"delhi|noida|gurgaon|gurugram|kolkata|ahmedabad|kochi|coimbatore|jaipur|indore|chandigarh", re.I)
 
 
 def _today() -> dt.date:
@@ -281,6 +283,8 @@ def wellfound_items(html: str) -> list[Job]:
         intern = v.get("jobType") == "internship"
         lo, hi, per, cur = _wf_pay(v.get("compensation") or "", intern)
         places = v.get("locationNames") or []
+        if places and not any(INDIA.search(p) for p in places):
+            continue                                    # e.g. "New York": not an India job, even if remote-friendly
         remote = bool(v.get("remote"))
         yrs = v.get("yearsExperienceMin")
         posted = dt.datetime.fromtimestamp(v["liveStartAt"], IST).date().isoformat() if v.get("liveStartAt") else None

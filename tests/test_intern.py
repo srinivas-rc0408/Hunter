@@ -67,6 +67,11 @@ class Wellfound(unittest.TestCase):
         self.assertEqual((j.company, j.location, j.pay_min, j.pay_max, j.pay_period),
                          ("Simplismart", "Bengaluru, India", 2000000, 3000000, "year"))
         self.assertTrue(all(x.posted_at for x in js))
+        self.assertTrue(all("India" in x.location for x in js))
+
+    def test_foreign_city_dropped(self):
+        html = (FIX / "wellfound.html").read_text().replace('"locationNames":["Bengaluru"]', '"locationNames":["New York"]', 1)
+        self.assertEqual(len(intern.wellfound_items(html)), 24)
 
     def test_pay_only_rupees(self):
         self.assertEqual(intern._wf_pay("$100k – $150k", False), (None, None, None, None))
