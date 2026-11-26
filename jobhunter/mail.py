@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from . import notify
 from .config import env
 from .db import DB
-from .util import confirmation_id, iso, norm
+from .util import confirmation_id, iso, log, norm
 
 HOST = "imap.gmail.com"
 LABEL_ROOT = "JobHunter"
@@ -307,12 +307,12 @@ def _label(imap, uid: str, kind: str) -> None:
     lab = f"{LABEL_ROOT}/{LABEL[kind]}"
     try:
         imap.create(f'"{lab}"')
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("mail: creating label %s (usually exists already): %s", lab, err)
     try:
         imap.uid("STORE", uid, "+X-GM-LABELS", f'("{lab}")')
-    except Exception:
-        pass
+    except Exception as err:
+        log.warning("mail: label %s not applied to message %s: %s", lab, uid, err)
 
 
 def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=None) -> dict:
@@ -411,8 +411,8 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
         db.c.commit()
     try:
         imap.logout()
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("mail: IMAP logout: %s", err)
     for m in urgent:
         notify.telegram(alert_text(db, m))
     if counts:

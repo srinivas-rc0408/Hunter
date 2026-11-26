@@ -11,7 +11,7 @@ from pathlib import Path
 
 from .. import config, notify, resume_pdf, tailor
 from ..db import DB
-from ..util import console
+from ..util import console, log
 from . import browser as B
 from . import flows
 
@@ -64,19 +64,19 @@ def _fresh(pw, ctx, page, headless):
         if not page.is_closed():
             page.evaluate("1")
             return pw, ctx, page
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("runner: tab not usable, opening another: %s", err)
     try:
         return pw, ctx, B.work_page(ctx)
     except Exception:
         try:
             ctx.close()
-        except Exception:
-            pass
+        except Exception as err:
+            log.debug("runner: closing a dead browser context: %s", err)
         try:
             pw.stop()
-        except Exception:
-            pass
+        except Exception as err:
+            log.debug("runner: stopping playwright: %s", err)
         console.print("[yellow]browser closed: opening it again[/]")
         pw, ctx = B.launch(headless=headless)
         return pw, ctx, B.work_page(ctx)
@@ -234,8 +234,8 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
             if not B.SNAP_PATH.exists():
                 try:
                     B.snap(page)
-                except Exception:
-                    pass
+                except Exception as err:
+                    log.warning("runner: screenshot of the form failed: %s", err)
             colour = {"applied": "green", "needs_you": "yellow", "filled": "cyan"}.get(out.status, "red")
             console.print(f"[bold {colour}]{out.status.upper()}[/]{' (sent automatically)' if out.auto else ''} · {out.site} · {out.why}"
                           + (f" · learned {out.learned} answers" if out.learned else ""))
@@ -247,8 +247,8 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
                 try:                                   # what the bot saw, for fixing the flow (stays on this laptop)
                     (shots / f"{job['id']}-page.html").write_text(page.content(), encoding="utf-8")
                     console.print(f"   [dim]saved what the bot saw: {B.SNAP_PATH}[/]")
-                except Exception:
-                    pass
+                except Exception as err:
+                    log.warning("runner: couldn't save the page HTML for %s: %s", job['id'], err)
             if out.status in ("needs_you", "filled"):
                 from . import questions
                 nq = questions.add_from_record(job["id"], list(B.RECORD), out.site)
@@ -295,16 +295,16 @@ def _apply(ids, top, min_score, dry, headless, with_cover, approve, submit_now):
             for p in ctx.pages[1:]:
                 try:
                     p.close()
-                except Exception:
-                    pass
+                except Exception as err:
+                    log.debug("runner: closing an extra tab: %s", err)
     finally:
         prune_screens(db)
         flows.APPROVED = flows.SUBMIT_NOW = False
         for closer in (ctx.close, pw.stop):
             try:
                 closer()
-            except Exception:
-                pass
+            except Exception as err:
+                log.debug("runner: closing the browser: %s", err)
     a = sum(1 for _, o in done if o.status == "applied")
     w = sum(1 for _, o in done if o.status == "needs_you")
     console.print(f"\n[bold]Applied {a} · waiting for you {w} · other {len(done) - a - w}[/]")

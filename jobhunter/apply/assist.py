@@ -14,7 +14,7 @@ import re
 
 from .. import config, notify
 from ..db import DB, Job
-from ..util import console
+from ..util import console, log
 from . import browser as B
 from . import flows
 from .runner import _Lock, my_resume
@@ -104,8 +104,8 @@ def assist(db: DB, page) -> None:
         db.set_status(job["id"], "needs_you", "bot browser: " + out.why[:120])
     try:
         page.evaluate("() => { const b = document.getElementById('jh-fab'); if (b) { b.disabled = false; b.style.display = ''; b.textContent = '🎯 Fill this form'; } }")
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("assist: re-enabling the 🎯 button failed (page gone?): %s", err)
 
 
 def browse(url: str | None = None) -> None:
@@ -148,7 +148,7 @@ def browse(url: str | None = None) -> None:
         for closer in (ctx.close, pw.stop):
             try:
                 closer()
-            except Exception:
-                pass
+            except Exception as err:
+                log.debug("assist: closing the browser: %s", err)
         lock.__exit__()
     console.print("Bot browser closed. Everything you sent is in the dashboard: http://localhost:8765")

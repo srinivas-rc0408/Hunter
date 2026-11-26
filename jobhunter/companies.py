@@ -30,7 +30,7 @@ from . import config
 from .db import DB, Job, job_id
 from .score import score
 from .sources import ats_more
-from .util import iso, norm
+from .util import iso, log, norm
 
 UA = {"User-Agent": ats_more.UA, "Accept": "application/json, text/html;q=0.9"}
 TIMEOUT = 10
@@ -171,8 +171,8 @@ def suggest(q: str, limit: int = 12, online: bool = True) -> list[dict]:
                 "SELECT company, COUNT(*) FROM jobs WHERE kind='private' AND LOWER(company) LIKE ? GROUP BY company "
                 "ORDER BY COUNT(*) DESC LIMIT 15", (f"%{q.lower()}%",)):
             add({"name": name, "source": "your jobs", "hint": f"{n} job(s) already found"})
-    except Exception:
-        pass
+    except Exception as err:
+        log.warning("companies: suggestions from your jobs DB failed: %s", err)
     if online and len(out) < limit:
         for w in wikidata_search(q):
             add(w)

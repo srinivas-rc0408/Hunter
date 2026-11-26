@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 
 from .. import config
-from ..util import console
+from ..util import console, log
 from . import browser as B
 from . import fields as F
 
@@ -144,15 +144,15 @@ def hide(page) -> None:
     try:
         page.evaluate("""() => { const h = document.getElementById('jh-panel-host'); if (h) h.remove();
                                  const f = document.getElementById('jh-fab'); if (f) f.style.display = 'none'; }""")
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("panel: hiding the panel: %s", err)
 
 
 def message(page, text: str) -> None:
     try:
         page.evaluate("m => window.__jhMsg && window.__jhMsg(m)", text)
-    except Exception:
-        pass
+    except Exception as err:
+        log.debug("panel: showing a message: %s", err)
 
 
 def _norm(v) -> str:
@@ -249,8 +249,8 @@ def hand_over(page, fills: list, site: str, title: str, root: str | None = None,
             try:
                 if B.succeeded(page):
                     return "submitted", learn(changes(fills, last), site)
-            except Exception:
-                pass
+            except Exception as err:
+                log.debug("panel: success check while the page navigated: %s", err)
         time.sleep(1)
     return "timeout", []
 

@@ -73,7 +73,7 @@ def _unit(unit: str) -> tuple[str, int]:
 def checks(live: bool = True) -> list[tuple[bool, str, str]]:
     """Every check, in plain words. live=False reads the cloud radar result the watcher saved (fast, for /health)."""
     from . import llm
-    from .cli import PENDING_KEYS
+    from .cli_setup import PENDING_KEYS
     prof = config.cfg("profile")
     rows: list[tuple[bool, str, str]] = []
     missing = [k for k in PENDING_KEYS if get(prof, k) in (None, "")]

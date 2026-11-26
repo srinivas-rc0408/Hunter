@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import time
 import unicodedata
@@ -13,6 +14,7 @@ import requests
 from rich.console import Console
 
 console = Console()
+log = logging.getLogger("jobhunter")    # best-effort steps that failed: warnings to stderr (journal), debug with JH_LOG=DEBUG
 IST = timezone(timedelta(hours=5, minutes=30))
 UA = "jobhunter/1.0 (personal job alerts; polite, low-frequency)"
 
