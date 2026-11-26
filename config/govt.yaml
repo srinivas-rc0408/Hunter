@@ -11,7 +11,7 @@ respect_robots_txt: true    # sites that disallow bots are skipped and shown as 
 sources:
   # ── Central: best salary + career for CS/AI&ML in Bengaluru ──
   - {id: isro,   name: ISRO Careers,                   url: "https://www.isro.gov.in/Careers.html",           kind: central, base: "https://www.isro.gov.in/"}
-  - {id: nic,    name: NIC Recruitment,                url: "https://recruitment.nic.in/",                    kind: central}
+  - {id: nic,    name: NIC Recruitment,                url: "https://recruitment.nic.in/index_new.php",       kind: central}   # the home page is a frameset around this
   - {id: drdo_rac, name: DRDO RAC,                     url: "https://rac.gov.in/",                            kind: central}
   - {id: drdo,   name: DRDO Careers,                   url: "https://www.drdo.gov.in/drdo/en/offerings/vacancies", kind: central}
   - {id: cdac,   name: C-DAC Careers,                  url: "https://www.cdac.in/index.aspx?id=current_jobs", kind: central}
@@ -22,14 +22,15 @@ sources:
   - {id: gate,   name: GATE 2027 (IIT Madras),         url: "https://gate2027.iitm.ac.in/",                   kind: exam}
   # ── PSUs (Bengaluru HQ / big Bengaluru units) ──
   - {id: bel,    name: BEL Job Notifications,          url: "https://bel-india.in/job-notifications/",        kind: psu}
-  - {id: hal,    name: HAL Careers,                    url: "https://hal-india.co.in/career",                 kind: psu}
+  - {id: hal,    name: HAL Careers,                    url: "https://hal-india.co.in/career",                 kind: psu,
+             api: "https://hal-india.co.in/backend/wp-json/hal/v1/career?lang=en"}   # the page is JS-only; its own API
   - {id: beml,   name: BEML Careers,                   url: "https://www.bemlindia.in/careers/",              kind: psu}
   # ── Banks (IT officer posts) ──
   - {id: ibps,   name: IBPS,                           url: "https://www.ibps.in/",                           kind: bank}
   - {id: sbi,    name: SBI Careers,                    url: "https://sbi.bank.in/web/careers/current-openings", kind: bank}
   # ── Karnataka state ──
   - {id: kea,    name: KEA Recruitment,                url: "https://cetonline.karnataka.gov.in/kea/",        kind: state}
-  - {id: kpsc,   name: KPSC,                           url: "https://kpsc.kar.nic.in/",                       kind: state}   # robots.txt disallows bots → manual reminder
+  - {id: kpsc,   name: KPSC,                           url: "https://kpsc.karnataka.gov.in/",                 kind: state}   # moved from kpsc.kar.nic.in (which now times out)
   - {id: kptcl,  name: KPTCL,                          url: "https://kptcl.karnataka.gov.in/",                kind: state}
   - {id: keonics, name: KEONICS (Karnataka electronics/IT PSU), url: "https://www.keonics.in/",          kind: state}
   # ── Aggregators (fallback only; always confirm on the official site) ──

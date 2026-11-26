@@ -77,11 +77,31 @@ def clip(s: str | None, n: int) -> str:
     return s if len(s) <= n else s[: n - 1].rstrip() + "…"
 
 
+@lru_cache(maxsize=1)
+def ca_bundle() -> str:
+    """certifi's roots + the public intermediates in jobhunter/certs. Some govt sites (bel-india.in) send the wrong
+    intermediate, so a strict client fails where browsers (which fetch it themselves) work. Verification stays on."""
+    import tempfile
+    from pathlib import Path
+
+    import certifi
+    extra = "".join(p.read_text() for p in sorted((Path(__file__).parent / "certs").glob("*.pem")))
+    if not extra:
+        return certifi.where()
+    f = Path(tempfile.gettempdir()) / f"jobhunter-ca-{hashlib.sha1(extra.encode()).hexdigest()[:8]}.pem"
+    if not f.exists():
+        tmp = f.with_suffix(f".{time.time_ns()}")
+        tmp.write_text(Path(certifi.where()).read_text() + "\n" + extra)
+        tmp.replace(f)                              # atomic: a parallel scan never reads half a bundle
+    return str(f)
+
+
 class Http:
     """requests.Session with a polite pause, retries on 429/5xx and robots.txt checks."""
 
     def __init__(self, pause: float = 1.0, timeout: int = 30, respect_robots: bool = True):
         self.s = requests.Session()
+        self.s.verify = ca_bundle()
         self.s.headers.update({"User-Agent": UA, "Accept-Language": "en-IN,en;q=0.9"})
         self.pause, self.timeout, self.respect_robots = pause, timeout, respect_robots
         self._last: dict[str, float] = {}

@@ -81,6 +81,20 @@ def _old(text: str, year: int) -> bool:
     return bool(ys) and max(ys) < year
 
 
+def hal_links(http: Http, src: dict, errors: list[str]) -> list | None:
+    """HAL's careers page is an Angular app; the JSON API it calls lists the same notices. None on failure."""
+    try:
+        if not http.allowed(src["api"]):
+            raise PermissionError("robots.txt")
+        rows = http.s.post(src["api"], data={"lang": "en"}, timeout=http.timeout).json().get("career") or []
+    except Exception as exc:
+        errors.append(f"{src['id']}: careers API failed ({type(exc).__name__}) → check manually: {src['url']}")
+        return None
+    return [pages.Link(src["url"], f"{src['url']}#{c['id']}", " ".join(str(c.get("title", "")).split()),
+                       f"{c.get('division', '')} · {c.get('floated_date', '')} · {c.get('activeupto', '')}")
+            for c in rows if c.get("id") and c.get("title")]
+
+
 def scan(db: DB, errors: list[str], baseline_new: bool = False) -> list[Job]:
     import datetime as dt
     g = config.cfg("govt")
@@ -94,7 +108,10 @@ def scan(db: DB, errors: list[str], baseline_new: bool = False) -> list[Job]:
     for src in g.get("sources", []):
         kind = src.get("kind", "central")
         before = len(out)
-        for link in pages.watch(db, http, src["url"], include, exclude, errors, baseline_new):
+        links = hal_links(http, src, errors) if src.get("api") else None
+        if src.get("api") and links is None:
+            continue
+        for link in pages.watch(db, http, src["url"], include, exclude, errors, baseline_new, links):
             if not _notice_like(link, include) or link.href.rstrip("/") == src["url"].rstrip("/"):
                 continue
             if db.c.execute("SELECT 1 FROM jobs WHERE url=? AND details NOT IN ('{}', '') AND deadline IS NOT NULL",

@@ -29,3 +29,6 @@ hunt = "jobhunter.cli:main"
 
 [tool.setuptools]
 packages = ["jobhunter", "jobhunter.sources", "jobhunter.apply"]
+
+[tool.setuptools.package-data]
+jobhunter = ["certs/*.pem"]

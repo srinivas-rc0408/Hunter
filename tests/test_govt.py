@@ -174,6 +174,57 @@ class Links(unittest.TestCase):
         self.assertEqual(notice_title(Link("p", "h", "Advt No.15-2026.pdf", "row")), "Advt No.15-2026.pdf")
 
 
+class BrokenBoards(unittest.TestCase):
+    """Boards that read as 'baseline saved' every scan while returning nothing (found 2026-11-26)."""
+
+    class Resp:
+        def __init__(self, text="", data=None):
+            self.text, self.status_code, self._data = text, 200, data
+
+        def json(self):
+            return self._data
+
+    def http(self, page="", api=None):
+        from types import SimpleNamespace
+        resp = self.Resp(page, api)
+        return SimpleNamespace(allowed=lambda u: True, get=lambda u: resp, timeout=5,
+                               s=SimpleNamespace(post=lambda *a, **k: resp))
+
+    def test_js_only_page_is_an_error_not_a_baseline(self):
+        from jobhunter.sources.pages import watch
+        db, errors = DB(HOME / "data" / "boards.db"), []
+        page = "<html><body><app-root></app-root><script src='main.js'></script></body></html>"
+        self.assertEqual(watch(db, self.http(page), "https://psu.example/career", [], [], errors), [])
+        self.assertIn("no links on the page", errors[0])
+        self.assertNotIn("baseline", " ".join(errors))
+
+    def test_hal_api_notices(self):
+        from jobhunter.sources.govt import hal_links
+        from jobhunter.sources.pages import watch
+        api = {"career": [{"id": "1029", "division": "TAD, Kanpur", "title": "Advertisement for Engagement of  Degree "
+                           "Apprentices 2026-27", "floated_date": "17-11-2026", "activeupto": "01-12-2026"}]}
+        src = {"id": "hal", "url": "https://psu.example/career", "api": "https://psu.example/api/career"}
+        errors = []
+        links = hal_links(self.http(api=api), src, errors)
+        self.assertEqual(links[0].text, "Advertisement for Engagement of Degree Apprentices 2026-27")
+        self.assertEqual(links[0].href, "https://psu.example/career#1029")
+        self.assertEqual(sorted(notice.iso(*m) for m in __import__("re").findall(notice.DATE, links[0].context)),
+                         ["2026-11-17", "2026-12-01"])
+        db = DB(HOME / "data" / "hal.db")
+        self.assertEqual(watch(db, None, src["url"], ["advertisement"], [], errors, links=links), [])   # baseline
+        self.assertEqual(errors, ["psu.example: baseline saved (new notices from the next scan on)"])
+        bad = self.http(api=None)
+        bad.s.post = lambda *a, **k: (_ for _ in ()).throw(ConnectionError("down"))
+        self.assertIsNone(hal_links(bad, src, errors))
+        self.assertIn("hal: careers API failed (ConnectionError)", errors[-1])
+
+    def test_ca_bundle_has_the_missing_intermediate(self):
+        from pathlib import Path as P
+        from jobhunter.util import Http, ca_bundle
+        self.assertIn("MIIG", P(ca_bundle()).read_text()[-4000:])                    # our PEM appended to certifi
+        self.assertEqual(Http().s.verify, ca_bundle())                               # verification stays on
+
+
 class Locking(unittest.TestCase):
     def test_seen_link_holds_no_write_lock(self):
         """A scan re-visiting a board must not lock the DB for the bot while it downloads PDFs."""

@@ -87,22 +87,27 @@ def find_deadline(text: str) -> str | None:
 
 
 def watch(db: DB, http: Http, url: str, include: list[str], exclude: list[str],
-          errors: list[str], baseline_new: bool = False) -> list[Link]:
-    """New relevant links on `url` since the last visit."""
-    if not http.allowed(url):
-        errors.append(f"{urlparse(url).netloc}: robots.txt disallows bots → check manually: {url}")
-        return []
-    try:
-        r = http.get(url)
-    except Exception as exc:
-        errors.append(f"{urlparse(url).netloc}: unreachable ({type(exc).__name__})")
-        return []
-    if r.status_code >= 400:
-        errors.append(f"{urlparse(url).netloc}: HTTP {r.status_code}")
-        return []
+          errors: list[str], baseline_new: bool = False, links: list[Link] | None = None) -> list[Link]:
+    """New relevant links on `url` since the last visit. `links`: already read (a site's JSON API), skip the fetch."""
+    if links is None:
+        if not http.allowed(url):
+            errors.append(f"{urlparse(url).netloc}: robots.txt disallows bots → check manually: {url}")
+            return []
+        try:
+            r = http.get(url)
+        except Exception as exc:
+            errors.append(f"{urlparse(url).netloc}: unreachable ({type(exc).__name__})")
+            return []
+        if r.status_code >= 400:
+            errors.append(f"{urlparse(url).netloc}: HTTP {r.status_code}")
+            return []
+        links = extract_links(r.text, url)
+        if not links:          # a JavaScript-only page or a bot wall: nothing to remember, so never "baseline saved"
+            errors.append(f"{urlparse(url).netloc}: no links on the page (JavaScript-only or blocked) → check manually: {url}")
+            return []
     first = not db.page_known(url)
     fresh = []
-    for link in extract_links(r.text, url):
+    for link in links:
         is_new = db.link_is_new(url, link.href, link.text)
         if (baseline_new or (is_new and not first)) and relevant(link, include, exclude):   # baseline_new: all on the page
             fresh.append(link)
