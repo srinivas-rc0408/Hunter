@@ -63,3 +63,5 @@
 {"id": 63, "cat": "sheet", "text": "put 'asked Rahul for referral' in Referral for ab12cd34", "tool": "sheet_set", "args": {"id": "ab12cd34", "column": "referral", "value": "asked rahul for referral"}}
 {"id": 64, "cat": "sheet", "text": "remove e255e647 from the sheet", "tool": "sheet_remove_row", "args": {"id": "e255e647"}}
 {"id": 65, "cat": "sheet", "text": "show hidden", "tool": "sheet_show_hidden", "args": {}}
+{"id": 66, "cat": "salary", "text": "which genai job pays the most?", "tool": "search_jobs", "args": {"query": "genai"}}
+{"id": 67, "cat": "general", "text": "how do I prepare for an ML interview?", "tool": "none", "args": {}}

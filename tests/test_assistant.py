@@ -96,6 +96,23 @@ class Chat(unittest.TestCase):
         self.assertIn(f"/check_{self.genai.id[:8]}", text)          # and the job it is about
         self.assertEqual(sum("Tool results" in c[1] for c in self.fake.calls), 1)
 
+    def test_pays_most_always_reads_the_postings(self):
+        self.fake.plans = {"which genai job pays the most?": {"tool": "salary_estimate", "args": {"role": "GenAI"}}}
+        text, _ = self.say("which genai job pays the most?")
+        self.assertIn("Tool results", self.fake.calls[0][1])        # search ran before the model was asked
+        self.assertIn(f"/check_{self.genai.id[:8]}", text)
+        from jobhunter.assistant import PAYS
+        for q in ("which ML intern jobs pay the most", "best paid genai jobs", "what are the data science roles that offer the highest pay"):
+            self.assertTrue(PAYS.search(q), q)
+        self.assertFalse(PAYS.search("how much would a fresher AI engineer get at Zoho?"))
+
+    def test_advice_is_answered_one_tip_per_line(self):
+        tips = "• Revise DSA and core ML concepts.; • Practise explaining your projects."
+        self.fake.plans = {"how do i prepare for an ml interview?": {"answer": tips}}
+        text, _ = self.say("how do I prepare for an ML interview?")
+        self.assertIn("• Revise DSA and core ML concepts.\n• Practise explaining your projects.", text)
+        self.assertNotIn("not found", text)                         # advice naming skills isn't cut
+
     def test_show_me_is_just_the_cards(self):
         self.fake.plans = {"show me genai jobs": {"tool": "search_jobs", "args": {"query": "GenAI"}}}
         text, _ = self.say("show me genai jobs")

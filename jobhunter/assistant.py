@@ -370,12 +370,13 @@ SYSTEM = """You are the job-search assistant of one Indian fresher. Reply with O
 Facts come ONLY from tool results and the chat. Never invent requirements, pay, salaries, dates, companies or facts about the user.
 If a posting doesn't say something, answer "not in the posting". A company fact (what it does, size, founded, offices,
 funding, people) only with the source URL the tool gave; no URL in the tool results → answer "not found".
-Pay questions: use salary_estimate (it is marked as an estimate); never state a number yourself.
-If no tool does what the user asks, answer that you can't do that yet. 
+Pay questions: use salary_estimate; never state a number yourself.
+"Which <role> job pays most": search_jobs with the role.
+Advice (interview prep, what to learn): 3-4 "• " general tips, no numbers or firms. Else if no tool fits: can't do that yet.
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
 search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
 Follow-ups ("same in Mysuru", "the first one", "mark it applied"): repeat the last tool call or id from the chat with the change.
-After "Tool results": answer in ≤4 short sentences from them only, naming job ids; the cards are shown, don't list them.
+After "Tool results": ≤4 short sentences from them only, naming job ids; don't list the cards.
 Kannada-English: alli=in, yaavudu=which, ee vaara=this week, sambala=salary, maadide=did.
 Tools:
 """
@@ -453,6 +454,10 @@ NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\
 QUESTION = re.compile(r"\?\s*$|^(?:which|what|how|why|when|is|are|does|do|did|can|should|will|compare|tell me (?:if|whether|why))\b"
                       r"|\b(?:best one|most|highest|lowest|cheapest|better|vs\.?|versus|worth|enough|chance)\b", re.I)
 LISTING = re.compile(r"^(?:show|list|find|search|get|send|give|top)\b|^(?:what|which|any) (?:new )?(?:jobs|roles|openings|internships)\b(?!.*\b(?:most|best|highest)\b)", re.I)
+# "which genai job pays the most?": always the postings' own pay (the model kept reaching for salary_estimate)
+PAYS = re.compile(r"^(?:which|what)(?: one| is the| are the)? (?P<r>.+?) (?:jobs?|roles?|internships?|openings?) "
+                  r"(?:that |which )?(?:pays?|offers?|has) (?:the )?(?:most|best|highest)|^(?:the )?(?:best|highest)[- ]pa(?:id|ying) "
+                  r"(?P<r2>.+?) (?:jobs?|roles?|internships?|openings?)", re.I)
 MORE = re.compile(r"^(?:show )?more\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
 
@@ -511,6 +516,11 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         return _finish(db, ctx, t, *hit)
     hist = history(db, chat)
     steps: list[dict] = []
+    if m := PAYS.search(t):
+        name, args = "search_jobs", {"query": m["r"] or m["r2"]}
+        res = run_tool(db, ctx, name, args)
+        steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card"),
+                      "show": (res.get("show") or [])[:3]})
     for _ in range(STEPS):
         raw = _ask(_prompt(t, hist, steps))
         if raw is None:
@@ -521,6 +531,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
                 steps.append({"tool": obj["tool"], "error": "no such tool"})
                 continue
             ans = _grounded(str((obj or {}).get("answer") or llm.clean(raw)), t, steps)
+            ans = re.sub(r"(?:[;,]\s*|\s+)(?=• )", "\n", ans).strip()   # models run "• a; • b" on one line
             last = steps[-1] if steps else {}
             extra = [last["card"]] if last.get("card") else [x for x in last.get("show") or [] if x != "__SHEET__"]
             remember(db, chat, "user", t)
