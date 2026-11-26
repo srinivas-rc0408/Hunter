@@ -103,6 +103,43 @@ class DryRun(unittest.TestCase):
         self.assertEqual(DB().count("1=1"), before)                        # the real DB never saw them
 
 
+class SourceCrash(unittest.TestCase):
+    """26 Nov 2026 live scan: one Ashby board timed out and the whole scan died. Never again."""
+
+    def test_a_crashing_source_is_an_error_line_not_the_end(self):
+        from jobhunter import pipeline
+        ok = [Job("ML Intern", "Acme AI Labs", "Bengaluru", url="https://x.example/ok", source="linkedin",
+                  description="Python freshers", posted_at=str(dt.date.today()))]
+        with mock.patch.object(pipeline.boards, "scan", lambda errors, light=False: list(ok)), \
+                mock.patch.object(pipeline.ats, "scan", side_effect=TimeoutError("The read operation timed out")):
+            r = pipeline.run(only={"boards", "ats"}, dry=True)
+        self.assertEqual(r["found"], 1)
+        self.assertTrue(any("company boards crashed: TimeoutError" in e for e in r["errors"]), r["errors"])
+
+    def test_one_bad_company_board_keeps_the_others(self):
+        from jobhunter.sources import ats
+
+        class Scout:
+            class Fetcher:
+                def __init__(self, **k):
+                    pass
+
+            @staticmethod
+            def fetch_board(fetcher, board, today, roles, details=12, notes=None):
+                if board["token"] == "slowco":
+                    raise TimeoutError("The read operation timed out")
+                return [{"title": "ML Intern", "company": "Goodco", "location": "Bengaluru, India", "url": "https://x/1"}]
+        boards = [{"type": "ashby", "company": "Slowco", "token": "slowco"},
+                  {"type": "greenhouse", "company": "Goodco", "token": "goodco"}]
+        errors = []
+        with mock.patch.object(ats, "scout", lambda: Scout), \
+                mock.patch.object(ats.config, "cfg", lambda n: {"boards": boards} if n == "companies" else {}), \
+                mock.patch("jobhunter.companies.watchlist", lambda: []):
+            jobs = ats.scan(errors)
+        self.assertEqual([j.company for j in jobs], ["Goodco"])
+        self.assertTrue(any("slowco" in e and "TimeoutError" in e for e in errors), errors)
+
+
 class Hygiene(unittest.TestCase):
     """The cleanup's rules, kept: every swallowed error is logged, and no module grows past 600 lines."""
 

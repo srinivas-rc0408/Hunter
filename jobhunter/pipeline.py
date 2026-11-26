@@ -61,6 +61,16 @@ def save(db: DB, jobs: list[Job]) -> list[str]:
     return new_ids
 
 
+def _source(name: str, errors: list[str], fn) -> list:
+    """One source's jobs; a source that crashes is an error line, never the end of the scan."""
+    try:
+        return fn()
+    except Exception as exc:
+        errors.append(f"{name} crashed: {type(exc).__name__}: {str(exc)[:160]}")
+        console.print(f"[red]{name} crashed ({type(exc).__name__}); the other sources carry on[/]")
+        return []
+
+
 def alert(db: DB, new_ids: list[str]) -> int:
     """Telegram for the new jobs worth it (scan and Naukri alert emails alike). Returns how many were sent."""
     sc = config.cfg("search").get("scoring", {})
@@ -105,22 +115,22 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     t0 = dt.datetime.now()
     if "boards" in want:
         console.print("[bold]Job boards[/] (LinkedIn/Indeed/Naukri/Google)")
-        private += boards.scan(errors, light=light)
+        private += _source("job boards", errors, lambda: boards.scan(errors, light=light))
     if "ats" in want and s.get("company_boards", {}).get("enabled", True):
         console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
-        private += ats.scan(errors, offline=offline_ats)
+        private += _source("company boards", errors, lambda: ats.scan(errors, offline=offline_ats))
     if "intern" in want and not light:
         console.print("[bold]Internships + fresher sites[/] (Internshala/Unstop/Wellfound)")
-        private += intern.scan(errors)
+        private += _source("internship sites", errors, lambda: intern.scan(errors))
     found = len(private)
     new_ids = save(db, private)
     extra: list[Job] = []
     if "pages" in want:
         console.print("[bold]Watched career pages[/] (Birla …)")
-        extra += watch_careers(db, errors)
+        extra += _source("career pages", errors, lambda: watch_careers(db, errors))
     if "govt" in want and s.get("govt", {}).get("enabled", True):
         console.print("[bold]Government radar[/]")
-        extra += govt.scan(db, errors, baseline_new=baseline_new)
+        extra += _source("govt radar", errors, lambda: govt.scan(db, errors, baseline_new=baseline_new))
     for j in extra:
         found += 1
         if db.upsert(j):

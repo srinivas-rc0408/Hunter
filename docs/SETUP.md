@@ -14,7 +14,7 @@ Every command is for **your Arch laptop, in fish**, from `~/jobhunter` unless it
 
 | piece | where it runs | when |
 |---|---|---|
-| Cloud radar: LinkedIn, Naukri, Indeed, Google, company boards, Birla pages, 20 govt sites | GitHub Actions (free, laptop can be off) | every 30 min, full scan every 3 h |
+| Cloud radar: LinkedIn, Indeed, Google, company boards, Birla pages, 20 govt sites (Naukri via its alert emails in `hunt sync`) | GitHub Actions (free, laptop can be off) | every 30 min, full scan every 3 h |
 | Telegram alerts for strong matches + govt notices | your phone | the moment the radar finds them |
 | **Morning brief** (best new jobs, approvals waiting, govt deadlines, GATE countdown, cloud health) | cloud radar → Telegram (laptop fallback) | 07:25 daily from GitHub; the laptop sends at 08:00 only if the cloud one didn't |
 | **Telegram bot: just type what you want** (plain sentences, or `/top`, `/govt`, `/review`, `/skip_…`, `/stats`) | laptop | always on |

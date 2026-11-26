@@ -4,7 +4,7 @@ A personal job-hunting system for an Indian final-year AI/ML engineer, built by
 Srinivas R C. It finds every relevant job within the hour it's posted, ranks it,
 tailors a one-page resume with an ATS truth check, fills the application in your own
 logged-in browser, and keeps a reviewable record of every field it submitted.
-It covers private tech jobs (LinkedIn, Naukri, Indeed, Google Jobs, and companies' own platforms:
+It covers private tech jobs (LinkedIn, Naukri (from its job alert emails; its search is captcha-blocked), Indeed, Google Jobs, and companies' own platforms:
 Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee, Keka, Darwinbox,
 Zoho Recruit, SuccessFactors, plus schema.org job data on any careers page) and Indian government jobs
 (ISRO, NIC, DRDO, BEL, IISc, C-DAC, banks, KPSC, KEA…), with reservation-aware
@@ -17,7 +17,7 @@ apply bot runs on your laptop. Claude Code is optional (`/jobhunter` plus the 11
 ```
  GitHub Actions: every 30 min, laptop off           Your laptop
  ┌──────────────────────────────────────┐ encrypted ┌──────────────────────────────────────┐
- │ LinkedIn · Naukri · Indeed · Google  │   sync    │ hunt apply                           │
+ │ LinkedIn · Indeed · Google · Naukri✉ │   sync    │ hunt apply                           │
  │ Greenhouse · Lever · Ashby · Workday │ ────────▶ │  ├ tailor resume (hunter-resume ATS) │
  │ watched career pages (diffed)        │           │  ├ LinkedIn Easy Apply / Naukri       │
  │ 20 govt notice boards + PDFs         │           │  ├ Greenhouse / Lever / Ashby / any   │

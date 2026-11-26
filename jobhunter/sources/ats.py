@@ -58,7 +58,11 @@ def scan(errors: list[str], offline: str | None = None) -> list[Job]:
         notes: list[str] = []
         board = dict(b)
         board.setdefault("token", board.get("tenant") or board["company"].lower())
-        jobs = sc.fetch_board(fetcher, board, today, roles, details=12, notes=notes)
+        try:
+            jobs = sc.fetch_board(fetcher, board, today, roles, details=12, notes=notes)
+        except Exception as exc:                  # one slow or broken board (timeout, bad JSON) never stops the rest
+            errors.append(f"{b.get('type')} {board['token']}: {type(exc).__name__}: {str(exc)[:120]}")
+            continue
         errors.extend(notes)
         for j in jobs:
             loc = (j.get("location") or "").lower()
