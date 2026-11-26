@@ -39,8 +39,8 @@ def save(db: DB, jobs: list[Job]) -> list[str]:
         score(j)
         if j.status != "filtered" and not db.c.execute("SELECT 1 FROM jobs WHERE id=?", (j.id,)).fetchone():
             why = None
-            if j.posted_at and str(j.posted_at)[:10] < str(old_cut):
-                why = f"old posting (posted {str(j.posted_at)[:10]})"
+            if j.posted_at and str(j.posted_at)[:10] < str(old_cut) and not (j.deadline and j.deadline >= str(dt.date.today())):
+                why = f"old posting (posted {str(j.posted_at)[:10]})"   # an internship still taking applications stays
             elif old := db.find_repost(j.company, j.title, j.location):
                 db.add_url(old, j.url)
                 j.flags.append("repost")

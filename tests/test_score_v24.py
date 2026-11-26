@@ -122,6 +122,11 @@ class SaveRules(unittest.TestCase):
         fresh = Job("AI Engineer", "Acme", "Bengaluru", url="https://x.example/2", posted_at=str(dt.date.today()))
         self.save(self.db, [fresh])
         self.assertEqual(self.db.get(fresh.id)["status"], "new")
+        # an old internship still taking applications (apply-by in the future) is kept
+        open_ = Job("ML Intern", "Acme", "Bengaluru", url="https://x.example/3", posted_at=old,
+                    deadline=str(dt.date.today() + dt.timedelta(days=5)))
+        self.save(self.db, [open_])
+        self.assertNotEqual(self.db.get(open_.id)["status"], "filtered")
 
     def test_repost_folds_into_old_row(self):
         a = Job("Machine Learning Engineer", "Sarvam AI Technologies", "Bengaluru", url="https://x.example/a",
