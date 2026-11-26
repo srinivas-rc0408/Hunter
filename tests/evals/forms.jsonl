@@ -1,0 +1,40 @@
+{"q": "Total years of experience", "type": "number", "options": [], "field": "total_exp"}
+{"q": "Notice period", "type": "select", "options": ["Immediate", "15 days", "30 days", "60 days", "90 days"], "field": "notice"}
+{"q": "Have you completed your Bachelor's degree?", "type": "radio", "options": ["Yes", "No"], "field": "degree"}
+{"q": "Year of graduation", "type": "number", "options": [], "field": "grad_year"}
+{"q": "Graduation CGPA (out of 10)", "type": "text", "options": [], "field": "cgpa"}
+{"q": "B.Tech percentage", "type": "text", "options": [], "field": "cgpa"}
+{"q": "Current CTC (in LPA)", "type": "number", "options": [], "field": "current_ctc"}
+{"q": "Expected CTC", "type": "text", "options": [], "field": "expected_ctc"}
+{"q": "Are you comfortable commuting to our Bengaluru office 5 days a week?", "type": "radio", "options": ["Yes", "No"], "field": "wfo"}
+{"q": "Are you willing to relocate?", "type": "radio", "options": ["Yes", "No"], "field": "relocate"}
+{"q": "Are you legally authorized to work in India?", "type": "radio", "options": ["Yes", "No"], "field": "authorized"}
+{"q": "Will you now or in the future require visa sponsorship?", "type": "radio", "options": ["Yes", "No"], "field": "sponsorship"}
+{"q": "Gender", "type": "select", "options": ["Male", "Female", "Other", "Prefer not to say"], "field": "diversity", "private": true}
+{"q": "Category (General / OBC / SC / ST)", "type": "select", "options": ["General", "OBC", "SC", "ST", "EWS"], "field": "diversity", "private": true}
+{"q": "Do you have a disability?", "type": "radio", "options": ["Yes", "No", "Prefer not to say"], "field": "diversity", "private": true}
+{"q": "Religion", "type": "select", "options": ["Hindu", "Muslim", "Christian", "Sikh", "Other"], "field": "diversity", "private": true}
+{"q": "Marital status", "type": "select", "options": ["Single", "Married"], "field": "diversity", "private": true}
+{"q": "Caste", "type": "text", "options": [], "field": "diversity", "private": true}
+{"q": "Are you a person with benchmark disability (PwBD)?", "type": "radio", "options": ["Yes", "No"], "field": "diversity", "private": true}
+{"q": "Date of birth", "type": "text", "options": [], "field": "dob"}
+{"q": "For how many months are you available for the internship?", "type": "select", "options": ["3", "6", "12"], "field": "intern_months"}
+{"q": "When can you start?", "type": "text", "options": [], "field": "notice"}
+{"q": "Do you have a laptop with a stable internet connection?", "type": "radio", "options": ["Yes", "No"], "field": "laptop"}
+{"q": "Are you open to working in rotational shifts?", "type": "radio", "options": ["Yes", "No"], "field": "shifts"}
+{"q": "Are you okay signing a 2-year service bond?", "type": "radio", "options": ["Yes", "No"], "field": "bond"}
+{"q": "Languages known", "type": "text", "options": [], "field": "languages"}
+{"q": "LinkedIn Profile URL", "type": "text", "options": [], "field": "linkedin"}
+{"q": "GitHub profile", "type": "text", "options": [], "field": "github"}
+{"q": "Portfolio / personal website", "type": "text", "options": [], "field": "portfolio"}
+{"q": "Pincode", "type": "number", "options": [], "field": "pincode"}
+{"q": "Current city", "type": "text", "options": [], "field": "city"}
+{"q": "How did you hear about this opportunity?", "type": "select", "options": ["LinkedIn", "Naukri", "Friend", "Company website"], "field": "hear"}
+{"q": "Referral name (employee who referred you)", "type": "text", "options": [], "field": "referred"}
+{"q": "Why should we hire you?", "type": "text", "options": [], "field": "cover_letter"}
+{"q": "Do you have any active backlogs?", "type": "radio", "options": ["Yes", "No"], "field": "backlogs"}
+{"q": "Name of your college / university", "type": "text", "options": [], "field": "college"}
+{"q": "Branch / Specialization", "type": "text", "options": [], "field": "branch"}
+{"q": "Have you previously worked with us?", "type": "radio", "options": ["Yes", "No"], "field": "prev_employed"}
+{"q": "How many years of experience do you have with Python?", "type": "number", "options": [], "field": "skill_years"}
+{"q": "What is your favourite colour?", "type": "text", "options": [], "field": "unknown"}

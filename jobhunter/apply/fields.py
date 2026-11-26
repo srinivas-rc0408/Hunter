@@ -40,8 +40,10 @@ class Answer:
 RULES: list[tuple[str, str]] = [
     ("captcha", r"captcha|i m not a robot|verify you are human"),
     ("otp", r"\botp\b|one time password|verification code"),
+    # private (gender, caste/category, religion, disability, marital): always left for you, never from the profile
     ("diversity", r"\brace\b|ethnic|veteran|disabilit|\bcaste\b|religion|pronoun|sexual orientation|"
-                  r"reservation category|social category|community category"),
+                  r"reservation category|social category|community category|^(?:your )?category\b|\bobc\b|"
+                  r"\bpwb?d\b|differently abled|physically (?:challenged|handicapped)|gender|\bsex\b|marital"),
     ("father_name", r"father|guardian s name|guardian name|parent s name|parent name"),
     ("mother_name", r"mother"),
     ("spouse", r"spouse|husband|wife"),
@@ -57,9 +59,7 @@ RULES: list[tuple[str, str]] = [
     ("phone", r"phone|mobile|contact (?:no|number)|whatsapp|\bcell\b"),
     ("dob", r"date of birth|\bdob\b|birth ?date|birthday|born on"),
     ("age", r"^age\b|\byour age\b|current age"),
-    ("gender", r"gender|\bsex\b"),
     ("salutation", r"salutation|^title$|prefix"),
-    ("marital", r"marital"),
     ("nationality", r"nationality|citizenship"),
     ("linkedin", r"linked ?in"),
     ("github", r"git ?hub"),
@@ -91,7 +91,8 @@ RULES: list[tuple[str, str]] = [
     ("expected_ctc", r"expected (?:ctc|salary|compensation|package|stipend)|salary expectation|desired (?:salary|pay)|"
                      r"stipend expectation|compensation expectation"),
     ("relocate", r"relocat"),
-    ("wfo", r"work(?:ing)? from (?:the )?office|on ?site|in ?office|hybrid|commute|days a week in"),
+    ("wfo", r"work(?:ing)? from (?:the )?office|on ?site|in ?office|hybrid|commute|"
+            r"commuting to [\w' ]*office|days a week in"),   # "commuting to this job's location" stays unknown
     ("authorized", r"authori[sz]ed to work|legally (?:eligible|authori[sz]ed|allowed)|right to work|eligible to work|work permit"),
     ("sponsorship", r"sponsor|visa"),
     ("hear", r"how did you (?:hear|find|learn|come)|where did you (?:hear|find)|source of (?:application|referral)|referral source"),
@@ -277,7 +278,8 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
     if key in ("captcha", "otp"):
         return Answer(key, None, "none", "needs a human")
     if key == "diversity":
-        v = (prof.get("voluntary") or {}).get("diversity_category")
+        # your category answers only a caste/category question: never a gender, religion or disability one
+        v = (prof.get("voluntary") or {}).get("diversity_category") if re.search(r"caste|categor", norm(label)) else None
         return Answer(key, v, "profile" if v else "none", "voluntary: left for you")
     if key == "first_name":
         return P(prof.get("first_name"))
@@ -322,13 +324,9 @@ def answer(label: str, ftype: str = "text", placeholder: str = "", options: list
         dob = dob if isinstance(dob, dt.date) else dt.date.fromisoformat(str(dob))
         t = dt.date.today()
         return P(str(t.year - dob.year - ((t.month, t.day) < (dob.month, dob.day))))
-    if key == "gender":
-        return P(prof.get("gender"))
     if key == "salutation":
         g = (prof.get("gender") or "").lower()
         return P("Mr." if g == "male" else ("Ms." if g == "female" else None))
-    if key == "marital":
-        return P(prof.get("marital_status"))
     if key == "nationality":
         return P(prof.get("nationality"))
     if key in ("linkedin", "github", "portfolio"):

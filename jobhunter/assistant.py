@@ -554,6 +554,8 @@ Pay questions: use salary_estimate (it is marked as an estimate); never state a 
 If no tool does what the user asks, answer that you can't do that yet. 
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
 search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
+Follow-ups ("same in Mysuru", "the first one", "mark it applied"): repeat the last tool call or id from the chat with the change.
+Kannada-English: alli=in, yaavudu=which, ee vaara=this week, sambala=salary, maadide=did.
 Tools:
 """
 
@@ -604,10 +606,18 @@ FAST = [
     (re.compile(r"^(?:any |are there )?(?:any )?govt?(?:ernment)? (?:jobs?|posts?|notices?) (?:closing|ending|with deadlines?) "
                 r"(?:soon|this week)\??$", re.I),
      lambda m: ("govt", {"closing_within_days": 7})),
-    (re.compile(r"^mark ([0-9a-f]{6,16}) as (\w+)\.?$", re.I), lambda m: ("set_status", {"id": m.group(1), "status": m.group(2)})),
-    (re.compile(r"^(?:my )?(?:stats|numbers)\??$", re.I), lambda m: ("stats", {})),
+    (re.compile(r"^mark ([0-9a-f]{6,16}) (?:as )?(\w+)\.?$", re.I), lambda m: ("set_status", {"id": m.group(1), "status": m.group(2)})),
+    (re.compile(r"^(?:i )?(?:have )?applied (?:to |for )?([0-9a-f]{6,16})\.?$|^([0-9a-f]{6,16}) (?:ge )?applied\.?$", re.I),
+     lambda m: ("set_status", {"id": m.group(1) or m.group(2), "status": "applied"})),
+    (re.compile(r"^(?:i )?got (?:an )?interview(?: call)? (?:for|from|at|with) ([0-9a-f]{6,16})\W*$", re.I),
+     lambda m: ("set_status", {"id": m.group(1), "status": "interview"})),
+    (re.compile(r"^([0-9a-f]{6,16}) rejected me\W*$|^(?:i )?got rejected (?:by|from|at) ([0-9a-f]{6,16})\W*$", re.I),
+     lambda m: ("set_status", {"id": m.group(1) or m.group(2), "status": "rejected"})),
+    (re.compile(r"^(?:skip|hide|not interested in) ([0-9a-f]{6,16})\.?$", re.I), lambda m: ("skip", {"id": m.group(1)})),
+    (re.compile(r"^(?:show )?(?:my )?(?:stats|numbers|progress)\??$|^how am i doing\??$", re.I), lambda m: ("stats", {})),
     (re.compile(r"^(?:is|would) ([0-9a-f]{6,16}) (?:be )?a (?:good |strong )?(?:fit|match)(?: for me)?\??$|"
-                r"^(?:explain|how do i fit|do i fit|fit for) ([0-9a-f]{6,16})\??$", re.I),
+                r"^(?:explain|how do i fit|do i fit|fit for|fit|am i (?:a )?fit for|how well do i (?:fit|match)|"
+                r"should i apply (?:to|for)) ([0-9a-f]{6,16})\s*\??$", re.I),
      lambda m: ("explain_job", {"id": m.group(1) or m.group(2)})),
     (re.compile(r"^what (?:does|do|would) (?:the )?(.+?) (?:job|role|posting|one|opening) (?:need|want|ask for|require)"
                 r"(?: that)? i (?:don'?t|do not|dont) have\??$|"
@@ -648,6 +658,178 @@ def _put(db: DB, t: str) -> tuple[str, dict] | None:
     quoted = bool(re.match(Q, m.group(1).strip()))
     on_sheet = tracker.column_name(db, column) or column.lower() in {h.lower() for h in tracker.H + tracker.TAIL}
     return ("sheet_set", {"id": m.group(3), "column": column, "value": value}) if on_sheet or quoted else None
+
+
+# ── the common asks, typos and Kannada-English included, without the model (tests/evals/chat.jsonl) ──
+ROLE = {"python", "java", "javascript", "react", "node", "sql", "ml", "ai", "genai", "llm", "llms", "nlp", "cv", "ds",
+        "data", "scientist", "science", "analyst", "analytics", "engineer", "developer", "intern", "interns",
+        "internship", "internships", "fresher", "freshers", "trainee", "machine", "learning", "deep", "computer",
+        "vision", "generative", "backend", "frontend", "fullstack", "full", "stack", "django", "fastapi", "flask",
+        "langgraph", "langchain", "rag", "mlops", "devops", "cloud", "software", "research", "sde", "pytorch",
+        "tensorflow", "opencv", "agentic", "agents", "automation", "testing", "embedded", "web", "mobile", "android"}
+CITIES = {"blr": "Bengaluru", "bengaluru": "Bengaluru", "bangalore": "Bengaluru", "mysuru": "Mysuru", "mysore": "Mysuru",
+          "mangaluru": "Mangaluru", "mangalore": "Mangaluru", "karnataka": "Karnataka", "hyderabad": "Hyderabad",
+          "chennai": "Chennai", "pune": "Pune", "mumbai": "Mumbai", "delhi": "Delhi", "india": "India", "remote": "Remote"}
+NOUN = r"(?:jobs?|roles?|openings?|positions?|vacanc(?:y|ies)|opportunit(?:y|ies)|posts?|notices?)"
+WORDS = ROLE | set(CITIES) | {"jobs", "roles", "openings", "positions", "government", "govt", "notices", "closing",
+                              "salary", "stipend", "today", "week", "posted", "search", "show", "find", "applied"}
+KANNADA = [(r"\bee vaara(?:da)?\b", "this week"), (r"\b(?:ivattu|indu)\b", "today"), (r"\b(?:yaavudu|yavudu|yaava)\b", "which"),
+           (r"\bfit (?:aagutta|agutta|aagutte|agutte)\b", "fit"), (r"\b(?:sambala|sambla)\b", "salary"),
+           (r"\bhosa\b", "new"), (r"\b(?:kelasa|kelsa)\b", "jobs"), (r"\bapply (?:maadide|madide|maadidini|madidini)\b", "applied"),
+           (r"\b(?:ide|ideya|idya|nanage|nange|estu|eshtu|sigutte|kodtare|beku|swalpa|torsu|thorisu)\b", ""),
+           (r"\b(\w+) alli\b", r"in \1")]
+
+
+def _norm(t: str) -> str:
+    """Lower case, Kannada words → English, role/city typos → the word ('pyhton devloper blr' → 'python developer blr')."""
+    import difflib
+    n = re.sub(r"[?!.,]+(?=\s|$)", " ", (t or "").lower())
+    for rx, to in KANNADA:
+        n = re.sub(rx, to, n)
+    out = []
+    for w in n.split():
+        if len(w) >= 4 and w.isalpha() and w not in WORDS and w not in STOP:
+            w = (difflib.get_close_matches(w, WORDS, 1, 0.75) or [w])[0]
+        out.append(w)
+    return " ".join(out)
+
+
+def _when(n: str) -> tuple[str, int | None]:
+    """'posted this week' / 'today' / 'in the last 3 days' → days; the rest of the message."""
+    for rx, d in ((r"\b(?:posted )?(?:this|last|past) week\b", 7), (r"\b(?:posted )?today\b", 1)):
+        if re.search(rx, n):
+            return re.sub(rx, " ", n), d
+    if m := re.search(r"\b(?:posted )?(?:in )?(?:the )?(?:last|past) (\d{1,2}) days\b", n):
+        return n[:m.start()] + " " + n[m.end():], int(m.group(1))
+    return n, None
+
+
+def _search(n: str) -> tuple[str, dict, str] | None:
+    """'find ML intern jobs in Bengaluru posted this week', 'any genai roles at zoho', 'search mlops'."""
+    n, days = _when(n)
+    where = None
+    if m := re.search(rf"(?:\b(?:in|at|near|around|from) )?\b({'|'.join(CITIES)})\b", n):
+        where, n = CITIES[m.group(1)], n[:m.start()] + " " + n[m.end():]
+    n = " ".join(n.split())
+    verb = re.match(r"^(?:can you |please |hey )*(?:find|search(?: for)?|look for|show|list|get|give)(?: me)?(?: some| any| all)? ", n)
+    n = re.sub(r"^(?:can you |please |hey )*(?:(?:find|search(?: for)?|look for|show|list|get|give)(?: me)?|any|are there(?: any)?|"
+               r"which|what are the|new)(?: some| any| all| new)? ", "", n)
+    company = ""
+    if m := re.search(r" (?:at|with|in) ([a-z][\w&.-]*)$", n):
+        company, n = m.group(1), n[:m.start()]
+    n = re.sub(r"( for freshers?| for me| available| open)+$", "", n)
+    if m := re.fullmatch(rf"(.+?) (internships?|{NOUN})", n):
+        role = m.group(1) + (" intern" if m.group(2).startswith("internship") and "intern" not in m.group(1) else "")
+    elif verb or re.search(r"\binterns?(?:hips?)?$", n):
+        role = re.sub(r"\binternships?$", "intern", n)
+    else:
+        return None
+    if not role or not set(role.split()) & ROLE or not set(role.split()) <= ROLE | {"and", "or", "/", "a", "an"} | set(ALIASES):
+        return None
+    args: dict = {"query": " ".join([role, company]).strip(), "location": "India" if company and not where else where or "Karnataka"}
+    if days:
+        args["days"] = days
+    return "search_jobs", args, ""
+
+
+def _govt(n: str) -> tuple[str, dict, str] | None:
+    """'govt jobs closing this week', 'karnataka govt notices', 'which govt job this week' (ee vaara yaavudu govt job ide)."""
+    if not re.search(r"\bgov(?:t|ernment)\b", n):
+        return None
+    args: dict = {}
+    if m := re.search(r"\b(?:closing|ending|last date|deadlines?)(?: (?:soon|this week|in (\d{1,2}) days|within (\d{1,2}) days))?\b", n):
+        args["closing_within_days"] = int(m.group(1) or m.group(2) or 7)
+        n = n[:m.start()] + " " + n[m.end():]
+    if m := re.search(r"\b(karnataka|central|state|psu|bank|railway)\b", n):
+        args["filter"] = m.group(1)
+        n = n[:m.start()] + " " + n[m.end():]
+    rest = re.sub(rf"\b(?:gov(?:t|ernment)|{NOUN}|any|are|there|show|me|list|which|what|the|in|new|this week|soon|for)\b", " ", n)
+    return ("govt", args, "") if not rest.strip() else None
+
+
+SALARY2 = re.compile(r"^(?:what(?:'s| is) )?(?:the )?(?:salary|pay|stipend|ctc) (?:for|of) (?:a |an )?(.+?) (?:in|at) (.+?)$|"
+                     r"^(?:what(?:'s| is) )?(?:the |a |an )?(.+?) (?:salary|pay|stipend|ctc)(?: for (?:a )?freshers?)?(?: (?:in|at) (.+?))?$")
+
+
+def _salary(n: str) -> tuple[str, dict, str] | None:
+    if m := re.fullmatch(r"how much (?:does|will|would) ([0-9a-f]{6,16}) pay", n):
+        return "salary_estimate", {"role": "", "id": m.group(1)}, ""
+    if not (m := SALARY2.match(n)):
+        return None
+    role, at = (m.group(1), m.group(2)) if m.group(1) else (m.group(3), m.group(4) or "")
+    if not set(role.split()) & ROLE:
+        return None
+    city = CITIES.get(at.split(",")[0].strip())
+    return "salary_estimate", {"role": role, "company": "" if city or not at else at, "location": city or "Bengaluru"}, ""
+
+
+def _more_fast(n: str) -> tuple[str, dict, str] | None:
+    words = set(n.split())
+    if words <= {"top", "best", "show", "me", "the", "give", "open", "jobs", "job", "roles", "my"} | {str(i) for i in range(1, 21)} \
+            and words & {"top", "best"}:
+        return "top_jobs", {"n": int(next((w for w in n.split() if w.isdigit()), 5))}, ""
+    if words <= {"today", "which", "new", "jobs", "job", "any", "show", "me", "posted", "what", "are", "the", "s", "latest",
+                 "what's", "today's", "in"} and words & {"today", "today's"}:
+        return "today", {}, ""
+    return None
+
+
+def _fast(db: DB, t: str) -> tuple[str, dict, str] | None:
+    """(tool, args, note) when the intent is obvious; None → the model decides. Same rules for reply() and route()."""
+    if m := SALARY.match(t):                           # "how much would a fresher AI engineer get at Zoho?"
+        lvl, role, at = (m.group(1), m.group(2), m.group(3)) if m.group(2) else (m.group(4), m.group(5), m.group(6))
+        role = (role + " intern") if (lvl or "").strip().lower() == "intern" and "intern" not in role.lower() else role
+        where = at if at.lower().split(",")[0].strip() in CITY else "Bengaluru"
+        company = "" if at.lower().split(",")[0].strip() in CITY else at
+        return "salary_estimate", {"role": role, "company": company, "location": where}, ""
+    if m := TOP_ROLE.match(t):                         # "top 5 GenAI roles at product companies"
+        where, note = "Karnataka", ""
+        extra = (m.group(3) or "").strip()
+        if extra.lower().split(",")[0].strip() in CITY or extra.lower() in ("india", "remote", "anywhere"):
+            where = extra
+        elif extra:
+            note = f"I can't tell “{extra}” from the postings: these are the best {m.group(2)} roles."
+        return "search_jobs", {"query": m.group(2), "location": where, "limit": int(m.group(1))}, note
+    if hit := _put(db, t):
+        return (*hit, "")
+    for rx, make in SHEET + FAST:
+        if m := rx.match(t):
+            return (*make(m), "")
+    n = _norm(t)
+    for rx, make in FAST:                             # the same rules after Kannada words and typos are fixed
+        if m := rx.match(n):
+            return (*make(m), "")
+    return _govt(n) or _salary(n) or _more_fast(n) or _search(n)
+
+
+def route(text: str, db: DB, chat: str = "", models: list[str] | None = None) -> tuple[str, dict] | None:
+    """(tool, args) the assistant would use for this message, nothing run: the fast paths, else the model's first JSON.
+    ("more", {}) for "more", ("none", {"answer": …}) for a plain answer, None when the model gave nothing usable."""
+    t = (text or "").strip()
+    if MORE.match(t):
+        return "more", {}
+    if hit := _fast(db, t):
+        return hit[0], hit[1]
+    ensure(db)
+    raw = _ask(_prompt(t, history(db, chat) if chat else [], []), models)
+    obj = _parse(raw) if raw else None
+    if obj is None:
+        return None
+    if "answer" in obj:
+        return "none", {"answer": str(obj["answer"])}
+    return str(obj.get("tool")), obj.get("args") or {}
+
+
+def _prompt(t: str, hist: list[tuple[str, str]], steps: list[dict]) -> str:
+    user = ("Chat so far:\n" + "\n".join(f"{r}: {x}" for r, x in hist) + "\n\n" if hist else "") + f"User: {t}"
+    if steps:
+        user += "\n\nTool results:\n" + json.dumps(steps, ensure_ascii=False, default=str)[:6000] + "\n\nNext JSON:"
+    return user
+
+
+def _ask(user: str, models: list[str] | None = None) -> str | None:
+    return llm.chat(_system(), user, temperature=0, max_tokens=500, models=models or _models(), timeout=8,
+                    provs=("nvidia",), valid=lambda x: _parse(x) is not None)
 
 
 NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\W*$", re.I)
@@ -705,34 +887,12 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             return "Nothing more to show. Ask me for a search."
         _MORE[chat] = rest[5:]
         return _join(rest[:5] + ([f"{len(rest) - 5} more: say 'more'"] if len(rest) > 5 else []))
-    if m := SALARY.match(t):                           # "how much would a fresher AI engineer get at Zoho?"
-        lvl, role, at = (m.group(1), m.group(2), m.group(3)) if m.group(2) else (m.group(4), m.group(5), m.group(6))
-        role = (role + " intern") if (lvl or "").strip().lower() == "intern" and "intern" not in role.lower() else role
-        where = at if at.lower().split(",")[0].strip() in CITY else "Bengaluru"
-        company = "" if at.lower().split(",")[0].strip() in CITY else at
-        return _finish(db, ctx, t, "salary_estimate", {"role": role, "company": company, "location": where}, "")
-    if m := TOP_ROLE.match(t):                         # "top 5 GenAI roles at product companies"
-        where, note = "Karnataka", ""
-        extra = (m.group(3) or "").strip()
-        if extra.lower().split(",")[0].strip() in CITY or extra.lower() in ("india", "remote", "anywhere"):
-            where = extra
-        elif extra:
-            note = f"I can't tell “{extra}” from the postings: these are the best {m.group(2)} roles."
-        return _finish(db, ctx, t, "search_jobs", {"query": m.group(2), "location": where, "limit": int(m.group(1))}, note)
-    if hit := _put(db, t):
-        return _finish(db, ctx, t, *hit, "")
-    for rx, make in SHEET + FAST:
-        if m := rx.match(t):
-            name, args = make(m)
-            return _finish(db, ctx, t, name, args, "")
+    if hit := _fast(db, t):
+        return _finish(db, ctx, t, *hit)
     hist = history(db, chat)
     steps: list[dict] = []
     for _ in range(STEPS):
-        user = ("Chat so far:\n" + "\n".join(f"{r}: {x}" for r, x in hist) + "\n\n" if hist else "") + f"User: {t}"
-        if steps:
-            user += "\n\nTool results:\n" + json.dumps(steps, ensure_ascii=False, default=str)[:6000] + "\n\nNext JSON:"
-        raw = llm.chat(_system(), user, temperature=0, max_tokens=500, models=_models(), timeout=8,
-                       provs=("nvidia",), valid=lambda x: _parse(x) is not None)
+        raw = _ask(_prompt(t, hist, steps))
         if raw is None:
             return FAIL
         obj = _parse(raw)
@@ -740,7 +900,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             if obj and obj.get("tool"):
                 steps.append({"tool": obj["tool"], "error": "no such tool"})
                 continue
-            ans = str((obj or {}).get("answer") or llm.clean(raw))
+            ans = _grounded(str((obj or {}).get("answer") or llm.clean(raw)), t, steps)
             card = next((s["card"] for s in reversed(steps) if s.get("card")), None)
             out = _e(ans)
             remember(db, chat, "user", t)
@@ -752,6 +912,13 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         res = run_tool(db, ctx, name, args)
         steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card")})
     return _join(["I couldn't finish that in 4 steps. Try asking more simply, or use /help."])
+
+
+def _grounded(ans: str, t: str, steps: list[dict]) -> str:
+    """Every model-written answer: a fact not in this turn's tool results, resume.yaml or your message is cut."""
+    from .grounding import check
+    from .tailor import resume_text
+    return check(ans, [json.dumps([s.get("result") for s in steps], ensure_ascii=False, default=str), resume_text(), t])
 
 
 def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str | list[str]:
@@ -784,5 +951,8 @@ def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str 
 
 
 def _models() -> list[str]:
+    """ASSISTANT_MODEL first, then the order `hunt eval` saved after a drift switch (data/evals.json), then MODELS."""
+    from .evals import saved
     pick = [m.strip() for m in (env("ASSISTANT_MODEL") or "").split(",") if m.strip()]
-    return pick + [m for m in MODELS if m not in pick][: max(0, 3 - len(pick))]
+    base = [m for m in saved().get("models") or [] if m] or MODELS
+    return pick + [m for m in base if m not in pick][: max(0, 3 - len(pick))]
