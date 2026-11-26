@@ -28,7 +28,13 @@ class Check(unittest.TestCase):
         for lie in ("It pays ₹25,000 a month.", "It needs Kubernetes.", "The last date is 15 December.",
                     "It's like the role at Infosys.", "Acme Robotics Labs runs it.", "You'd need 3 years of experience."):
             out = check("Gen Labs is hiring. " + lie, [POSTING])
-            self.assertEqual(out, f"Gen Labs is hiring. {GONE}.", lie)
+            self.assertEqual(out, f"Gen Labs is hiring.\n(1 line left out: {GONE} in the data I have)", lie)
+        self.assertEqual(check("It pays ₹99,999.", [POSTING]), GONE)          # nothing left → just "not found"
+
+    def test_advice_may_name_skills_to_learn(self):
+        tip = "Revise DSA and practise system design. Learn Kubernetes and Docker basics."
+        self.assertEqual(check(tip, ["", "Python PyTorch"], skills=False), tip)          # no tool used: advice
+        self.assertIn(GONE, check("Learn Kubernetes. It pays 9 LPA.", [""], skills=False))  # numbers still checked
 
     def test_numbers_match_loosely(self):
         for a, src in (("12,000", "12000"), ("12k", "12,000"), ("3 LPA", "300000"), ("3 lakh", "3,00,000"),

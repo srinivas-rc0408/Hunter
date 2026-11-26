@@ -98,6 +98,8 @@ class BotLink(unittest.TestCase):
     def test_pasted_link_db_part_first_then_profile(self):
         from jobhunter import bot, companies, intel
         db = DB()
+        db.c.execute("DELETE FROM jobs WHERE company='Acme Robotics'")     # test_grounding seeds one in the shared DB
+        db.c.commit()
         j = Job(title="Computer Vision Intern", company="Acme Robotics", location="Bengaluru, Karnataka, India",
                 url="https://acme.example/jobs/1", source="greenhouse", description="Python, PyTorch, OpenCV")
         db.upsert(j)

@@ -423,7 +423,8 @@ class JobCards(unittest.TestCase):
         self.assert_card(p1, max((x for x in jobs if f"/check_{x.id[:8]}" in p1), key=lambda x: 0))
 
     def test_brief_shows_full_cards_in_whole_pages(self):
-        from jobhunter.morning import as_telegram_pages, build
+        from jobhunter.morning import _state_file, as_telegram_pages, build
+        _state_file().unlink(missing_ok=True)       # an earlier test's brief in the same second hides these jobs
         db, jobs = self._db("brief.db", n=8)
         pages = as_telegram_pages(build(db=db, heartbeat=False))
         self.assertIn("Morning brief", pages[0])

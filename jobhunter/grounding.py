@@ -57,12 +57,12 @@ def _skills(text: str) -> set[str]:
     return {k.lower() for k in keywords(text)}
 
 
-def _companies(text: str) -> set[str]:
+def _companies(text: str, caps: bool = True) -> set[str]:
     """Known company names, and capitalised multi-word names ('Gen Labs', 'Acme AI Labs')."""
     low = text.lower()
     known = {*KNOWN, *(d.lower() for d in config.cfg("profile").get("dream_companies") or [])}
     out = {k for k in known if re.search(rf"(?<![\w]){re.escape(k)}(?![\w])", low)}
-    for m in CAPS.finditer(text):
+    for m in (CAPS.finditer(text) if caps else ()):      # advice: "Revise DSA" is a verb + skill, not a firm
         words = m[0].split()
         while words and words[0].lower() in LEAD:
             words = words[1:]
@@ -71,8 +71,10 @@ def _companies(text: str) -> set[str]:
     return out
 
 
-def check(reply: str, sources: list[str]) -> str:
-    """The reply with every sentence that states an unsourced number, date, skill or company replaced."""
+def check(reply: str, sources: list[str], skills: bool = True) -> str:
+    """The reply without the sentences that state an unsourced number, date, skill or company.
+    skills=False for advice (no tool was used): naming a skill to learn is advice, not a claim about a job.
+    Cut sentences are dropped (never a stray "not found." mid-reply); everything cut → "not found"."""
     src = "\n".join(str(s) for s in sources or [])
     src = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m[1], 16)), src)     # JSON's ₹ → ₹ (else '20b912,000')
     sdates, rest = _dates(src)
@@ -85,7 +87,14 @@ def check(reply: str, sources: list[str]) -> str:
             out.append(s)
             continue
         d, plain = _dates(s)
-        bad = (d - sdates or _nums(plain) - snums or _skills(s) - sskills
-               or {c for c in _companies(s) if c not in low})
-        out.append(GONE + ("." if s.rstrip()[-1:] in ".!?" else "") if bad else s)
-    return "".join(out)
+        bad = (d - sdates or _nums(plain) - snums or (skills and _skills(s) - sskills)
+               or {c for c in _companies(s, caps=skills) if c not in low})
+        out.append(None if bad else s)
+    cut = sum(1 for x in out if x is None)
+    keep = [x for x in out if x is not None]
+    text = re.sub(r"\n{3,}", "\n\n", re.sub(r"[ \t]{2,}", " ", "".join(keep))).strip()
+    if not cut:
+        return reply
+    if not re.search(r"\w", text):
+        return GONE
+    return text + f"\n({cut} line{'s' if cut > 1 else ''} left out: not found in the data I have)"

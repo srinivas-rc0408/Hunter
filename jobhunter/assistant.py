@@ -19,6 +19,7 @@ import time
 
 from . import config, llm
 from .config import env
+from .util import log
 from .db import DB, _row
 from .notify import govt_card, job_card, mode_text, pages, pay_line, when_text
 
@@ -374,6 +375,7 @@ If no tool does what the user asks, answer that you can't do that yet.
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
 search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
 Follow-ups ("same in Mysuru", "the first one", "mark it applied"): repeat the last tool call or id from the chat with the change.
+After "Tool results": answer in ≤4 short sentences from them only, naming job ids; the cards are shown, don't list them.
 Kannada-English: alli=in, yaavudu=which, ee vaara=this week, sambala=salary, maadide=did.
 Tools:
 """
@@ -447,6 +449,10 @@ def _ask(user: str, models: list[str] | None = None) -> str | None:
 
 
 NO = re.compile(r"^(?:no|n|nope|cancel|stop|don'?t|do not|never ?mind|leave it)\W*$", re.I)
+# a question wants a sentence back ("which pays most?", "how many did I apply to?"), not just cards
+QUESTION = re.compile(r"\?\s*$|^(?:which|what|how|why|when|is|are|does|do|did|can|should|will|compare|tell me (?:if|whether|why))\b"
+                      r"|\b(?:best one|most|highest|lowest|cheapest|better|vs\.?|versus|worth|enough|chance)\b", re.I)
+LISTING = re.compile(r"^(?:show|list|find|search|get|send|give|top)\b|^(?:what|which|any) (?:new )?(?:jobs|roles|openings|internships)\b(?!.*\b(?:most|best|highest)\b)", re.I)
 MORE = re.compile(r"^(?:show )?more\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
 
@@ -515,16 +521,21 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
                 steps.append({"tool": obj["tool"], "error": "no such tool"})
                 continue
             ans = _grounded(str((obj or {}).get("answer") or llm.clean(raw)), t, steps)
-            card = next((s["card"] for s in reversed(steps) if s.get("card")), None)
-            out = _e(ans)
+            last = steps[-1] if steps else {}
+            extra = [last["card"]] if last.get("card") else [x for x in last.get("show") or [] if x != "__SHEET__"]
             remember(db, chat, "user", t)
             remember(db, chat, "assistant", ans)
-            return _join([out] + ([card] if card else []))
+            return _join([_e(ans)] + extra)              # the answer first, then the jobs it is about
         name, args = obj["tool"], obj.get("args") or {}
-        if TOOLS[name][1] or name not in ("job_details",):
-            return _finish(db, ctx, t, name, args, "")    # the model's own side remarks are never shown
-        res = run_tool(db, ctx, name, args)
-        steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card")})
+        if TOOLS[name][1] or (name != "job_details" and not (QUESTION.search(t) and not LISTING.search(t))):
+            return _finish(db, ctx, t, name, args, "")    # "show me / find": the cards are the answer
+        try:
+            res = run_tool(db, ctx, name, args)
+        except Exception as exc:                          # a tool failing never silences the bot
+            log.warning("assistant: %s failed: %r", name, exc)
+            return f"⚠️ {_e(name)} failed: {_e(type(exc).__name__)}. Try the /help commands."
+        steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card"),
+                      "show": (res.get("show") or [])[:3]})
     return _join(["I couldn't finish that in 4 steps. Try asking more simply, or use /help."])
 
 
@@ -532,7 +543,8 @@ def _grounded(ans: str, t: str, steps: list[dict]) -> str:
     """Every model-written answer: a fact not in this turn's tool results, resume.yaml or your message is cut."""
     from .grounding import check
     from .tailor import resume_text
-    return check(ans, [json.dumps([s.get("result") for s in steps], ensure_ascii=False, default=str), resume_text(), t])
+    return check(ans, [json.dumps([s.get("result") for s in steps], ensure_ascii=False, default=str), resume_text(), t],
+                 skills=bool(steps))
 
 
 def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str | list[str]:

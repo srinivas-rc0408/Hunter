@@ -89,6 +89,19 @@ class Chat(unittest.TestCase):
                 assert_telegram_html(self, p)
         return "\n".join(parts), sent
 
+    def test_a_question_gets_an_answer_from_the_results_then_the_cards(self):
+        self.fake.plans = {"which genai job pays the most?": {"tool": "search_jobs", "args": {"query": "GenAI"}}}
+        text, _ = self.say("which genai job pays the most?")
+        self.assertIn("not in the posting", text)                   # the model's answer, from the tool results
+        self.assertIn(f"/check_{self.genai.id[:8]}", text)          # and the job it is about
+        self.assertEqual(sum("Tool results" in c[1] for c in self.fake.calls), 1)
+
+    def test_show_me_is_just_the_cards(self):
+        self.fake.plans = {"show me genai jobs": {"tool": "search_jobs", "args": {"query": "GenAI"}}}
+        text, _ = self.say("show me genai jobs")
+        self.assertIn(f"/check_{self.genai.id[:8]}", text)
+        self.assertFalse(any("Tool results" in c[1] for c in self.fake.calls))   # one model call: fast
+
     # ── the 12 examples ────────────────────────────────────────────────────
     def test_find_ml_intern_jobs_in_bengaluru_this_week(self):
         out, _ = self.say("find ML intern jobs in Bengaluru posted this week")
