@@ -148,6 +148,94 @@ def _text(m: email.message.Message) -> str:
     return "\n".join(BeautifulSoup(h, "html.parser").get_text(" ") for h in htm)
 
 
+
+# ── Naukri job alert emails → jobs (Naukri's search blocks scripts with a captcha; its alerts don't) ──
+NAUKRI_ALERT = re.compile(r"^(?:job.?alerts?|recommendation\w*|naukri.?alerts?|alerts?\w*)@(?:[\w-]+\.)*naukri\.com$")
+NAUKRI_JOB = re.compile(r"^https?://(?:www\.)?naukri\.com/(?:jd/)?(job-listings-[a-z0-9-]+?-(\d{6,}))(?:[?#]|$)")
+PLACE_WORDS = {"mumbai", "navi", "delhi", "new", "ncr", "noida", "greater", "gurugram", "gurgaon", "hyderabad", "chennai",
+               "pune", "kolkata", "jaipur", "ahmedabad", "kochi", "coimbatore", "indore", "chandigarh", "mohali", "remote",
+               "bhubaneswar", "lucknow", "nagpur", "thiruvananthapuram", "trivandrum", "visakhapatnam", "vadodara", "surat"}
+JOINED = {"navi", "new", "greater", "electronic"}            # "navi-mumbai" → "Navi Mumbai"
+
+
+def _html(raw: bytes) -> str:
+    m = email.message_from_bytes(raw)
+    for part in m.walk() if m.is_multipart() else [m]:
+        if part.get_content_type() == "text/html":
+            return (part.get_payload(decode=True) or b"").decode(part.get_content_charset() or "utf-8", errors="replace")
+    return ""
+
+
+def _naukri_place(slug: str, title: str) -> str:
+    """Location from the job slug ('intern-ii-antuit-inc-bengaluru-0-to-1-years'): the trailing place words."""
+    from . import config
+    places = {w for p in config.cfg("search").get("karnataka_places") or [] for w in p.lower().split()} | PLACE_WORDS
+    words = re.sub(r"-\d+-to-\d+-years$", "", slug).split("-")
+    t = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-").split("-")
+    words = words[len(t):] if words[:len(t)] == t else words
+    tail: list[str] = []
+    while words and words[-1] in places:
+        tail.insert(0, words.pop())
+    out: list[str] = []
+    for w in tail:
+        if out and out[-1].lower() in JOINED:
+            out[-1] += " " + w.title()
+        else:
+            out.append(w.title())
+    return ", ".join(out)
+
+
+def naukri_jobs(html: str, at: str | None = None) -> list:
+    """Every job card in a Naukri alert email: title, company, place, experience, pay when shown, and the clean
+    job link (tracking and your user id dropped) to apply from. Facts only from the email; missing stays empty."""
+    from bs4 import BeautifulSoup
+    from .db import Job
+    soup = BeautifulSoup(html or "", "html.parser")
+    cards, seen = [], set()
+    for a in soup.find_all("a", href=True):
+        m = NAUKRI_JOB.match(a["href"])
+        title = " ".join(a.get_text(" ").split())
+        if not m or not title or a.find("table") or m.group(2) in seen:
+            continue
+        seen.add(m.group(2))
+        cards.append((a, m, title))
+    out = []
+    for i, (a, m, title) in enumerate(cards):
+        stop = cards[i + 1][0] if i + 1 < len(cards) else None
+        texts = []
+        for el in a.find_all_next(string=True):
+            if stop is not None and el is stop.string:
+                break
+            t = " ".join(el.split())
+            if re.search(r"relevant\?|view all|recommendations|get app", t, re.I):
+                break                                  # the email's own buttons: this card is over
+            if t and t != title and not (el.parent.name == "a" and "ambitionbox" in el.parent.get("href", "")):
+                texts.append(t)
+            if len(texts) >= 8:
+                break
+        company = texts[0] if texts else ""
+        if not company:
+            continue
+        detail = " · ".join(texts[1:])
+        slug = m.group(1)[len("job-listings-"):-len(m.group(2)) - 1]
+        exp = re.search(r"(\d+)-to-(\d+)-years$", slug)
+        lo = hi = None
+        per = None
+        if pm := re.search(r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(?:Lacs?|Lakhs?|LPA)", detail, re.I):
+            lo, hi, per = float(pm[1]) * 1e5, float(pm[2]) * 1e5, "year"
+        elif pm := re.search(r"₹\s*([\d,]+)(?:\s*-\s*₹?\s*([\d,]+))?\s*(?:/|per)\s*month", detail, re.I):
+            lo, hi, per = float(pm[1].replace(",", "")), float((pm[2] or pm[1]).replace(",", "")), "month"
+        intern = bool(re.search(r"\bintern(?:ship)?s?\b", f"{title} {detail}", re.I))
+        desc = "\n".join(x for x in (f"Experience: {exp[1]}-{exp[2]} years" if exp else "", detail,
+                                      "From a Naukri job alert email.") if x)
+        out.append(Job(title=title, company=company, location=_naukri_place(slug, title),
+                       url=f"https://www.naukri.com/{m.group(1)}", source="naukri", description=desc,
+                       posted_at=(at or iso())[:10], job_type="internship" if intern else None,
+                       is_remote="remote" in slug.split("-"), pay_min=lo, pay_max=hi, pay_period=per,
+                       currency="INR" if lo else None))
+    return out
+
+
 def parse(uid: str, raw: bytes) -> Msg:
     m = email.message_from_bytes(raw)
     name, addr = email.utils.parseaddr(_dec(m.get("From")))
@@ -345,6 +433,7 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
     urgent: list[Msg] = []
     # 1) headers only, 200 at a time: sender + subject decide if the body is worth downloading
     cand: list[int] = []
+    alerts: list[int] = []                      # Naukri job alert emails: their jobs go to the job list
     for i in range(0, len(uids), 200):
         part = ",".join(str(u) for u in uids[i:i + 200])
         typ, d = imap.uid("FETCH", part, "(UID BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)])")
@@ -357,7 +446,9 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
             if not mu:
                 continue
             h = parse(mu.group(1).decode(), item[1])
-            if h.msgid not in known and is_job_mail(h, companies):
+            if h.msgid not in known and NAUKRI_ALERT.match(h.sender):
+                alerts.append(int(mu.group(1)))
+            elif h.msgid not in known and is_job_mail(h, companies):
                 cand.append(int(mu.group(1)))
             elif h.msgid not in known and companies and any(
                     c and c.split()[0] in norm(h.sender + " " + h.sender_name + " " + h.subject) for c in companies):
@@ -406,6 +497,23 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
         if not quiet:
             print(f"{LABEL[msg.kind]:<10} {msg.at[:16]}  {msg.subject[:70]}  → {msg.match or 'not matched'}"
                   + (f"  [status → {moved}]" if moved else ""))
+    # 3) Naukri alerts: each job scored and filtered exactly like a scanned one, then alerted the same way
+    from .pipeline import alert, save
+    new_jobs: list[str] = []
+    for uid_i in alerts:
+        typ, d = imap.uid("FETCH", str(uid_i), "(BODY.PEEK[])")
+        if typ != "OK" or not d or not isinstance(d[0], tuple):
+            continue
+        raw = d[0][1]
+        found = naukri_jobs(_html(raw), parse(str(uid_i), raw).at)
+        fresh = save(db, found)
+        kept = [i for i in fresh if (db.get(i) or {}).get("status") != "filtered"]
+        new_jobs += kept
+        if not quiet:
+            print(f"Naukri alert: {len(found)} jobs, {len(fresh)} new, {len(kept)} match your filters")
+    if new_jobs:
+        counts["naukri_jobs"] = len(new_jobs)
+        alert(db, new_jobs)
     if uids:
         db.c.execute("INSERT OR REPLACE INTO mail_state VALUES ('last_uid', ?)", (str(max(uids)),))
         db.c.commit()

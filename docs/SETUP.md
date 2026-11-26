@@ -229,6 +229,7 @@ Telegram bot: send `/stats` to Shotgun650.
 ```fish
 hunt login linkedin      # log in in the window, press Enter in the terminal
 hunt login naukri
+hunt scan --dry-run      # a table of jobs found per source; saves nothing, sends nothing
 hunt scan
 hunt list --min 55
 hunt apply --dry-run --top 3
@@ -393,6 +394,7 @@ Without Claude Code:
 | Review Center not loading | `systemctl --user restart jobhunter-review`, or run `hunt review` in a terminal |
 | Approve says "can't see your screen" | Run `./scripts/install-services.sh` from your desktop terminal, or `hunt apply <id> --approve` |
 | `hunt: command not found` in fish | `fish_add_path -P ~/jobhunter/.venv/bin` and open a new terminal |
+| Something quietly didn't happen (no screenshot, a Gmail label missing) | warnings are in `journalctl --user -u jobhunter-bot`; `JH_LOG=DEBUG hunt …` shows every skipped step too |
 | Chromium won't start after an Arch update | `hunt update` (reinstalls Playwright's Chromium) |
 | Cover letters are generic | No LLM reachable: `hunt llm --test` → fix the ✗ key, or `./scripts/install-local-llm.sh` |
 | Bot browser: "already open (process …)" | Another `hunt apply`/`hunt login` window is open. Close it (or wait), then retry |

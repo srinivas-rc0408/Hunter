@@ -20,9 +20,18 @@ def _console():
 def cmd_scan(a):
     from . import pipeline
     only = set(a.only.split(",")) if a.only else None
-    r = pipeline.run(light=a.light, notify_on=not a.no_notify, only=only, baseline_new=a.include_existing)
+    r = pipeline.run(light=a.light, notify_on=not a.no_notify, only=only, baseline_new=a.include_existing, dry=a.dry_run)
     if a.json:
         print(json.dumps(r))
+    elif a.dry_run:
+        from rich.table import Table
+        t = Table(title="Dry run: jobs per source (nothing saved, nothing sent)")
+        for c in ("source", "found", "new"):
+            t.add_column(c, justify="left" if c == "source" else "right")
+        for s, v in r["by_source"].items():
+            t.add_row(s, str(v["found"]), str(v["new"]))
+        t.add_row("[bold]total[/]", f"[bold]{r['found']}[/]", f"[bold]{r['new']}[/]")
+        _console().print(t)
 
 
 def cmd_govt(a):
@@ -246,6 +255,7 @@ def main(argv=None):
     s.add_argument("--no-notify", action="store_true")
     s.add_argument("--include-existing", action="store_true", help="first run: treat notices already on pages as new")
     s.add_argument("--json", action="store_true")
+    s.add_argument("--dry-run", action="store_true", help="scan into a throwaway copy of the DB: shows what's found, saves and sends nothing")
     s.set_defaults(fn=cmd_scan)
 
     s = sub.add_parser("govt", help="government radar only, then list notices")

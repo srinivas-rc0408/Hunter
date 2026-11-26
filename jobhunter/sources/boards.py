@@ -120,6 +120,10 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
     s = config.cfg("search")
     boards = s.get("boards", {})
     enabled = [b for b, o in boards.items() if (o or {}).get("enabled") and b in SITE_NAMES]
+    if not quiet:
+        for b, o in boards.items():                   # a board turned off because it blocks us: say so once, never retry
+            if (o or {}).get("skipped") and not (o or {}).get("enabled") and (not sites or b in set(sites)):
+                console.print(f"  [yellow]{b.capitalize()} skipped ({o['skipped']})[/]")
     want_q, want_loc = queries, locations
     queries = s.get("queries", [])
     locations = s.get("locations", [s.get("default_location", "India")])

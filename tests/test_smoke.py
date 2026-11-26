@@ -86,6 +86,23 @@ class Smoke(unittest.TestCase):
         self.assertEqual(mail.classify(m), "interview")
 
 
+class DryRun(unittest.TestCase):
+    def test_dry_scan_counts_per_source_and_saves_nothing(self):
+        from jobhunter import notify, pipeline
+        db = DB()
+        before = db.count("1=1")
+        found = [Job("ML Intern", "Acme AI Labs", "Bengaluru", url="https://x.example/1", source="linkedin",
+                     description="Python freshers", posted_at=str(dt.date.today())),
+                 Job("AI Engineer", "Beta", "Bengaluru", url="https://x.example/2", source="naukri",
+                     description="Python LLM freshers", posted_at=str(dt.date.today()))]
+        with mock.patch.object(pipeline.boards, "scan", lambda errors, light=False: list(found)), \
+                mock.patch.object(notify, "alert_jobs", side_effect=AssertionError("a dry run sent an alert")):
+            r = pipeline.run(only={"boards"}, dry=True)
+        self.assertEqual(r["by_source"], {"linkedin": {"found": 1, "new": 1}, "naukri": {"found": 1, "new": 1}})
+        self.assertEqual((r["found"], r["new"], r["alerted"]), (2, 2, 0))
+        self.assertEqual(DB().count("1=1"), before)                        # the real DB never saw them
+
+
 class Hygiene(unittest.TestCase):
     """The cleanup's rules, kept: every swallowed error is logged, and no module grows past 600 lines."""
 

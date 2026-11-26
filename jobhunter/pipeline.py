@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 import datetime as dt
+import shutil
+import tempfile
+from collections import Counter
+from pathlib import Path
 
 from . import config, notify
 from .db import DB, Job
@@ -57,9 +61,43 @@ def save(db: DB, jobs: list[Job]) -> list[str]:
     return new_ids
 
 
+def alert(db: DB, new_ids: list[str]) -> int:
+    """Telegram for the new jobs worth it (scan and Naukri alert emails alike). Returns how many were sent."""
+    sc = config.cfg("search").get("scoring", {})
+    thr, dthr = sc.get("alert_threshold", 60), sc.get("dream_alert_threshold", 35)
+    to_alert = []
+    for jid in new_ids:
+        j = db.get(jid)
+        if not j or j["status"] != "new":
+            continue
+        if j["kind"] == "govt":
+            if "eligibility:ineligible" not in j["flags"] and "tech" in j["flags"]:
+                to_alert.append(j)
+        elif j["score"] >= thr or (j["dream"] and j["score"] >= dthr):
+            to_alert.append(j)
+    to_alert.sort(key=lambda j: (not j["dream"], j["kind"] != "govt", -j["score"]))
+    sent = 0
+    if to_alert:
+        from . import urgent
+        hot, to_alert = urgent.split(db, to_alert)        # score ≥ 95: 🚨 APPLY NOW, pinned, max 3 a day
+        for j in hot:
+            urgent.send(db, j)
+            sent += 1
+        sent += notify.alert_jobs(to_alert[:25])
+        for j in to_alert[:25]:
+            db.set_status(j["id"], "alerted", "telegram")
+    return sent
+
+
 def run(light: bool = False, notify_on: bool = True, only: set[str] | None = None,
-        offline_ats: str | None = None, baseline_new: bool = False) -> dict:
+        offline_ats: str | None = None, baseline_new: bool = False, dry: bool = False) -> dict:
     db = DB()
+    tmp = None
+    if dry:                                   # a throwaway copy: real dedupe and govt baselines, nothing saved or sent
+        tmp = Path(tempfile.mkdtemp(prefix="jh-dry-"))
+        copy = DB(tmp / "jobs.db")
+        db.c.backup(copy.c)
+        db, notify_on = copy, False
     s = config.cfg("search")
     errors: list[str] = []
     want = only or {"boards", "ats", "intern", "pages", "govt"}
@@ -88,38 +126,22 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
         if db.upsert(j):
             db.set_score(j.id, j.score, j.reasons, j.flags, j.dream)
             new_ids.append(j.id)
+    src = {j.id: j.source or "?" for j in private + extra}
+    news = Counter(src.get(i, "?") for i in new_ids)
+    by_source = {s: {"found": n, "new": news.get(s, 0)} for s, n in Counter(src[j.id] for j in private + extra).most_common()}
 
-    # ── alerts ─────────────────────────────────────────────────────────────
-    sc = s.get("scoring", {})
-    thr, dthr = sc.get("alert_threshold", 60), sc.get("dream_alert_threshold", 35)
-    to_alert = []
-    for jid in new_ids:
-        j = db.get(jid)
-        if not j or j["status"] != "new":
-            continue
-        if j["kind"] == "govt":
-            if "eligibility:ineligible" not in j["flags"] and "tech" in j["flags"]:
-                to_alert.append(j)
-        elif j["score"] >= thr or (j["dream"] and j["score"] >= dthr):
-            to_alert.append(j)
-    to_alert.sort(key=lambda j: (not j["dream"], j["kind"] != "govt", -j["score"]))
-    sent = 0
-    if notify_on and to_alert:
-        from . import urgent
-        hot, to_alert = urgent.split(db, to_alert)        # score ≥ 95: 🚨 APPLY NOW, pinned, max 3 a day
-        for j in hot:
-            urgent.send(db, j)
-            sent += 1
-        sent += notify.alert_jobs(to_alert[:25])
-        for j in to_alert[:25]:
-            db.set_status(j["id"], "alerted", "telegram")
+    sent = alert(db, new_ids) if notify_on else 0
     db.log_run("light" if light else "full", found, len(new_ids), sent, errors)
     secs = (dt.datetime.now() - t0).seconds
     console.print(f"\n[bold green]Done[/] in {secs}s · found {found} · new {len(new_ids)} · alerted {sent}"
                   f" · errors {len(errors)}")
     for e in errors[:12]:
         console.print(f"  [yellow]·[/] {e}")
-    return {"found": found, "new": len(new_ids), "alerted": sent, "errors": errors, "at": iso()}
+    if tmp:
+        db.c.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+    return {"found": found, "new": len(new_ids), "alerted": sent, "errors": errors, "at": iso(), "dry": dry,
+            "by_source": by_source}
 
 
 def digest(send: bool = True) -> str:
