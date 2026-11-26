@@ -40,7 +40,7 @@ STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview"
 
 KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch", "intel",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume", "mail", "sheet",
-         *STATUS_CMDS}
+         "ref", *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter</b> · <b>just type what you want</b>: <i>find ML intern jobs in Bengaluru posted this week</i>,
 <i>what does the Birlasoft job need that I don't have?</i>, <i>mark ab12cd34 as interview</i> (changes ask you for a yes first)
@@ -74,6 +74,7 @@ Paste any company or job link (or <i>tell me about Zoho</i>) · a full profile, 
 /applied · every application with its date, application ID and form link
 /mail · application emails sorted: offers, interviews, tests, rejections · <code>mail 30</code>
 /sheet · the Excel tracker (every application + email replies), updated now
+   🤝 <code>ref ab12cd34 Priya Sharma</code> · you asked Priya for a referral · <code>ref done ab12cd34</code> · she referred you · /ref · all of them
    <i>add a column Referral</i> · <i>put 'asked Rahul' in Referral for ab12cd34</i> · <i>remove ab12cd34 from the sheet</i> · <i>show hidden</i>
 💰 <i>how much would a fresher AI engineer get at Zoho?</i> · an estimate with sources and confidence, never the posting's pay
 /review · forms waiting for you · /questions · then <code>answer 1 Yes</code>
@@ -391,7 +392,40 @@ def _link_report(t: str, db: DB, progress=None) -> str | list[str]:
     return out
 
 
-TEXT_ARGS = {"company", "watch", "intel", "govt", "eligible", "dream", "undream", "answer", "fix", "mail", "search"}
+def _ref(db: DB, inline_id: str | None, arg: str) -> str:
+    """ref <id> <name> · ref done <id> · ref (list). The name is only what you typed: nothing is looked up."""
+    from . import tracker
+    words = arg.split()
+    if not inline_id and not words:
+        rs = tracker.referrals(db)
+        if not rs:
+            return "<b>🤝 Referrals</b>\nnone yet. <code>ref ab12cd34 Priya Sharma</code> when you ask someone"
+        return "<b>🤝 Referrals</b>\n" + "\n".join(
+            f"{'✅' if r['status'] == 'referred' else '·'} {_e(r['at'][:10])} · {_e(r['name'])} · "
+            f"{_e((r['job'] or {}).get('company', 'job deleted'))} · {_e(r['status'])} /show_{r['job_id'][:8]}" for r in rs[:40])
+    done = (words[:1] == ["done"])
+    if done:
+        words = words[1:]
+    jid = inline_id or (words.pop(0) if words else "")
+    j = db.get(jid) if re.fullmatch(r"[0-9a-f]{6,16}", jid or "") else None
+    if not j:
+        return f"✗ no job {_e(jid)}. Usage: <code>ref ab12cd34 Priya Sharma</code> · <code>ref done ab12cd34</code>"
+    try:
+        if done:
+            r = tracker.refer_done(db, j["id"])
+        elif not words:
+            return "Usage: <code>ref ab12cd34 Priya Sharma</code> (who you asked for the referral)"
+        else:
+            tracker.refer(db, j["id"], " ".join(words))
+            r = tracker.referral(db, j["id"])
+    except ValueError as exc:
+        return f"✗ {_e(exc)}"
+    tracker.refresh(db)
+    return (f"🤝 {_e(j['title'][:60])} · {_e(j['company'])}: <b>{_e(r['name'])}</b> → {_e(r['status'])}"
+            + ("" if done else f"\nWhen they refer you: <code>ref done {j['id'][:8]}</code>"))
+
+
+TEXT_ARGS = {"ref", "company", "watch", "intel", "govt", "eligible", "dream", "undream", "answer", "fix", "mail", "search"}
 
 
 def _is_command(t: str) -> bool:
@@ -402,7 +436,7 @@ def _is_command(t: str) -> bool:
         return False
     if not rest or re.fullmatch(r"[0-9a-f]{6,16}|\d{1,3}(?:\s+\d{1,3})?", rest):
         return True
-    return w in TEXT_ARGS and "?" not in rest and len(rest.split()) <= (2 if w in ("govt", "eligible") else 4)
+    return w in TEXT_ARGS and "?" not in rest and len(rest.split()) <= {"govt": 2, "eligible": 2, "ref": 8}.get(w, 4)
 
 
 def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> str | list[str]:
@@ -489,6 +523,8 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
                 "You'll get ✅ Applied, or ✋ if the site asks something new." if cmd == "approve" else
                 f"⏳ Opening <b>{_e(j['title'])}</b> on the laptop's bot browser. Read the form there and press Submit "
                 f"on the panel. Not at the laptop? /check_{j['id'][:8]} gives you the link to apply from your phone.")
+    if cmd == "ref":
+        return _ref(db, inline_id, arg)
     if cmd == "resume":
         return "__RESUME__"
     if cmd == "sheet":

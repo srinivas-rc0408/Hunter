@@ -198,7 +198,7 @@ class Mail(unittest.TestCase):
         from openpyxl import load_workbook
         p = tracker.write(self.db, HOME / "data" / "t.xlsx")
         wb = load_workbook(p)
-        self.assertEqual(wb.sheetnames, ["Dashboard", "Applications", "Email replies"])
+        self.assertEqual(wb.sheetnames, ["Dashboard", "Applications", "Email replies", "Referrals"])
         rows = list(wb["Applications"].iter_rows(values_only=True))
         head = list(rows[0])
         self.assertEqual(rows[0][:5], ("Applied on", "Time (IST)", "★", "Company", "Role"))
@@ -283,7 +283,7 @@ class Mail(unittest.TestCase):
         tracker.write(self.db, f)                                          # rewritten in place
         self.assertEqual(sorted(x.name for x in f.parent.iterdir()), ["Applications.xlsx"])   # never a 2nd copy
         wb = load_workbook(f)
-        self.assertEqual(wb.sheetnames, ["Dashboard", "Applications", "Email replies"])
+        self.assertEqual(wb.sheetnames, ["Dashboard", "Applications", "Email replies", "Referrals"])
         ds, ws, er = wb["Dashboard"], wb["Applications"], wb["Email replies"]
         # Dashboard: banner, tiles, 2 native charts, next actions
         self.assertTrue(ds["B1"].value.endswith("· Job Applications"))

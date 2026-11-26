@@ -9,6 +9,7 @@ Sheets:
                 sheet_custom, sheet_hidden) and are re-applied on every rewrite; if you edit the file itself,
                 Notes and your columns are read back before the next rewrite (nothing else is).
   Email replies every application email: date, kind, from, subject, company/role it belongs to.
+  Referrals     every referral you asked for (`ref <id> <name>` / `ref done <id>` in Telegram), applied yet or not.
   Dashboard     (first) title, KPI tiles, applications per week + by-status charts, next actions.
 """
 from __future__ import annotations
@@ -33,7 +34,45 @@ def ensure(db: DB) -> None:
     CREATE TABLE IF NOT EXISTS sheet_custom (job_id TEXT, column TEXT, value TEXT, PRIMARY KEY (job_id, column));
     CREATE TABLE IF NOT EXISTS sheet_hidden (job_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS sheet_snapshot (job_id TEXT, column TEXT, value TEXT, PRIMARY KEY (job_id, column));
+    CREATE TABLE IF NOT EXISTS referrals (job_id TEXT PRIMARY KEY, name TEXT, status TEXT, at TEXT);
     """)
+
+
+# ── referrals: the name is only ever what you typed; nothing is looked up ──
+def refer(db: DB, jid: str, name: str) -> str:
+    """You asked `name` for a referral for this job (status 'asked'). Returns the cleaned name."""
+    name = " ".join((name or "").split())[:60]
+    if not name or "://" in name or name.lower().startswith("www."):
+        raise ValueError("the referral needs a person's name, e.g. ref ab12cd34 Priya Sharma")
+    ensure(db)
+    db.c.execute("INSERT OR REPLACE INTO referrals VALUES (?,?,?,?)", (jid, name, "asked", dt.datetime.now(IST).isoformat()))
+    db.c.commit()
+    return name
+
+
+def refer_done(db: DB, jid: str) -> dict:
+    """They referred you: status 'referred', dated now."""
+    r = referral(db, jid)
+    if not r:
+        raise ValueError("no referral asked for this job yet: ref <id> <name> first")
+    db.c.execute("UPDATE referrals SET status='referred', at=? WHERE job_id=?", (dt.datetime.now(IST).isoformat(), jid))
+    db.c.commit()
+    return referral(db, jid)
+
+
+def referral(db: DB, jid: str) -> dict | None:
+    ensure(db)
+    r = db.c.execute("SELECT job_id, name, status, at FROM referrals WHERE job_id=?", (jid,)).fetchone()
+    return dict(zip(("job_id", "name", "status", "at"), r)) if r else None
+
+
+def referrals(db: DB) -> list[dict]:
+    """Newest first, each with its job (None if the job was deleted)."""
+    ensure(db)
+    out = []
+    for jid, name, status, at in db.c.execute("SELECT job_id, name, status, at FROM referrals ORDER BY at DESC").fetchall():
+        out.append({"job_id": jid, "name": name, "status": status, "at": at, "job": db.get(jid)})
+    return out
 
 
 def columns(db: DB) -> list[str]:
@@ -131,13 +170,13 @@ def read_back(db: DB, f: Path) -> int:
 # Applications sheet: these, then your own columns (Referral, …), then Notes and Job id. Notes + yours are read back.
 H = ["Applied on", "Time (IST)", "★", "Company", "Role", "Location", "Work mode", "Pay", "Score", "Applied via",
      "Status", "Status since", "Application ID", "Job link", "Application form", "Last email", "Emails",
-     "Days waiting", "Next step", "Resume sent", "Fields you fixed"]
+     "Days waiting", "Next step", "Referral name", "Referral status", "Referral date", "Resume sent", "Fields you fixed"]
 TAIL = ["Notes", "Job id"]
 OLD = ["Days since applied"]          # standard in sheets written before 2.3: never mistaken for one of your columns
 WIDTH = {"Applied on": 12, "Time (IST)": 9, "★": 4, "Company": 24, "Role": 32, "Location": 22, "Work mode": 11,
          "Pay": 22, "Score": 7, "Applied via": 12, "Status": 12, "Status since": 12, "Application ID": 16,
          "Job link": 10, "Application form": 12, "Last email": 18, "Emails": 8, "Days waiting": 9, "Next step": 30,
-         "Resume sent": 22, "Fields you fixed": 9, "Notes": 36, "Job id": 10}
+         "Referral name": 20, "Referral status": 10, "Referral date": 12, "Resume sent": 22, "Fields you fixed": 9, "Notes": 36, "Job id": 10}
 RESPONSE = ("viewed", "assessment", "interview", "rejected", "offer")    # real answers; "received" is automatic
 STATUS_ORDER = ["applied", "interview", "offer", "rejected"]
 NAVY, INK, MUTED = "1F3A5F", "1F2937", "6B7280"
@@ -165,6 +204,7 @@ def rows(db: DB) -> list[dict]:
     ensure(db)
     out = []
     now = dt.datetime.now(IST).replace(tzinfo=None)
+    refs = {r["job_id"]: r for r in referrals(db)}
     for j in db.query(status=list(DONE), limit=100000, order="status_at DESC"):
         applied = db.applied_on(j["id"]) or j.get("status_at")
         apps = [a for a in db.applications(j["id"], limit=20) if not a.get("dry")]
@@ -175,6 +215,7 @@ def rows(db: DB) -> list[dict]:
         fixed = sum(1 for f in (sent.get("fields") or []) if f.get("basis") == "you")
         a = _dt(applied)
         pay = pay_line(j).replace("not listed · ", "")
+        ref = refs.get(j["id"]) or {}
         out.append({
             "applied": a, "company": j["company"], "role": j["title"], "location": j.get("location") or "",
             "mode": mode_text(j) or "not listed", "pay": pay, "score": j.get("score") or 0,
@@ -186,7 +227,8 @@ def rows(db: DB) -> list[dict]:
             "days": (now - a).days if a else None,
             "waiting": (now - a).days if a and j["status"] == "applied" and not answered else None,
             "next": NEXT.get(j["status"], "").replace("<id>", j["id"][:8]),
-            "url": j.get("url") or "", "resume": Path(sent.get("resume") or "").name, "fixed": fixed,
+            "url": j.get("url") or "", "ref_name": ref.get("name") or "",
+            "ref_status": ref.get("status") or "", "ref_at": _dt(ref.get("at")), "resume": Path(sent.get("resume") or "").name, "fixed": fixed,
             "dream": "★" if j.get("dream") else "", "id": j["id"][:8], "full_id": j["id"], "notes": (j.get("notes") or "").strip()})
     return out
 
@@ -396,10 +438,12 @@ def write(db: DB | None = None, out: Path | None = None) -> Path:
                    r["company"], r["role"], r["location"], r["mode"], r["pay"], r["score"], r["via"], r["status"],
                    r["status_at"].date() if r["status_at"] else None, r["conf_id"],
                    "Open job" if r["url"] else "", "Open form" if r["form_url"] else "", r["last_mail"], r["mails"],
-                   r["waiting"], r["next"], r["resume"], r["fixed"], *extra, r["notes"], r["id"]])
+                   r["waiting"], r["next"], r["ref_name"], r["ref_status"], r["ref_at"].date() if r["ref_at"] else None,
+                   r["resume"], r["fixed"], *extra, r["notes"], r["id"]])
         snapshot += [(r["full_id"], c, v) for c, v in zip(["Notes", *custom], [r["notes"], *extra])]
         n = ws.max_row
-        ws.cell(n, col["Applied on"]).number_format = ws.cell(n, col["Status since"]).number_format = "DD-MMM-YYYY"
+        for h in ("Applied on", "Status since", "Referral date"):
+            ws.cell(n, col[h]).number_format = "DD-MMM-YYYY"
         ws.cell(n, col["Time (IST)"]).number_format = "HH:MM"
         for h, u in (("Job link", r["url"]), ("Application form", r["form_url"])):
             if u:
@@ -438,6 +482,18 @@ def write(db: DB | None = None, out: Path | None = None) -> Path:
                         "rejected": ("FEE2E2", "991B1B"), "viewed": ("E0E7FF", "3730A3"), "received": ("F3F4F6", "374151")}.items():
         ws2.conditional_formatting.add(f"C2:C{last2}", FormulaRule(formula=[f'$C2="{k}"'], fill=fill(bg),
                                                                    font=Font(bold=True, color=fg)))
+    # ── Referrals: every one you asked for, applied yet or not ──────────────
+    ws3 = wb.create_sheet("Referrals")
+    rh = ["Date", "Company", "Role", "Referrer", "Status", "Job status", "Job link", "Job id"]
+    table_sheet(ws3, "Referrals", rh, [12, 24, 32, 22, 11, 12, 10, 10])
+    for x in referrals(db):
+        j, d = x["job"] or {}, _dt(x["at"])
+        ws3.append([d.date() if d else None, j.get("company", ""), j.get("title", ""), x["name"], x["status"],
+                    j.get("status", "deleted"), "Open job" if j.get("url") else "", x["job_id"][:8]])
+        ws3.cell(ws3.max_row, 1).number_format = "DD-MMM-YYYY"
+        if j.get("url"):
+            ws3.cell(ws3.max_row, 7).hyperlink, ws3.cell(ws3.max_row, 7).font = j["url"], link_font
+    add_table(ws3, "Referrals", len(rh))
     wb.active = 0
     tmp = out.with_name(f".{out.name}.tmp")
     wb.save(tmp)
@@ -449,7 +505,7 @@ def write(db: DB | None = None, out: Path | None = None) -> Path:
 
 
 def preview(out_dir: Path, f: Path | None = None) -> list[Path]:
-    """PNG of each sheet (LibreOffice headless renders a workbook's first sheet): Dashboard, Applications, Email
+    """PNG of each sheet (LibreOffice headless renders a workbook's first sheet): Dashboard, Applications, Email,
     replies. Temporary one-sheet copies go in out_dir, never next to the real file."""
     import shutil
     import subprocess
@@ -460,7 +516,7 @@ def preview(out_dir: Path, f: Path | None = None) -> list[Path]:
     if not soffice:
         raise RuntimeError("LibreOffice isn't installed (sudo pacman -S libreoffice-fresh)")
     made = []
-    for name in ("Dashboard", "Applications", "Email replies"):
+    for name in ("Dashboard", "Applications", "Email replies", "Referrals"):
         src = out_dir / f"{name.replace(' ', '_')}.xlsx"
         if name == "Dashboard":
             shutil.copyfile(f, src)                # first sheet already; charts need the untouched file

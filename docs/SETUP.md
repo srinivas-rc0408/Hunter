@@ -307,6 +307,10 @@ source), recruiters, AmbitionBox reviews and fresher salaries, and Glassdoor int
 
 **Telegram:** `/company sarvam` (top listings with links), `/watch sarvam`.
 
+**Referral tracking (Telegram):** `ref ab12cd34 Priya Sharma` when you ask someone, `ref done ab12cd34` once they've
+referred you, `ref` lists them all. The tracker gets Referral name / status / date columns and a Referrals sheet.
+The name is only what you type: nothing is looked up on LinkedIn.
+
 Your dream companies are read straight from their own sites, not just job boards:
 Aditya Birla Group (careers.adityabirla.com → PeopleStrong apply links, with each job's closing date)
 and Birlasoft (SuccessFactors).
