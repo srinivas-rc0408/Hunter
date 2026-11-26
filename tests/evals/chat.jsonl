@@ -1,0 +1,65 @@
+{"id": 1, "cat": "search", "text": "find ML intern jobs in Bengaluru posted this week", "tool": "search_jobs", "args": {"query": "ml intern", "location": "Bengaluru", "days": 7}}
+{"id": 2, "cat": "search", "text": "any genai roles at zoho?", "tool": "search_jobs", "args": {"query": "genai"}}
+{"id": 3, "cat": "search", "text": "search mlops", "tool": "search_jobs", "args": {"query": "mlops"}}
+{"id": 4, "cat": "search", "text": "show me python developer jobs in Mysuru", "tool": "search_jobs", "args": {"query": "python developer", "location": "Mysuru"}}
+{"id": 5, "cat": "search", "text": "top 5 GenAI roles at product companies", "tool": "search_jobs", "args": {"query": "genai", "limit": 5}}
+{"id": 6, "cat": "search", "text": "LangGraph jobs posted in the last 3 days", "tool": "search_jobs", "args": {"query": "langgraph", "days": 3}}
+{"id": 7, "cat": "fit", "text": "is 3f2a9c a good fit for me?", "tool": "explain_job", "args": {"id": "3f2a9c"}}
+{"id": 8, "cat": "fit", "text": "what does the Birlasoft job need that I don't have?", "tool": "explain_job", "args": {"id": "birlasoft"}}
+{"id": 9, "cat": "fit", "text": "what am I missing for the Zoho role?", "tool": "explain_job", "args": {"id": "zoho"}}
+{"id": 10, "cat": "fit", "text": "should I apply to 3f2a9c?", "tool": "explain_job", "args": {"id": "3f2a9c"}}
+{"id": 11, "cat": "fit", "text": "explain 3f2a9c", "tool": "explain_job", "args": {"id": "3f2a9c"}}
+{"id": 12, "cat": "fit", "text": "does 3f2a9c need Java?", "tool": "job_details", "args": {"id": "3f2a9c"}}
+{"id": 13, "cat": "salary", "text": "how much does a data scientist fresher get in bangalore", "tool": "salary_estimate", "args": {"role": "data scientist"}}
+{"id": 14, "cat": "salary", "text": "what is the salary for ML engineer at Zoho", "tool": "salary_estimate", "args": {"role": "ml engineer", "company": "zoho"}}
+{"id": 15, "cat": "salary", "text": "how much would a fresher AI engineer get at Zoho?", "tool": "salary_estimate", "args": {"role": "ai engineer", "company": "zoho"}}
+{"id": 16, "cat": "salary", "text": "stipend for data science intern in Bengaluru", "tool": "salary_estimate", "args": {"role": "data science intern", "location": "Bengaluru"}}
+{"id": 17, "cat": "salary", "text": "how much does 3f2a9c pay?", "tool": "salary_estimate", "args": {"id": "3f2a9c"}}
+{"id": 18, "cat": "salary", "text": "genai engineer salary in bangalore", "tool": "salary_estimate", "args": {"role": "genai engineer"}}
+{"id": 19, "cat": "status", "text": "mark 3f2a9c applied", "tool": "set_status", "args": {"id": "3f2a9c", "status": "applied"}}
+{"id": 20, "cat": "status", "text": "skip 3f2a9c", "tool": "skip", "args": {"id": "3f2a9c"}}
+{"id": 21, "cat": "status", "text": "mark 3f2a9c as interview", "tool": "set_status", "args": {"id": "3f2a9c", "status": "interview"}}
+{"id": 22, "cat": "status", "text": "I got an interview call for 3f2a9c", "tool": "set_status", "args": {"id": "3f2a9c", "status": "interview"}}
+{"id": 23, "cat": "status", "text": "3f2a9c rejected me", "tool": "set_status", "args": {"id": "3f2a9c", "status": "rejected"}}
+{"id": 24, "cat": "status", "text": "I applied to 3f2a9c", "tool": "set_status", "args": {"id": "3f2a9c", "status": "applied"}}
+{"id": 25, "cat": "sheet", "text": "put referral asked in Notes for 3f2a9c", "tool": "sheet_set", "args": {"id": "3f2a9c", "column": "notes", "value": "referral asked"}}
+{"id": 26, "cat": "sheet", "text": "put 'Asha from college' in Referral for 3f2a9c", "tool": "sheet_set", "args": {"id": "3f2a9c", "column": "referral", "value": "asha from college"}}
+{"id": 27, "cat": "sheet", "text": "add a column Referral", "tool": "sheet_add_column", "args": {"name": "referral"}}
+{"id": 28, "cat": "sheet", "text": "send me the sheet", "tool": "sheet_send", "args": {}}
+{"id": 29, "cat": "sheet", "text": "remove 3f2a9c from the sheet", "tool": "sheet_remove_row", "args": {"id": "3f2a9c"}}
+{"id": 30, "cat": "sheet", "text": "add a note 'called HR on Monday' to 3f2a9c", "tool": "add_note", "args": {"id": "3f2a9c", "text": "called hr"}}
+{"id": 31, "cat": "govt", "text": "govt jobs closing this week", "tool": "govt", "args": {"closing_within_days": 7}}
+{"id": 32, "cat": "govt", "text": "any govt jobs closing soon?", "tool": "govt", "args": {"closing_within_days": 7}}
+{"id": 33, "cat": "govt", "text": "karnataka govt notices", "tool": "govt", "args": {"filter": "karnataka"}}
+{"id": 34, "cat": "govt", "text": "central government jobs", "tool": "govt", "args": {"filter": "central"}}
+{"id": 35, "cat": "govt", "text": "government jobs closing in 3 days", "tool": "govt", "args": {"closing_within_days": 3}}
+{"id": 36, "cat": "govt", "text": "any KPSC notifications?", "tool": "govt", "args": {"filter": "kpsc"}}
+{"id": 37, "cat": "followup", "text": "same in Mysuru", "history": [["user", "find ML intern jobs in Bengaluru"], ["assistant", "[search_jobs {\"query\": \"ML intern\", \"location\": \"Bengaluru\"}] [{\"id\": \"3f2a9c11\", \"title\": \"ML Intern\"}]"]], "tool": "search_jobs", "args": {"query": "ml intern", "location": "Mysuru"}}
+{"id": 38, "cat": "followup", "text": "more", "history": [["user", "search python developer"], ["assistant", "[search_jobs {\"query\": \"python developer\"}] []"]], "tool": "more", "args": {}}
+{"id": 39, "cat": "followup", "text": "mark it applied", "history": [["user", "explain 3f2a9c"], ["assistant", "[explain_job {\"id\": \"3f2a9c\"}] {\"id\": \"3f2a9c11\", \"title\": \"ML Intern\"}"]], "tool": "set_status", "args": {"id": "3f2a9c", "status": "applied"}}
+{"id": 40, "cat": "followup", "text": "only this week", "history": [["user", "genai roles"], ["assistant", "[search_jobs {\"query\": \"GenAI\"}] []"]], "tool": "search_jobs", "args": {"query": "genai", "days": 7}}
+{"id": 41, "cat": "followup", "text": "is the first one a good fit?", "history": [["user", "top 5"], ["assistant", "[top_jobs {\"n\": 5}] [{\"id\": \"3f2a9c11\", \"title\": \"ML Intern\"}, {\"id\": \"b7c8d9e0\", \"title\": \"AI Engineer\"}]"]], "tool": "explain_job", "args": {"id": "3f2a9c"}}
+{"id": 42, "cat": "followup", "text": "and at Infosys?", "history": [["user", "what is the salary for data scientist at TCS"], ["assistant", "[salary_estimate {\"role\": \"data scientist\", \"company\": \"TCS\"}] {}"]], "tool": "salary_estimate", "args": {"role": "data scientist", "company": "infosys"}}
+{"id": 43, "cat": "typo", "text": "pyhton devloper jobs blr", "tool": "search_jobs", "args": {"query": "python developer", "location": "Bengaluru"}}
+{"id": 44, "cat": "typo", "text": "machne lerning intern", "tool": "search_jobs", "args": {"query": "machine learning intern"}}
+{"id": 45, "cat": "typo", "text": "genai jbos in bangalore", "tool": "search_jobs", "args": {"query": "genai", "location": "Bengaluru"}}
+{"id": 46, "cat": "typo", "text": "govt jbos closing this week", "tool": "govt", "args": {"closing_within_days": 7}}
+{"id": 47, "cat": "typo", "text": "sallary for ml engineer in bengaluru", "tool": "salary_estimate", "args": {"role": "ml engineer"}}
+{"id": 48, "cat": "typo", "text": "data sceintist fresher roles", "tool": "search_jobs", "args": {"query": "data scientist"}}
+{"id": 49, "cat": "mixed", "text": "Bengaluru alli ML intern jobs", "tool": "search_jobs", "args": {"query": "ml intern", "location": "Bengaluru"}}
+{"id": 50, "cat": "mixed", "text": "ee vaara yaavudu govt job ide?", "tool": "govt", "args": {}}
+{"id": 51, "cat": "mixed", "text": "nanage fit aagutta 3f2a9c?", "tool": "explain_job", "args": {"id": "3f2a9c"}}
+{"id": 52, "cat": "mixed", "text": "data scientist sambala estu Bengaluru alli?", "tool": "salary_estimate", "args": {"role": "data scientist"}}
+{"id": 53, "cat": "mixed", "text": "3f2a9c ge apply maadide", "tool": "set_status", "args": {"id": "3f2a9c", "status": "applied"}}
+{"id": 54, "cat": "mixed", "text": "ivattu hosa jobs yaavudu?", "tool": "today", "args": {}}
+{"id": 55, "cat": "general", "text": "hi", "tool": "none", "args": {}}
+{"id": 56, "cat": "general", "text": "what can you do?", "tool": "none", "args": {}}
+{"id": 57, "cat": "general", "text": "show my stats", "tool": "stats", "args": {}}
+{"id": 58, "cat": "general", "text": "what did I apply to this week?", "tool": "applied", "args": {"filter": "week"}}
+{"id": 59, "cat": "general", "text": "tell me about Zoho", "tool": "company", "args": {"name": "zoho"}}
+{"id": 60, "cat": "general", "text": "top 10 jobs", "tool": "top_jobs", "args": {"n": 10}}
+{"id": 61, "cat": "salary", "text": "how much would an ML intern get at Zoho?", "tool": "salary_estimate", "args": {"role": "ml", "company": "zoho"}}
+{"id": 62, "cat": "sheet", "text": "add a column Referral in the sheet", "tool": "sheet_add_column", "args": {"name": "referral"}}
+{"id": 63, "cat": "sheet", "text": "put 'asked Rahul for referral' in Referral for ab12cd34", "tool": "sheet_set", "args": {"id": "ab12cd34", "column": "referral", "value": "asked rahul for referral"}}
+{"id": 64, "cat": "sheet", "text": "remove e255e647 from the sheet", "tool": "sheet_remove_row", "args": {"id": "e255e647"}}
+{"id": 65, "cat": "sheet", "text": "show hidden", "tool": "sheet_show_hidden", "args": {}}

@@ -198,6 +198,7 @@ def wikidata_details(qid: str) -> dict:
     emp = claim("P1128")
     inc = claim("P571")
     return {"name": e.get("labels", {}).get("en", {}).get("value"), "website": claim("P856"),
+            "source": f"https://www.wikidata.org/wiki/{qid}",                 # every fact above came from this page
             "description": e.get("descriptions", {}).get("en", {}).get("value"),
             "employees": str(emp.get("amount", "")).lstrip("+") if isinstance(emp, dict) else None,
             "founded": (inc.get("time", "")[1:5] if isinstance(inc, dict) else None)}
@@ -450,9 +451,13 @@ def names_of(name: str) -> list[str]:
 
 
 def about(info: dict) -> dict:
-    """What it does + size from Wikidata (by its id, else the best-matching name), or {} when unknown."""
+    """What it does + size from Wikidata (by its id, else the best-matching name), or {} when unknown.
+    `source` is the Wikidata page the facts came from: a fact without one is never shown (bot._fact)."""
     if info.get("description") or info.get("employees"):
-        return {k: info.get(k) for k in ("description", "employees", "founded", "website")}
+        out = {k: info.get(k) for k in ("description", "employees", "founded", "website", "source")}
+        if not out["source"] and info.get("wikidata"):
+            out["source"] = f"https://www.wikidata.org/wiki/{info['wikidata']}"
+        return out
     want = {cname(n) for n in names_of(info["name"])}           # exact names only: "ISRO's mission to Venus" ≠ ISRO
     qid = info.get("wikidata") or next((w["wikidata"] for w in wikidata_search(info["name"], 6)
                                         if cname(w["name"]) in want), None)

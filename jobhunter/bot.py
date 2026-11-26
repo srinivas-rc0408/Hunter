@@ -261,6 +261,13 @@ def _company_cmd(arg: str, db: DB, watch: bool = False) -> str | list[str]:
     return _company_report(pick, db, watch)
 
 
+def _fact(label: str, value, src: str | None) -> str:
+    """A company fact with the link it came from, or "not found": nothing about a company is shown unsourced."""
+    if value in (None, "") or not src:
+        return f"{label}: not found"
+    return f"{label}: {_e(value)} <i>(<a href=\"{html.escape(src, quote=True)}\">source</a>)</i>"
+
+
 def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
     from . import companies, dreams
     from .score import score
@@ -312,18 +319,18 @@ def _company_report(pick: dict, db: DB, watch: bool = False) -> str | list[str]:
         _COMPANY_PAGES[companies.cname(name)] = (time.time(), head, cards)
         main = _paged(head, cards, f"/company {_e(name)}", 1)
     # second message: news, what it does, Bengaluru office, your applications, dream status
-    blr = sum(1 for r in res["listings"] if re.search(r"bengaluru|bangalore", r.get("location") or "", re.I))
+    blr = [r for r in res["listings"] if re.search(r"bengaluru|bangalore", r.get("location") or "", re.I)]
+    blr_src = next((r.get("apply_url") or r.get("url") for r in blr if r.get("apply_url") or r.get("url")), None)
     mine = [j for j in db.query(status=["applied", "interview", "offer", "rejected"], limit=100000)
             if companies.same_company(j["company"], info["name"])]
     apps = [f"• {_e(j['title'][:60])} · <b>{j['status']}</b>" + (f" · applied {parse_iso(on):%d %b}" if (on := db.applied_on(j['id'])) else "")
             for j in mine[:8]]
-    size = ab.get("employees")
+    size, src = ab.get("employees"), ab.get("source")
     lines = [f"<b>ℹ️ {_e(info['name'])}</b>",
-             f"What it does: {_e(ab.get('description') or info.get('description') or 'unknown')}"
-             + (" <i>(Wikidata)</i>" if ab.get("description") or info.get("description") else ""),
-             f"Size: {_e(f'{int(float(size)):,} employees' if size and str(size).replace('.', '').isdigit() else 'unknown')}"
-             + (f" · founded {_e(ab['founded'])}" if ab.get("founded") else ""),
-             f"Bengaluru office: {'yes, ' + str(blr) + ' open role(s) there' if blr else 'unknown'}",
+             _fact("What it does", ab.get("description"), src),
+             _fact("Size", f"{int(float(size)):,} employees" if size and str(size).replace(".", "").isdigit() else None, src),
+             _fact("Founded", ab.get("founded"), src),
+             _fact("Bengaluru office", f"yes, {len(blr)} open role(s) there" if blr else None, blr_src),
              f"Dream: {'★ yes' if dreams.find(info['name']) else 'no · <code>/dream ' + _e(info['name']) + '</code>'}",
              "<b>Your applications</b>", *(apps or ["none yet"]),
              f"Watch it in every scan: <code>/watch {_e(info['name'])}</code>",
@@ -378,7 +385,7 @@ def _link_report(t: str, db: DB, progress=None) -> str | list[str]:
     else:
         L.append("No open postings with a description to compare yet")
     for label, value, src in ident["facts"]:
-        L.append(f"{_e(label)}: {_e(value)} <i>(<a href=\"{html.escape(src, quote=True)}\">source</a>)</i>")
+        L.append(_fact(_e(label), value, src))
     try:
         news = companies.news(name, 90, 8)
     except Exception:

@@ -509,7 +509,8 @@ class CompanySearch(unittest.TestCase):
         self.p = [mock.patch.object(companies, "live", lambda n, d=None, w=None, budget=22: (dict(info, name=n), rows if "Acme" in n else [], [])),
                   mock.patch.object(companies, "news", lambda n, *a: [{"date": "2026-11-18", "title": "Acme <raises> & grows",
                                                                    "source": "ET", "url": "https://news.example/a?x=1&y=2"}]),
-                  mock.patch.object(companies, "about", lambda i: {"description": "AI <lab>", "employees": "1200"}),
+                  mock.patch.object(companies, "about", lambda i: {"description": "AI <lab>", "employees": "1200",
+                                                                   "source": "https://www.wikidata.org/wiki/Q1"}),
                   mock.patch.object(companies, "suggest", lambda q, online=True, limit=12: [
                       x for x in [{"name": "Acme & Co", "source": "directory"}, {"name": "Acme Capital", "source": "your jobs", "hint": "3 job(s)"},
                                   {"name": "Nadaco", "source": "wikidata"}, {"name": q, "source": "as typed"}]
@@ -536,10 +537,26 @@ class CompanySearch(unittest.TestCase):
             self.assertIn(f, main)
         self.assertIn("More: /company Acme &amp; Co 2", main)
         self.assertIn("page 2/", handle("/company Acme & Co 2", self.db))   # page 2 from the cache, no new search
-        for want in ("What it does: AI &lt;lab&gt;", "Size: 1,200 employees", "Bengaluru office: yes, 20",
+        for want in ("What it does: AI &lt;lab&gt; <i>(<a href=\"https://www.wikidata.org/wiki/Q1\">source</a>)</i>",
+                     "Size: 1,200 employees <i>(", "Founded: not found", "Bengaluru office: yes, 20",
                      "Dream: no", "none yet", "18 Nov", 'href="https://news.example/a?x=1&amp;y=2"',
                      "Careers: <a"):
             self.assertIn(want, info)
+
+    def test_a_company_fact_without_a_source_is_not_found(self):
+        """Grounding: a fact with no source URL is never shown, whatever value we hold."""
+        from unittest import mock
+
+        from jobhunter import bot, companies
+        from jobhunter.bot import handle
+        with mock.patch.object(companies, "about", lambda i: {"description": "AI lab", "employees": "1200", "founded": "2001"}):
+            _, info = handle("/company Acme & Co", self.db)
+        for label in ("What it does", "Size", "Founded"):
+            self.assertIn(f"{label}: not found", info)
+        for leak in ("AI lab", "1,200", "2001"):
+            self.assertNotIn(leak, info)
+        self.assertEqual(bot._fact("Funding", "₹10 Cr", ""), "Funding: not found")
+        self.assertEqual(bot._fact("Funding", None, "https://x.example"), "Funding: not found")
 
     def test_exact_name_goes_straight_and_zero_offers_watch(self):
         from jobhunter.bot import handle
