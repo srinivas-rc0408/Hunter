@@ -8,13 +8,13 @@ from pathlib import Path
 
 
 def _git_version(run=subprocess.run) -> str:
-    """The git tag (`v2.4`, `v2.4-3-gabc123`, `...-dirty`); 'v2.4' when pip-installed or git is missing."""
+    """The git tag (`v2.5`, `v2.5-3-gabc123`, `...-dirty`); 'v2.5' when pip-installed or git is missing."""
     try:
         r = run(["git", "describe", "--tags", "--always", "--dirty"], cwd=Path(__file__).resolve().parent.parent,
                 capture_output=True, text=True, timeout=3)
-        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "v2.4"
+        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else "v2.5"
     except (OSError, subprocess.SubprocessError):
-        return "v2.4"
+        return "v2.5"
 
 
 __version__ = _git_version()

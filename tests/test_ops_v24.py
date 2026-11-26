@@ -32,9 +32,9 @@ class Version(unittest.TestCase):
     def test_fallback_without_git(self):
         def missing(*a, **k):
             raise FileNotFoundError("git")
-        self.assertEqual(_git_version(missing), "v2.4")
-        self.assertEqual(_git_version(lambda *a, **k: SimpleNamespace(returncode=128, stdout="")), "v2.4")
-        self.assertEqual(_git_version(mock.Mock(side_effect=subprocess.TimeoutExpired("git", 3))), "v2.4")
+        self.assertEqual(_git_version(missing), "v2.5")
+        self.assertEqual(_git_version(lambda *a, **k: SimpleNamespace(returncode=128, stdout="")), "v2.5")
+        self.assertEqual(_git_version(mock.Mock(side_effect=subprocess.TimeoutExpired("git", 3))), "v2.5")
 
 
 class Pins(unittest.TestCase):
