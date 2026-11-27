@@ -516,6 +516,8 @@ def _tick(api: str = "", chat: str = "") -> None:
             db.set_state("ghost_check", str(dt.date.today()))
             for text, kb in outcomes.ghost_prompts(db):
                 send(api, chat, text, kb)
+        for text in outcomes.evening_nudge(db) if api else []:          # 18:00 IST, under 5 applied today
+            send(api, chat, text)
     except Exception as exc:                 # a reminder problem never stops the bot
         log(f"urgent tick failed: {type(exc).__name__}: {exc}")
 

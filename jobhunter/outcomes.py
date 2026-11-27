@@ -117,6 +117,27 @@ def _confirm(api: str, chat: str, db: DB, cq: dict, post) -> None:
         send(api, chat, x)
 
 
+# ── 6 PM: "Applied today: 2/5" ─────────────────────────────────────────────
+def evening_nudge(db: DB, now: dt.datetime | None = None, goal: int = 5, hour: int = 18) -> list[str]:
+    """Once a day from 18:00 IST, if fewer than `goal` jobs were marked applied today: the count, then the
+    3 best open jobs as cards (each its own message, so each gets its buttons). [] otherwise."""
+    from .notify import job_card
+    from .util import IST
+    now = now or dt.datetime.now(IST)
+    today = str(now.date())
+    if now.hour < hour or db.state("nudge_day") == today:
+        return []
+    db.set_state("nudge_day", today)
+    n = db.c.execute("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='applied' AND at >= ?", (today,)).fetchone()[0]
+    if n >= goal:
+        return []
+    top = [j for j in db.query(status=["new", "alerted", "queued"], kind="private", min_score=40, limit=30)
+           if not j.get("deadline") or j["deadline"] >= today]
+    top.sort(key=lambda j: (j["status"] != "queued", not j["dream"], -j["score"]))
+    return [f"📊 <b>Applied today: {n}/{goal}</b>" + (": here are your best 3 open jobs." if top else "")] + \
+        [job_card(j, db) for j in top[:3]]
+
+
 # ── no reply: ghosted? ─────────────────────────────────────────────────────
 def ghost_prompts(db: DB, today: dt.date | None = None, most: int = 3) -> list[tuple[str, dict]]:
     """Applications still at 'applied' after ghost_after_days, not asked yet (or due again): (message, buttons)."""

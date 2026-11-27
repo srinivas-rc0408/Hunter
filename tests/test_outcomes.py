@@ -123,6 +123,32 @@ class Ghosted(unittest.TestCase):
         self.assertEqual(len(outcomes.ghost_prompts(db, today=dt.date.today() + dt.timedelta(days=14))), 1)
 
 
+class Evening(unittest.TestCase):
+    def test_6pm_under_5_applied_sends_the_count_and_top_3_cards_once(self):
+        from jobhunter.util import IST
+        db = DB(HOME / "data" / "evening.db")
+        for i in range(2):
+            seed(db, f"ML Intern {i}", f"Done{i}", status="applied")
+        for i in range(4):
+            j = seed(db, f"Machine Learning Engineer {i}", f"Open{i}")
+            db.set_score(j["id"], 90 - i, [], [], False)
+        day = dt.datetime.now(IST).replace(hour=17, minute=59)
+        self.assertEqual(outcomes.evening_nudge(db, now=day), [])                  # before 6 PM: nothing
+        got = outcomes.evening_nudge(db, now=day.replace(hour=18, minute=0))
+        self.assertTrue(got[0].startswith("📊 <b>Applied today: 2/5</b>"), got[0])
+        self.assertEqual(len(got), 4)                                              # the count + 3 cards
+        self.assertIn("Open0", got[1])
+        self.assertIn("/check_", got[3])
+        self.assertEqual(outcomes.evening_nudge(db, now=day.replace(hour=20)), [])  # once a day
+
+    def test_five_applied_means_no_nudge(self):
+        from jobhunter.util import IST
+        db = DB(HOME / "data" / "evening5.db")
+        for i in range(5):
+            seed(db, f"ML Intern {i}", f"Done{i}", status="applied")
+        self.assertEqual(outcomes.evening_nudge(db, now=dt.datetime.now(IST).replace(hour=18)), [])
+
+
 class Report(unittest.TestCase):
     def test_rates_by_source_role_and_week(self):
         db = DB(HOME / "data" / "report.db")
