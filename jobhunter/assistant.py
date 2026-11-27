@@ -17,7 +17,7 @@ import re
 import threading
 import time
 
-from . import config, llm
+from . import answer, config, llm
 from .config import env
 from .util import log
 from .db import DB, _row
@@ -25,10 +25,14 @@ from .notify import govt_card, job_card, mode_text, pages, pay_line, when_text
 
 LIMIT = 3500
 STEPS = 4
+GENERAL = ("salary_estimate", "search_jobs", "top_jobs", "today", "govt")   # fast paths a named job's own posting beats
+CONFIRM = "Tap ✅ Confirm (or reply <b>yes</b>)."
 FAIL = "AI is busy, try again in a minute (commands like top 5 still work)"
 # fastest NVIDIA models that returned valid JSON on the 12 examples (scripts/bench_assistant.py); ASSISTANT_MODEL overrides
 # (24 Nov 2026: bolt 0.8 s median, 12/12 JSON, 11/12 right tool; nano-omni 2.7 s 10/12; laguna 1.2 s 9/12)
 MODELS = ["nvidia/nemotron-3.5-bolt-e4b", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "poolside/laguna-xs-2.1"]
+# fit / compare / "should I apply": the strongest that passed bench_assistant.py 12/12 (27 Nov 2026: ultra 2.5 s, super 1.1 s)
+STRONG = ["nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-super-vl-120b-a12b"]
 OPEN = ("new", "alerted", "queued", "needs_you", "filled")
 
 
@@ -247,7 +251,7 @@ def t_job_details(db: DB, ctx: dict, id: str):
     if not j:
         return {"data": f"no job matches {id!r}", "show": None}
     fit = t_explain_job(db, ctx, j["id"])["data"]          # skills you have / miss, from resume.yaml: never the model's guess
-    return {"data": {**_brief(j), "description": " ".join((j.get("description") or "not in the posting").split())[:2500],
+    return {"data": {**_brief(j), "description": answer.passages(j.get("description") or "not in the posting", ctx.get("q", "")),
                      "why_it_matched": (j.get("reasons") or [])[:5], "you_have": fit["you_have"],
                      "you_miss": fit["missing"], "fit": fit["fit"]}, "show": None, "card": _card(j, db)}
 
@@ -342,6 +346,7 @@ def t_sheet_send(db: DB, ctx: dict):
     return {"data": "sent", "show": ["__SHEET__"]}
 
 
+from .answer import _fit, _join  # noqa: E402,F401  (re-exported)
 from .assistant_writes import (  # noqa: E402,F401  (re-exported)
     STATUS_WORDS, Nope, _job_or_err, w_set_status, w_add_note, w_skip, _dream, w_dream,
     w_undream, _sheet_job, _on_sheet, w_sheet_add_column, w_sheet_set, w_sheet_remove_row, w_sheet_show_hidden)
@@ -351,15 +356,16 @@ TOOLS = {
     "search_jobs": (t_search_jobs, False, "search_jobs(query, location='Karnataka', limit=5, days=null): open jobs for a role/skill, best first; days=7 for 'this week'"),
     "top_jobs": (t_top_jobs, False, "top_jobs(n=5): best open jobs overall"),
     "today": (t_today, False, "today(): jobs posted in the last 3 days"),
+    "closing_soon": (answer.t_closing_soon, False, "closing_soon(days=7, start=0): jobs whose last date is in that window (tomorrow: start=1, days=1)"),
     "govt": (t_govt, False, "govt(filter='', closing_within_days=null): govt notices; filter karnataka|central|a word; closing_within_days=7 for 'closing soon'"),
-    "job_details": (t_job_details, False, "job_details(id): one job's posting text, to answer a specific question about it"),
-    "explain_job": (t_explain_job, False, "explain_job(id): what the role does, skills it asks that you have/miss, interview topics, fit; id may be an 8-letter id or 'Birlasoft'"),
+    "job_details": (t_job_details, False, "job_details(id): one job's posting, for a question about it"),
+    "explain_job": (t_explain_job, False, "explain_job(id): the role, skills you have/miss, interview topics, fit; id or 'Birlasoft'"),
     "company": (t_company, False, "company(name): a company's open roles (live) and news"),
     "applied": (t_applied, False, "applied(filter=''): your applications; filter today|week|month|interview|rejected|a company"),
     "stats": (t_stats, False, "stats(): applied today/week/total, interviews, offers, response rate"),
-    "salary_estimate": (t_salary_estimate, False, "salary_estimate(role, company='', location='Bengaluru', experience='fresher', id=''): approximate pay from salary sites when a posting doesn't list it"),
+    "salary_estimate": (t_salary_estimate, False, "salary_estimate(role, company='', location='Bengaluru', experience='fresher', id=''): pay from salary sites when a posting has none"),
     "sheet_send": (t_sheet_send, False, "sheet_send(): send the Excel tracker"),
-    "set_status": (w_set_status, True, "set_status(id, status): mark applied|interview|offer|rejected|skipped|queued"),
+    "set_status": (w_set_status, True, "set_status(id, status): mark applied|interview|offer|rejected|ghosted|skipped|queued"),
     "add_note": (w_add_note, True, "add_note(id, text): add a note to a job, ONLY when the user says note / add a note"),
     "skip": (w_skip, True, "skip(id): hide a job"),
     "sheet_add_column": (w_sheet_add_column, True, "sheet_add_column(name): add your own column to the Excel tracker"),
@@ -374,15 +380,14 @@ SYSTEM = """You are the job-search assistant of one Indian fresher. Reply with O
 {"tool": "<name>", "args": {...}} to use a tool, or
 {"answer": "<plain words>"} when you can answer.
 Facts come ONLY from tool results and the chat. Never invent requirements, pay, salaries, dates, companies or facts about the user.
-If a posting doesn't say something, answer "not in the posting". A company fact (what it does, size, founded, offices,
-funding, people) only with the source URL the tool gave; no URL in the tool results → answer "not found".
-Pay questions: use salary_estimate; never state a number yourself.
-"Which <role> job pays most": search_jobs with the role.
+One job: job_details(id or 'Artha Labs ML engineer'). A company fact (what it does, size, funding, people) only with
+the source URL a tool gave, else "not found". Pay: the posting's own; salary_estimate only when it lists none.
 Advice (interview prep, what to learn): 3-4 "• " general tips, no numbers or firms. Else if no tool fits: can't do that yet.
 For "is X a good fit" or "what do I miss" use explain_job. When a role or skill is named (GenAI, ML intern), use
-search_jobs with it as the query; top_jobs only when none is named. Job ids are 8 hex letters like ab12cd34. "this week" means days=7. Changes go through their tool; the app asks the user to confirm.
-Follow-ups ("same in Mysuru", "the first one", "mark it applied"): repeat the last tool call or id from the chat with the change.
-After "Tool results": ≤4 short sentences from them only, naming job ids; don't list the cards.
+search_jobs with it as the query; top_jobs only when none is named. Ids are 8 hex letters (ab12cd34). "this week" means days=7. Changes go through their tool (the user confirms).
+Follow-ups ("same in Mysuru", "the first one", "mark it applied"): the last tool call or id, changed.
+After "Tool results": ≤4 short sentences from them only, no card lists. Each fact about a job ends with its id in
+brackets: "asks 0–2 years [2a56ee6e]". job_page (the job's page today) beats job_details. Not in them → "not in the posting".
 Kannada-English: alli=in, yaavudu=which, ee vaara=this week, sambala=salary, maadide=did.
 Tools:
 """
@@ -450,8 +455,8 @@ def _prompt(t: str, hist: list[tuple[str, str]], steps: list[dict]) -> str:
     return user
 
 
-def _ask(user: str, models: list[str] | None = None) -> str | None:
-    return llm.chat(_system(), user, temperature=0, max_tokens=500, models=models or _models(), timeout=8,
+def _ask(user: str, models: list[str] | None = None, timeout: float = 8) -> str | None:
+    return llm.chat(_system(), user, temperature=0, max_tokens=500, models=models or _models(), timeout=timeout,
                     provs=("nvidia",), valid=lambda x: _parse(x) is not None)
 
 
@@ -466,30 +471,6 @@ PAYS = re.compile(r"^(?:which|what)(?: one| is the| are the)? (?P<r>.+?) (?:jobs
                   r"(?P<r2>.+?) (?:jobs?|roles?|internships?|openings?)", re.I)
 MORE = re.compile(r"^(?:show )?more\W*$", re.I)
 YES = re.compile(r"^(?:yes|y|yeah|yep|yes please|confirm|do it|ok(?:ay)?(?: do it)?|haan|ha)\W*$", re.I)
-
-
-def _fit(msgs: list[str]) -> list[str]:
-    """Every message ≤ 3500 chars, split between blocks (a card is never cut)."""
-    out: list[str] = []
-    for m in msgs:
-        if len(m) <= LIMIT:
-            out.append(m)
-            continue
-        blocks = []
-        for b in m.split("\n\n"):
-            while len(b) > LIMIT:
-                cut = b.rfind("\n", 0, LIMIT)
-                cut = cut if cut > 0 else LIMIT
-                blocks.append(b[:cut])
-                b = b[cut:].lstrip("\n")
-            blocks.append(b)
-        out += [p.strip() for p in pages("", blocks, limit=LIMIT)]
-    return [m for m in out if m.strip()]
-
-
-def _join(show: list[str]) -> list[str]:
-    """Cards → whole messages: as many blocks as fit per message."""
-    return _fit([p.strip() for p in pages("", [s for s in show if s], limit=LIMIT)])
 
 
 def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str | list[str]:
@@ -518,17 +499,21 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             return "Nothing more to show. Ask me for a search."
         _MORE[chat] = rest[5:]
         return _join(rest[:5] + ([f"{len(rest) - 5} more: say 'more'"] if len(rest) > 5 else []))
-    if hit := _fast(db, t):
+    hit, ctx["q"] = _fast(db, t), t
+    asks = (not hit or hit[0] in GENERAL) and bool(QUESTION.search(t) or answer.topics(t) or re.match(r"(?:open|read|check|tell me)\b", t, re.I))
+    jobs, steps = answer.prefetch(db, ctx, t, t_job_details, lambda j: j["url"] if str(j.get("url")).startswith("http") else None) \
+        if asks else ([], [])                             # the job a question names: its posting (and page) before the model
+    if hit and not (jobs and hit[0] in GENERAL):
         return _finish(db, ctx, t, *hit)
+    if not jobs and (d := answer.closing_days(t)):
+        return _finish(db, ctx, t, "closing_soon", d, "")
     hist = history(db, chat)
-    steps: list[dict] = []
-    if m := PAYS.search(t):
-        name, args = "search_jobs", {"query": m["r"] or m["r2"]}
-        res = run_tool(db, ctx, name, args)
-        steps.append({"tool": name, "args": args, "result": res["data"], "card": res.get("card"),
-                      "show": (res.get("show") or [])[:3]})
+    if not jobs and (m := PAYS.search(t)):            # the postings' own pay, highest first: never a salary estimate
+        paid = answer.best_paid(db_search(db, m["r"] or m["r2"]))[:5]
+        steps.append({"tool": "search_jobs", "args": {"query": m["r"] or m["r2"]}, "result": [_brief(j) for j in paid]})
+    strong = bool(answer.ANALYSIS.search(t))           # fit, compare, should I apply: the stronger model
     for _ in range(STEPS):
-        raw = _ask(_prompt(t, hist, steps))
+        raw = _ask(_prompt(t, hist, steps), STRONG + _models() if strong else None, 15 if strong else 8)
         if raw is None:
             return FAIL
         obj = _parse(raw)
@@ -537,12 +522,12 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
                 steps.append({"tool": obj["tool"], "error": "no such tool"})
                 continue
             ans = _grounded(str((obj or {}).get("answer") or llm.clean(raw)), t, steps)
-            ans = re.sub(r"(?:[;,]\s*|\s+)(?=• )", "\n", ans).strip()   # models run "• a; • b" on one line
-            last = steps[-1] if steps else {}
-            extra = _named(db, ans) or ([last["card"]] if last.get("card") else [x for x in last.get("show") or [] if x != "__SHEET__"])
+            ans = answer.cite(re.sub(r"(?:[;,]\s*|\s+)(?=• )", "\n", ans).strip(), steps, jobs)   # "• a; • b" → lines
+            warn, src = answer.scam_note(db, t, ans, jobs), answer.sources(steps)
             remember(db, chat, "user", t)
             remember(db, chat, "assistant", ans)
-            return _join([_e(ans)] + extra)              # the answer first, then the jobs it is about
+            head = "\n\n".join(x for x in (warn and f"<b>{_e(warn)}</b>", _e(ans), _e(src)) if x)
+            return _join([head] + _named(db, ans))       # the answer, then exactly the jobs it cites
         name, args = obj["tool"], obj.get("args") or {}
         if TOOLS[name][1] or (name != "job_details" and not (QUESTION.search(t) and not LISTING.search(t))):
             return _finish(db, ctx, t, name, args, "")    # "show me / find": the cards are the answer
@@ -577,7 +562,7 @@ def _finish(db: DB, ctx: dict, t: str, name: str, args: dict, note: str) -> str 
             return str(exc)
         db.c.execute("INSERT OR REPLACE INTO chat_pending VALUES (?,?,?,?,?)", (chat, time.time(), name, json.dumps(args), what))
         db.c.commit()
-        out = f"I'll {what}. Reply <b>yes</b> to confirm."
+        out = f"I'll {what}. {CONFIRM}"
         remember(db, chat, "assistant", out)
         return out
     try:

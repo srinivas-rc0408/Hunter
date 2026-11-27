@@ -103,7 +103,7 @@ class Sheet(unittest.TestCase):
             self.say("yes")
             self.assertEqual(tracker.columns(self.db), ["Referral"])
             out = self.say(f"put 'asked Rahul for referral' in Referral for {jid}")
-            self.assertIn("Reply <b>yes</b>", out)
+            self.assertIn("Tap ✅ Confirm", out)
             self.say("yes")
             out = self.say(f"remove {jid} from the sheet")
             self.assertIn("the job and your application record stay", out)

@@ -47,7 +47,12 @@ def keyboard(job: dict, extra: tuple[str, ...] = ()) -> dict | None:
 
 
 def buttons_for(text: str, db: DB | None = None) -> dict | None:
-    """A message with exactly one job card gets that job's outcome buttons; a list of cards gets none."""
+    """A message with exactly one job card gets that job's outcome buttons; a list of cards gets none.
+    A change waiting for you ("I'll mark … Tap ✅ Confirm") gets Confirm / Cancel, tied to that change."""
+    if "Tap ✅ Confirm" in (text or ""):
+        row = (db or DB()).c.execute("SELECT at FROM chat_pending ORDER BY at DESC LIMIT 1").fetchone()
+        return {"inline_keyboard": [[{"text": "✅ Confirm", "callback_data": f"c:yes:{int(row[0])}"},
+                                     {"text": "✗ Cancel", "callback_data": f"c:no:{int(row[0])}"}]]} if row else None
     ids = set(CARD_ID.findall(text or ""))
     if len(ids) != 1:
         return None
@@ -87,10 +92,29 @@ def on_button(api: str, chat: str, cq: dict, post=None) -> None:
         post("answerCallbackQuery", callback_query_id=cq.get("id"), text="Not your chat.")
         return
     db = DB()
+    if (cq.get("data") or "").startswith("c:"):
+        return _confirm(api, chat, db, cq, post)
     note, markup = tap(db, cq.get("data", ""))
     post("answerCallbackQuery", callback_query_id=cq.get("id"), text=note[:190])
     if markup is not None:
         post("editMessageReplyMarkup", chat_id=chat, message_id=msg.get("message_id"), reply_markup=markup)
+
+
+def _confirm(api: str, chat: str, db: DB, cq: dict, post) -> None:
+    """Confirm / Cancel under "I'll …": runs (or drops) exactly that change, never a newer one."""
+    from . import assistant
+    from .bot import send
+    m = re.fullmatch(r"c:(yes|no):(\d+)", cq.get("data") or "")
+    row = db.c.execute("SELECT at FROM chat_pending WHERE chat=?", (str(chat),)).fetchone()
+    msg = cq.get("message") or {}
+    post("editMessageReplyMarkup", chat_id=chat, message_id=msg.get("message_id"), reply_markup={"inline_keyboard": []})
+    if not m or not row or int(row[0]) != int(m[2]):
+        post("answerCallbackQuery", callback_query_id=cq.get("id"), text="That change is no longer waiting: ask again.")
+        return
+    out = assistant.reply("yes" if m[1] == "yes" else "no", str(chat), db)
+    post("answerCallbackQuery", callback_query_id=cq.get("id"), text="Done" if m[1] == "yes" else "Cancelled")
+    for x in [out] if isinstance(out, str) else out:
+        send(api, chat, x)
 
 
 # ── no reply: ghosted? ─────────────────────────────────────────────────────

@@ -43,7 +43,7 @@ KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadl
          "ref", "outcomes", *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter</b> · <b>just type what you want</b>: <i>find ML intern jobs in Bengaluru posted this week</i>,
-<i>what does the Birlasoft job need that I don't have?</i>, <i>mark ab12cd34 as interview</i> (changes ask you for a yes first)
+<i>what does the Birlasoft job need that I don't have?</i>, <i>mark ab12cd34 as interview</i> (a change waits for your ✅ Confirm tap)
 Commands work too, with or without the slash: <i>top 5</i>, <i>govt karnataka</i>, or just a company name
 
 <b>Jobs</b>
@@ -404,7 +404,6 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
     return f"Unknown command /{_e(cmd)}. Send /help"
 
 
-SLOW = {"search", "today", "brief", "company", "watch", "intel", "scan", "top", "govt", "dream", "undream", "approve", "check", "interview"}
 
 
 def log(msg: str) -> None:
@@ -467,7 +466,6 @@ def _document(api: str, tok: str, chat: str, doc: dict) -> None:
 
 def _reply(api: str, chat: str, text: str) -> None:
     import threading
-    cmd = (text or "").strip().lstrip("/").split("_")[0].split()[0].split("@")[0].lower() if text.strip() else ""
     done = threading.Event()
 
     def typing():                            # Telegram shows "typing…" for ~5 s: repeat until the reply is ready
@@ -477,8 +475,7 @@ def _reply(api: str, chat: str, text: str) -> None:
             except requests.RequestException:
                 pass
             done.wait(4)
-    if cmd in SLOW or cmd not in KNOWN:      # live searches, and a bare company name or a numbered pick
-        threading.Thread(target=typing, daemon=True).start()
+    threading.Thread(target=typing, daemon=True).start()   # "typing…" the moment any message arrives
     t0 = time.time()
     try:
         reply = handle(text, chat=chat, progress=lambda s: send(api, chat, s))

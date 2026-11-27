@@ -90,17 +90,31 @@ class Chat(unittest.TestCase):
         return "\n".join(parts), sent
 
     def test_a_question_gets_an_answer_from_the_results_then_the_cards(self):
+        gid = self.genai.id[:8]
+
+        class Answer(FakeLLM):
+            def __call__(self, system, user, **kw):
+                self.calls.append((system, user, kw))
+                if "Tool results" in user:
+                    return json.dumps({"answer": f"Its pay is not in the posting [{gid}]."})
+                return json.dumps({"tool": "search_jobs", "args": {"query": "GenAI"}})
+        with mock.patch("jobhunter.llm.chat", Answer()) as fake:
+            text, _ = self.say("which genai job pays the most?")
+        self.assertIn("not in the posting", text)                   # the model's answer, from the tool results
+        self.assertIn(f"/check_{gid}", text)                        # and the job it cites
+        self.assertEqual(sum("Tool results" in c[1] for c in fake.calls), 1)
+
+    def test_an_answer_that_cites_no_job_gets_no_cards(self):
         self.fake.plans = {"which genai job pays the most?": {"tool": "search_jobs", "args": {"query": "GenAI"}}}
         text, _ = self.say("which genai job pays the most?")
-        self.assertIn("not in the posting", text)                   # the model's answer, from the tool results
-        self.assertIn(f"/check_{self.genai.id[:8]}", text)          # and the job it is about
-        self.assertEqual(sum("Tool results" in c[1] for c in self.fake.calls), 1)
+        self.assertIn("not in the posting", text)
+        self.assertNotIn("/check_", text)                           # cards = exactly the jobs the answer cites
 
     def test_pays_most_always_reads_the_postings(self):
         self.fake.plans = {"which genai job pays the most?": {"tool": "salary_estimate", "args": {"role": "GenAI"}}}
         text, _ = self.say("which genai job pays the most?")
         self.assertIn("Tool results", self.fake.calls[0][1])        # search ran before the model was asked
-        self.assertIn(f"/check_{self.genai.id[:8]}", text)
+        self.assertIn(self.genai.id[:8], self.fake.calls[0][1])
         from jobhunter.assistant import PAYS
         for q in ("which ML intern jobs pay the most", "best paid genai jobs", "what are the data science roles that offer the highest pay"):
             self.assertTrue(PAYS.search(q), q)
@@ -122,7 +136,7 @@ class Chat(unittest.TestCase):
                     return json.dumps({"answer": named})
                 return json.dumps({"tool": "top_jobs", "args": {"n": 5}})
         with mock.patch("jobhunter.llm.chat", Answer()):
-            text, _ = self.say("which of my top jobs pays the most?")
+            text, _ = self.say("which of my top jobs is the best?")
         b, g = text.find(f"/check_{self.birla.id[:8]}"), text.find(f"/check_{self.genai.id[:8]}")
         self.assertTrue(0 <= b < g, text)                                   # exactly those two, in the order named
         self.assertNotIn(f"/check_{self.intern.id[:8]}", text)              # top_jobs had it; the answer didn't name it
@@ -189,7 +203,7 @@ class Chat(unittest.TestCase):
         jid = self.intern.id[:8]
         out, _ = self.say(f"mark {jid} as interview")
         self.assertIn("I'll mark", out)
-        self.assertIn("Reply <b>yes</b>", out)
+        self.assertIn("Tap ✅ Confirm", out)
         self.assertEqual(self.db.get(self.intern.id)["status"], "new")      # not yet
         self.assertEqual(self.fake.calls, [])                               # obvious: no model needed
         with mock.patch("jobhunter.prep._what_they_do", return_value=""):
