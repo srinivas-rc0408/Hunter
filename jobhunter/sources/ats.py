@@ -35,7 +35,8 @@ def _pay(p: dict | None):
     return lo, hi, p.get("period"), p.get("currency")
 
 
-def scan(errors: list[str], offline: str | None = None) -> list[Job]:
+def scan(errors: list[str], offline: str | None = None, out: list | None = None) -> list[Job]:
+    """Jobs go into `out` board by board, so a caller that stops waiting keeps what was found."""
     sc = scout()
     boards, extra = [], []
     for b in config.cfg("companies").get("boards", []) or []:
@@ -53,7 +54,7 @@ def scan(errors: list[str], offline: str | None = None) -> list[Job]:
     india_only = config.cfg("search").get("company_boards", {}).get("india_only", True)
     fetcher = sc.Fetcher(offline=offline, pause=0.6)
     today = dt.date.today()
-    out: list[Job] = []
+    out = [] if out is None else out
     for b in boards:
         notes: list[str] = []
         board = dict(b)
@@ -75,7 +76,7 @@ def scan(errors: list[str], offline: str | None = None) -> list[Job]:
                 description=j.get("_text") or "", posted_at=j.get("posted"),
                 job_type="internship" if "intern" in j["title"].lower() else None,
                 is_remote=bool(j.get("remote")), pay_min=mn, pay_max=mx, pay_period=per, currency=cur))
-    out += _scan_more(extra, errors, india_only)
+    out.extend(_scan_more(extra, errors, india_only))
     return out
 
 

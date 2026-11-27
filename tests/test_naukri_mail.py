@@ -104,6 +104,44 @@ class ScanSkip(unittest.TestCase):
         self.assertIn("linkedin", calls)
         self.assertEqual(sum("Naukri skipped (blocked)" in p for p in printed), 1)
 
+    def _scan(self, scrape, queries, locations, cap=None):
+        from jobhunter.sources import boards
+        printed, errors = [], []
+        fake_jobspy = mock.MagicMock()
+        fake_jobspy.scrape_jobs = scrape
+        cfg = {"boards": {"linkedin": {"enabled": True, **({"max_searches": cap} if cap else {})}}}
+        with mock.patch.dict("sys.modules", {"jobspy": fake_jobspy}), \
+                mock.patch.object(boards.config, "cfg", lambda n: cfg), \
+                mock.patch.object(boards, "_tag_indeed_estimates", lambda: None), \
+                mock.patch.object(boards.console, "print", lambda *a, **k: printed.append(" ".join(map(str, a)))), \
+                mock.patch.object(boards.time, "sleep", lambda s: None):
+            boards.scan(errors, queries=queries, locations=locations)
+        return printed, errors
+
+    def test_linkedin_rate_limit_stops_linkedin_for_the_run(self):
+        """26 Nov 2026: LinkedIn 429'd most searches and the scan sat on it for 25 min. JobSpy doesn't raise a
+        429: it keeps it in df.attrs["errors"]. First 429 → no more LinkedIn this run, no waiting, no retry."""
+        import pandas as pd
+        calls = []
+
+        def scrape(site_name, search_term, location, **k):
+            calls.append((search_term, location))
+            df = pd.DataFrame()
+            if len(calls) == 2:
+                df.attrs = {"errors": {"linkedin": "response status code 429 (blocked: use a proxy)"}}
+            return df
+        printed, errors = self._scan(scrape, [{"term": "ml intern"}, {"term": "ai engineer"}, {"term": "data"}],
+                                     ["Bengaluru", "Mysuru"])
+        self.assertEqual(len(calls), 2)                       # 4 searches left, none tried
+        self.assertEqual(sum("LinkedIn rate-limited, skipped rest" in p for p in printed), 1)
+        self.assertTrue(any("LinkedIn rate-limited, skipped rest" in e for e in errors), errors)
+
+    def test_linkedin_caps_searches_bengaluru_first(self):
+        calls = []
+        self._scan(lambda site_name, search_term, location, **k: calls.append((search_term, location)),
+                   [{"term": f"q{i}"} for i in range(5)], ["Bengaluru", "Mysuru"], cap=6)
+        self.assertEqual(calls, [(f"q{i}", "Bengaluru") for i in range(5)] + [("q0", "Mysuru")])
+
 
 if __name__ == "__main__":
     unittest.main()

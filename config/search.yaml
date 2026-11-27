@@ -48,7 +48,7 @@ karnataka_places: [karnataka, bengaluru, bangalore, "bengaluru urban", "bengalur
 # hosur is Tamil Nadu but on Bengaluru's border; delete it if you want strict Karnataka.
 
 boards:
-  linkedin:  {enabled: true,  results: 40, fetch_description: true}   # logged-out guest search; never touches your account
+  linkedin:  {enabled: true,  results: 40, fetch_description: true, max_searches: 6} # logged-out guest search; never touches your account
   indeed:    {enabled: true,  results: 40}
   naukri:    {enabled: false, results: 40, skipped: blocked}   # 406 "recaptcha required" on every search since 26 Nov 2026: its jobs come from Naukri's alert emails instead (mail.py)
   glassdoor: {enabled: false, results: 20}   # blocks most cloud IPs; enable on laptop if you like
@@ -70,7 +70,7 @@ light_scan:
 # · data science intern → data-science · Python developer intern → python-django · SDE intern → software-development
 # (+ computer-vision). Stipend floor: scoring.targets.min_stipend_inr_month (score.py).
 internships:
-  pause_sec: 2
+  pause_sec: 1    # 2 put Internshala (42 requests) past its 90 s scan limit
   internshala:
     enabled: true
     places: [bangalore, work-from-home]         # work-from-home = remote India

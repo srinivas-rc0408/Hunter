@@ -4,6 +4,8 @@ from __future__ import annotations
 import datetime as dt
 import shutil
 import tempfile
+import threading
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -61,14 +63,30 @@ def save(db: DB, jobs: list[Job]) -> list[str]:
     return new_ids
 
 
-def _source(name: str, errors: list[str], fn) -> list:
-    """One source's jobs; a source that crashes is an error line, never the end of the scan."""
-    try:
-        return fn()
-    except Exception as exc:
-        errors.append(f"{name} crashed: {type(exc).__name__}: {str(exc)[:160]}")
-        console.print(f"[red]{name} crashed ({type(exc).__name__}); the other sources carry on[/]")
-        return []
+LIMIT = 90     # seconds one source gets
+BUDGET = 570   # seconds the whole scan gets (under 10 min): a late source gets what's left
+
+
+def _source(name: str, errors: list[str], fn, limit: float = LIMIT) -> list:
+    """fn(out) fills out with one source's jobs. A source that crashes or runs past `limit` is an error line,
+    never the end of the scan; the jobs it found before the limit are kept."""
+    out: list = []
+
+    def go():
+        try:
+            fn(out)
+        except Exception as exc:
+            errors.append(f"{name} crashed: {type(exc).__name__}: {str(exc)[:160]}")
+            console.print(f"[red]{name} crashed ({type(exc).__name__}); the other sources carry on[/]")
+    # ponytail: a Python thread can't be killed, so a source past its limit runs on in the background until
+    # the process exits and its late jobs are dropped. Move sources to subprocesses if that ever matters.
+    t = threading.Thread(target=go, name=name, daemon=True)
+    t.start()
+    t.join(limit)
+    if t.is_alive():
+        errors.append(f"{name}: stopped at the {limit:g} s limit (kept {len(out)} jobs)")
+        console.print(f"[yellow]{name}: {limit:g} s limit, moving on with {len(out)} jobs[/]")
+    return list(out)
 
 
 def alert(db: DB, new_ids: list[str]) -> int:
@@ -113,24 +131,32 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     want = only or {"boards", "ats", "intern", "pages", "govt"}
     private: list[Job] = []
     t0 = dt.datetime.now()
-    if "boards" in want:
-        console.print("[bold]Job boards[/] (LinkedIn/Indeed/Naukri/Google)")
-        private += _source("job boards", errors, lambda: boards.scan(errors, light=light))
-    if "ats" in want and s.get("company_boards", {}).get("enabled", True):
-        console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
-        private += _source("company boards", errors, lambda: ats.scan(errors, offline=offline_ats))
-    if "intern" in want and not light:
-        console.print("[bold]Internships + fresher sites[/] (Internshala/Unstop/Wellfound)")
-        private += _source("internship sites", errors, lambda: intern.scan(errors))
-    found = len(private)
-    new_ids = save(db, private)
+    end = time.monotonic() + BUDGET
+
+    def src(name, fn):
+        return _source(name, errors, fn, limit=max(1.0, min(LIMIT, end - time.monotonic())))
     extra: list[Job] = []
-    if "pages" in want:
-        console.print("[bold]Watched career pages[/] (Birla …)")
-        extra += _source("career pages", errors, lambda: watch_careers(db, errors))
+    # govt and company boards first, LinkedIn last: a rate-limited board can't eat the others' time
     if "govt" in want and s.get("govt", {}).get("enabled", True):
         console.print("[bold]Government radar[/]")
-        extra += _source("govt radar", errors, lambda: govt.scan(db, errors, baseline_new=baseline_new))
+        extra += src("govt radar", lambda out: out.extend(govt.scan(db, errors, baseline_new=baseline_new)))
+    if "ats" in want and s.get("company_boards", {}).get("enabled", True):
+        console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
+        private += src("company boards", lambda out: ats.scan(errors, offline=offline_ats, out=out))
+    if "pages" in want:
+        console.print("[bold]Watched career pages[/] (Birla …)")
+        extra += src("career pages", lambda out: out.extend(watch_careers(db, errors)))
+    if "intern" in want and not light:
+        console.print("[bold]Internships + fresher sites[/] (Internshala/Unstop/Wellfound)")
+        for site in intern.enabled():
+            private += src(site, lambda out, site=site: intern.scan(errors, sites=[site], out=out))
+    if "boards" in want:
+        console.print("[bold]Job boards[/] (Indeed, then LinkedIn)")
+        boards.say_skipped()
+        for site in boards.enabled(light):
+            private += src(site, lambda out, site=site: boards.scan(errors, light=light, sites=[site], out=out))
+    found = len(private)
+    new_ids = save(db, private)
     for j in extra:
         found += 1
         if db.upsert(j):

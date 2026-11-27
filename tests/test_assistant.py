@@ -113,6 +113,20 @@ class Chat(unittest.TestCase):
         self.assertIn("• Revise DSA and core ML concepts.\n• Practise explaining your projects.", text)
         self.assertNotIn("not found", text)                         # advice naming skills isn't cut
 
+    def test_the_cards_are_the_jobs_the_answer_names_in_its_order(self):
+        named = f"{self.birla.id[:8]} pays most, then {self.genai.id[:8]}."
+
+        class Answer(FakeLLM):
+            def __call__(self, system, user, **kw):
+                if "Tool results" in user:
+                    return json.dumps({"answer": named})
+                return json.dumps({"tool": "top_jobs", "args": {"n": 5}})
+        with mock.patch("jobhunter.llm.chat", Answer()):
+            text, _ = self.say("which of my top jobs pays the most?")
+        b, g = text.find(f"/check_{self.birla.id[:8]}"), text.find(f"/check_{self.genai.id[:8]}")
+        self.assertTrue(0 <= b < g, text)                                   # exactly those two, in the order named
+        self.assertNotIn(f"/check_{self.intern.id[:8]}", text)              # top_jobs had it; the answer didn't name it
+
     def test_show_me_is_just_the_cards(self):
         self.fake.plans = {"show me genai jobs": {"tool": "search_jobs", "args": {"query": "GenAI"}}}
         text, _ = self.say("show me genai jobs")

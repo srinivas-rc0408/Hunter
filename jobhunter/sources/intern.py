@@ -155,7 +155,8 @@ def card_to_job(c: dict, detail: dict | None = None) -> Job:
     return j
 
 
-def internshala(http: Http, errors: list[str], cfg: dict) -> list[Job]:
+def internshala(http: Http, errors: list[str], cfg: dict, out: list | None = None) -> list[Job]:
+    """Listings go into `out` first, then the newest get their detail page: a scan cut short keeps the listings."""
     pages = []
     for place in cfg.get("places", ["bangalore", "work-from-home"]):
         for cat in cfg.get("internships", []):
@@ -179,19 +180,20 @@ def internshala(http: Http, errors: list[str], cfg: dict) -> list[Job]:
             continue                                    # unknown category: Internshala redirects to a generic page
         for c in internshala_cards(r.text, kind):
             cards.setdefault(c["id"], c)
-    out, left = [], int(cfg.get("max_details", 15))
+    out = [] if out is None else out
+    start = len(out)
     newest = sorted(cards.values(), key=lambda c: c.get("posted") or "", reverse=True)
-    for c in newest:
-        detail = None
-        if left > 0 and http.allowed(c["url"]):
-            left -= 1
-            try:
-                r = http.get(c["url"])
-                detail = internshala_detail(r.text) if r.status_code == 200 else None
-            except Exception as exc:
-                errors.append(f"internshala detail: {type(exc).__name__}")
-        out.append(card_to_job(c, detail))
-    return out
+    out.extend(card_to_job(c, None) for c in newest)
+    for i, c in enumerate(newest[: int(cfg.get("max_details", 15))]):
+        if not http.allowed(c["url"]):
+            continue
+        try:
+            r = http.get(c["url"])
+            if r.status_code == 200:
+                out[start + i] = card_to_job(c, internshala_detail(r.text))
+        except Exception as exc:
+            errors.append(f"internshala detail: {type(exc).__name__}")
+    return out[start:]
 
 
 # ── Unstop ───────────────────────────────────────────────────────────────────
@@ -319,21 +321,28 @@ def wellfound(http: Http, errors: list[str], cfg: dict) -> list[Job]:
     return out
 
 
-def scan(errors: list[str], quiet: bool = False) -> list[Job]:
-    """Every enabled internship/fresher source in config/search.yaml → internships."""
+def enabled() -> list[str]:
+    cfg = config.cfg("search").get("internships") or {}
+    return [n for n in ("internshala", "unstop", "wellfound") if (cfg.get(n) or {}).get("enabled", True)]
+
+
+def scan(errors: list[str], quiet: bool = False, sites: list[str] | None = None, out: list | None = None) -> list[Job]:
+    """Every enabled internship/fresher source in config/search.yaml (or just `sites`) → internships, into `out`."""
     cfg = config.cfg("search").get("internships") or {}
     http = Http(pause=float(cfg.get("pause_sec", 2.0)))
-    out: list[Job] = []
+    out = [] if out is None else out
     for name, fn in (("internshala", internshala), ("unstop", unstop), ("wellfound", wellfound)):
         c = cfg.get(name) or {}
-        if not c.get("enabled", True):
+        if name not in (sites or enabled()):
             continue
+        start = len(out)
         try:
-            got = fn(http, errors, c)
+            if fn is internshala:
+                internshala(http, errors, c, out)       # fills out as it goes
+            else:
+                out.extend(fn(http, errors, c))
         except Exception as exc:                        # one broken site never stops the others
             errors.append(f"{name}: {type(exc).__name__}: {str(exc)[:160]}")
-            got = []
         if not quiet:
-            console.print(f"  {name:11} → {len(got)}")
-        out += got
+            console.print(f"  {name:11} → {len(out) - start}")
     return out

@@ -104,10 +104,33 @@ def _tag_indeed_estimates() -> None:
     ind.get_compensation = get_compensation
 
 
+def enabled(light: bool = False) -> list[str]:
+    """The boards a scan runs, in order: LinkedIn last (it rate-limits; everything else goes first)."""
+    s = config.cfg("search")
+    on = [b for b, o in s.get("boards", {}).items() if (o or {}).get("enabled") and b in SITE_NAMES]
+    if light:
+        on = [b for b in on if b in s.get("light_scan", {}).get("boards", on)]
+    return sorted(on, key=lambda b: b == "linkedin")
+
+
+def say_skipped(sites: Iterable[str] | None = None) -> None:
+    """A board turned off because it blocks us: say so once, never retry."""
+    for b, o in config.cfg("search").get("boards", {}).items():
+        if (o or {}).get("skipped") and not (o or {}).get("enabled") and (not sites or b in set(sites)):
+            console.print(f"  [yellow]{b.capitalize()} skipped ({o['skipped']})[/]")
+
+
+def _rate_limited(exc: Exception | None, df, site: str) -> str | None:
+    """JobSpy keeps a 429 in df.attrs["errors"] and returns what it got; older ones raise it."""
+    msg = str(exc) if exc else str(((getattr(df, "attrs", None) or {}).get("errors") or {}).get(site) or "")
+    return msg if "429" in msg else None
+
+
 def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = None,
          hours_old: int | None = None, queries: list[dict] | None = None,
-         locations: list[str] | None = None, quiet: bool = False) -> list[Job]:
-    """Every enabled board × query × location. queries/locations override search.yaml (search on demand)."""
+         locations: list[str] | None = None, quiet: bool = False, out: list | None = None) -> list[Job]:
+    """Every enabled board × location × query. queries/locations override search.yaml (search on demand).
+    Jobs go into `out` as each search lands, so a caller that stops waiting keeps what was found."""
     try:
         from jobspy import scrape_jobs  # heavy import; only when scanning
     except ImportError:
@@ -119,56 +142,56 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
         errors.append(f"indeed estimate tag off: {exc}")
     s = config.cfg("search")
     boards = s.get("boards", {})
-    enabled = [b for b, o in boards.items() if (o or {}).get("enabled") and b in SITE_NAMES]
     if not quiet:
-        for b, o in boards.items():                   # a board turned off because it blocks us: say so once, never retry
-            if (o or {}).get("skipped") and not (o or {}).get("enabled") and (not sites or b in set(sites)):
-                console.print(f"  [yellow]{b.capitalize()} skipped ({o['skipped']})[/]")
+        say_skipped(sites)
     want_q, want_loc = queries, locations
     queries = s.get("queries", [])
     locations = s.get("locations", [s.get("default_location", "India")])
+    on = enabled(light)
     if light:
         ls = s.get("light_scan", {})
-        enabled = [b for b in enabled if b in ls.get("boards", enabled)]
         locations = ls.get("locations", locations[:1])
         queries = queries[: ls.get("max_queries", 6)] + [q for q in queries if "birla" in q["term"].lower()]
     if sites:
-        enabled = [b for b in enabled if b in set(sites)]
+        on = [b for b in on if b in set(sites)]
     queries, locations = want_q or queries, want_loc or locations
     proxies = s.get("proxies") or None
     pause = float(s.get("pause_between_queries_sec", 3))
     hours = hours_old or s.get("hours_old", 48)
-    out: list[Job] = []
-    for site in enabled:
+    out = [] if out is None else out
+    for site in on:
         opt = boards.get(site) or {}
-        for q in queries:
-            for loc in locations:
-                if site == "google":
-                    kw = dict(google_search_term=f"{q['term']} jobs near {loc.split(',')[0]} since {max(1, hours // 24)} days ago")
-                else:
-                    kw = dict(search_term=q["term"])
-                try:
-                    df = scrape_jobs(
-                        site_name=[site], location=loc, results_wanted=int(opt.get("results", 30)),
-                        hours_old=hours, country_indeed="India", job_type=q.get("job_type"),
-                        linkedin_fetch_description=bool(opt.get("fetch_description")) and site == "linkedin",
-                        proxies=proxies, verbose=0, description_format="markdown", **kw)
-                except Exception as exc:  # JobSpy raises many kinds; never kill the scan
-                    msg = f"{site} '{q['term']}' @ {loc}: {type(exc).__name__}: {str(exc)[:160]}"
-                    errors.append(msg)
-                    if "429" in str(exc):
-                        console.print(f"[yellow]{site} rate-limited; skipping the rest of {site} this run[/]")
-                        break
-                    continue
-                n = 0
-                for rec in df.to_dict("records") if df is not None else []:
-                    j = row_to_job(rec, q.get("job_type"))
-                    if j:
-                        out.append(j)
-                        n += 1
-                if not quiet:
-                    console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {n}")
-                    time.sleep(pause)
-                if site == "google":
-                    break   # google query already names the city; one location is enough
+        name = {"linkedin": "LinkedIn"}.get(site, site.capitalize())
+        # location outer: with a search cap, every query gets Bengaluru before any query gets Mysuru
+        searches = [(loc, q) for loc in (locations[:1] if site == "google" else locations) for q in queries]
+        searches = searches[: opt.get("max_searches") or None]
+        for i, (loc, q) in enumerate(searches):
+            if site == "google":   # the google query names the city itself
+                kw = dict(google_search_term=f"{q['term']} jobs near {loc.split(',')[0]} since {max(1, hours // 24)} days ago")
+            else:
+                kw = dict(search_term=q["term"])
+            df, err = None, None
+            try:
+                df = scrape_jobs(
+                    site_name=[site], location=loc, results_wanted=int(opt.get("results", 30)),
+                    hours_old=hours, country_indeed="India", job_type=q.get("job_type"),
+                    linkedin_fetch_description=bool(opt.get("fetch_description")) and site == "linkedin",
+                    proxies=proxies, verbose=0, description_format="markdown", **kw)
+            except Exception as exc:  # JobSpy raises many kinds; never kill the scan
+                err = exc
+                errors.append(f"{site} '{q['term']}' @ {loc}: {type(exc).__name__}: {str(exc)[:160]}")
+            n = 0
+            for rec in df.to_dict("records") if df is not None else []:
+                j = row_to_job(rec, q.get("job_type"))
+                if j:
+                    out.append(j)
+                    n += 1
+            if not quiet and not err:
+                console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {n}")
+            if _rate_limited(err, df, site):    # never wait and retry: stop this board for the run
+                errors.append(f"{name} rate-limited, skipped rest ({len(searches) - i - 1} searches)")
+                console.print(f"[yellow]{name} rate-limited, skipped rest[/]")
+                break
+            if not quiet and not err:
+                time.sleep(pause)
     return out

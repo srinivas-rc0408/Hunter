@@ -154,6 +154,12 @@ def _card(j: dict, db: DB) -> str:
     return govt_card(j) if j.get("kind") == "govt" else job_card(j, db)
 
 
+def _named(db: DB, ans: str) -> list[str]:
+    """The cards of the jobs an answer names by id, in the order it names them (≤ 5)."""
+    jobs = {j["id"]: j for i in re.findall(r"\b[0-9a-f]{8,12}\b", ans.lower()) if (j := db.get(i))}
+    return [_card(j, db) for j in list(jobs.values())[:5]]
+
+
 def _cards(db: DB, ctx: dict, jobs: list[dict], head: str, limit: int) -> dict:
     cards = [_card(j, db) for j in jobs]
     shown, rest = cards[:limit], cards[limit:]
@@ -533,7 +539,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
             ans = _grounded(str((obj or {}).get("answer") or llm.clean(raw)), t, steps)
             ans = re.sub(r"(?:[;,]\s*|\s+)(?=• )", "\n", ans).strip()   # models run "• a; • b" on one line
             last = steps[-1] if steps else {}
-            extra = [last["card"]] if last.get("card") else [x for x in last.get("show") or [] if x != "__SHEET__"]
+            extra = _named(db, ans) or ([last["card"]] if last.get("card") else [x for x in last.get("show") or [] if x != "__SHEET__"])
             remember(db, chat, "user", t)
             remember(db, chat, "assistant", ans)
             return _join([_e(ans)] + extra)              # the answer first, then the jobs it is about

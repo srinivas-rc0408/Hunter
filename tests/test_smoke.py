@@ -95,7 +95,8 @@ class DryRun(unittest.TestCase):
                      description="Python freshers", posted_at=str(dt.date.today())),
                  Job("AI Engineer", "Beta", "Bengaluru", url="https://x.example/2", source="naukri",
                      description="Python LLM freshers", posted_at=str(dt.date.today()))]
-        with mock.patch.object(pipeline.boards, "scan", lambda errors, light=False: list(found)), \
+        with mock.patch.object(pipeline.boards, "enabled", lambda light=False: ["linkedin"]), \
+                mock.patch.object(pipeline.boards, "scan", lambda errors, out, **k: out.extend(found)), \
                 mock.patch.object(notify, "alert_jobs", side_effect=AssertionError("a dry run sent an alert")):
             r = pipeline.run(only={"boards"}, dry=True)
         self.assertEqual(r["by_source"], {"linkedin": {"found": 1, "new": 1}, "naukri": {"found": 1, "new": 1}})
@@ -110,7 +111,8 @@ class SourceCrash(unittest.TestCase):
         from jobhunter import pipeline
         ok = [Job("ML Intern", "Acme AI Labs", "Bengaluru", url="https://x.example/ok", source="linkedin",
                   description="Python freshers", posted_at=str(dt.date.today()))]
-        with mock.patch.object(pipeline.boards, "scan", lambda errors, light=False: list(ok)), \
+        with mock.patch.object(pipeline.boards, "enabled", lambda light=False: ["linkedin"]), \
+                mock.patch.object(pipeline.boards, "scan", lambda errors, out, **k: out.extend(ok)), \
                 mock.patch.object(pipeline.ats, "scan", side_effect=TimeoutError("The read operation timed out")):
             r = pipeline.run(only={"boards", "ats"}, dry=True)
         self.assertEqual(r["found"], 1)
@@ -138,6 +140,33 @@ class SourceCrash(unittest.TestCase):
             jobs = ats.scan(errors)
         self.assertEqual([j.company for j in jobs], ["Goodco"])
         self.assertTrue(any("slowco" in e and "TimeoutError" in e for e in errors), errors)
+
+    def test_a_slow_source_is_cut_at_its_limit_and_keeps_what_it_found(self):
+        import threading
+        from jobhunter import pipeline
+        hang = threading.Event()
+        errors = []
+
+        def slow(out):
+            out.append("job found before the limit")
+            hang.wait(5)
+            out.append("too late")
+        try:
+            got = pipeline._source("company boards", errors, slow, limit=0.2)
+        finally:
+            hang.set()
+        self.assertEqual(got, ["job found before the limit"])
+        self.assertTrue(any("company boards: stopped at the 0.2 s limit (kept 1 jobs)" in e for e in errors), errors)
+
+    def test_govt_and_company_boards_run_before_linkedin(self):
+        from jobhunter import pipeline
+        order = []
+        with mock.patch.object(pipeline.govt, "scan", lambda *a, **k: order.append("govt") or []), \
+                mock.patch.object(pipeline.ats, "scan", lambda *a, **k: order.append("ats")), \
+                mock.patch.object(pipeline.boards, "enabled", lambda light=False: ["indeed", "linkedin"]), \
+                mock.patch.object(pipeline.boards, "scan", lambda errors, sites, **k: order.append(sites[0])):
+            pipeline.run(only={"boards", "ats", "govt"}, dry=True)
+        self.assertEqual(order, ["govt", "ats", "indeed", "linkedin"])
 
 
 class Hygiene(unittest.TestCase):

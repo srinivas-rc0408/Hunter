@@ -136,7 +136,7 @@ class DB:
     def __init__(self, path: str | Path | None = None):
         self.path = Path(path) if path else config.data_dir() / "jobs.db"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.c = sqlite3.connect(self.path, timeout=30)   # a running scan writes too: wait, never fail
+        self.c = sqlite3.connect(self.path, timeout=30, check_same_thread=False)   # a running scan writes too: wait, never fail; scan sources run in threads
         self.c.row_factory = sqlite3.Row
         self.c.executescript(SCHEMA)
         cols = {r[1] for r in self.c.execute("PRAGMA table_info(jobs)")}
