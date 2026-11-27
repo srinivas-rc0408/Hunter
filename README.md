@@ -1,31 +1,67 @@
 # JobHunter
 
-A personal job-hunting system for an Indian final-year AI/ML engineer, built by
-Srinivas R C. It finds every relevant job within the hour it's posted, ranks it,
-tailors a one-page resume with an ATS truth check, fills the application in your own
-logged-in browser, and keeps a reviewable record of every field it submitted.
-It covers private tech jobs (LinkedIn, Naukri (from its job alert emails; its search is captcha-blocked), Indeed, Google Jobs, and companies' own platforms:
-Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee, Keka, Darwinbox,
-Zoho Recruit, SuccessFactors, plus schema.org job data on any careers page) and Indian government jobs
-(ISRO, NIC, DRDO, BEL, IISc, C-DAC, banks, KPSC, KEA…), with reservation-aware
-eligibility checks.
+**An always-on job-hunting agent: it scans 30+ job sources every 2 hours, ranks every posting against one resume,
+and answers questions about the jobs on Telegram, citing its sources and never inventing a fact.** Built by Srinivas R C.
 
-**It doesn't need Claude.** The cloud radar runs free on GitHub Actions and the
-apply bot runs on your laptop. Claude Code is optional (`/jobhunter` plus the 11
+- **2,117 jobs per full scan** from 10 sources (LinkedIn, Indeed, Internshala, Unstop, Wellfound, Greenhouse,
+  Lever, Ashby, SuccessFactors, career pages) plus 20 Indian government notice boards, under a 10-minute budget.
+- **Telegram AI accuracy 40% → 86.7%** on a 30-question eval of real lookups, deadlines, pay, fit and "not in the data"
+  questions. Correct citations went from 40% to 70% and the median reply time from 3.2 s to 1.5 s.
+- **401 tests**, run in CI on **Python 3.12 and 3.14**, plus code-hygiene guards: no module over 600 lines, no silent
+  `except`, and a privacy guard that fails if a personal value reaches a tracked file.
+
+```mermaid
+flowchart LR
+  subgraph Sources
+    A1[LinkedIn · Indeed · Internshala · Unstop · Wellfound]
+    A2[Greenhouse · Lever · Ashby · Workday · SuccessFactors]
+    A3[Govt notice boards + PDFs]
+  end
+  Sources --> S[Scan: rotation, 90 s per source,<br/>stops at the first 429]
+  S --> R[Score: role fit, skills, eligibility,<br/>scam and bond flags]
+  R --> DB[(SQLite<br/>jobs · events · outcomes)]
+  DB --> B[Telegram bot]
+  B --> L[NVIDIA LLM<br/>fast model / strong model for fit]
+  L --> T[Tools: search, job details,<br/>the job's own page, salary sites]
+  T --> G[Grounding check +<br/>job-id citations]
+  G --> B
+  DB --> X[Excel tracker]
+  DB <--> M[Gmail sync:<br/>replies → status]
+  B -- Applied / Interview / Rejected buttons --> O[Outcome learning]
+  M --> O
+  O -- ranks jobs like your interviews higher --> R
+```
+
+It covers private tech jobs (LinkedIn, Naukri from its alert emails, Indeed, Google Jobs, and companies' own platforms:
+Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Workable, Recruitee, Keka, Darwinbox, Zoho Recruit,
+SuccessFactors, plus schema.org job data on any careers page) and Indian government jobs (ISRO, NIC, DRDO, BEL,
+IISc, C-DAC, banks, KPSC, KEA…), with reservation-aware eligibility checks. The cloud radar runs free on GitHub
+Actions; the apply bot runs on the laptop. Claude Code is optional (`/jobhunter` plus the 11
 [hunter-skill](https://github.com/Jakeschincariol/hunter-skill) skills).
 
-```
- GitHub Actions: every 30 min, laptop off           Your laptop
- ┌──────────────────────────────────────┐ encrypted ┌──────────────────────────────────────┐
- │ LinkedIn · Indeed · Google · Naukri✉ │   sync    │ hunt apply                           │
- │ Greenhouse · Lever · Ashby · Workday │ ────────▶ │  ├ tailor resume (hunter-resume ATS) │
- │ watched career pages (diffed)        │           │  ├ LinkedIn Easy Apply / Naukri       │
- │ 20 govt notice boards + PDFs         │           │  ├ Greenhouse / Lever / Ashby / any   │
- │  → dedupe → score → eligibility      │           │  └ submit ONLY if every field is a    │
- │  → Telegram alert on your phone      │           │    fact you gave, else queue it       │
- └──────────────────────────────────────┘           │ Review Center → http://localhost:8765 │
-                                                    └──────────────────────────────────────┘
-```
+## Engineering decisions
+
+- **Grounding check, not trust.** Every model-written sentence is checked against what the tools returned: a number,
+  date, skill or company that isn't in the sources gets the sentence cut to "not found". The job ids an answer cites
+  must be ids the tools returned, and the cards shown are exactly the cited jobs.
+- **A human presses Submit.** Forms are filled only from facts in the profile or a saved answer; an unknown field
+  stays blank and the form goes to review. A job flagged as a scam is never auto-applied, and any change from chat
+  needs a ✅ Confirm tap tied to that exact change.
+- **Encrypted cloud state.** The GitHub Actions radar keeps its database AES-256 encrypted on a branch, masks personal
+  values in logs, and local secrets and backups stay owner-only (600). Health checks fail if one is ever committed.
+- **Rate limits are expected, not errors.** LinkedIn stops at its first 429 for the rest of the run, each source gets
+  90 s and keeps what it found, and searches rotate so the next scan picks up where this one stopped. A source that
+  returns 0 jobs two scans in a row sends an alert.
+- **AI changes are eval-driven.** A fixed 30-question set on real postings is scored for accuracy, citations and
+  p50/p95 latency before and after every change. The model choice comes from a benchmark of all live NVIDIA models
+  (valid JSON + right tool), not from guessing.
+
+## What I'd do next
+
+- Cut fit-question latency: the strong model now gets 6 s before falling back, but its p95 was 17 s on the eval.
+- Fix the remaining citation misses (9 of 30 questions) and re-run the live routing eval after the prompt change.
+- Add similarity search on top of keywords: a synonym probe found real gaps ("AI agents" vs "agentic AI",
+  "backend engineer" vs "backend developer") that aliases only partly cover.
 
 ## Rules it enforces
 
