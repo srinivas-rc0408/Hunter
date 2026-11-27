@@ -17,10 +17,10 @@ from . import config
 from .util import canonical_url, iso, norm, now, short_hash
 
 STATUSES = ["new", "alerted", "queued", "filled", "needs_you", "applied", "interview",
-            "offer", "rejected", "skipped", "expired", "filtered"]
+            "offer", "rejected", "ghosted", "skipped", "expired", "filtered"]
 # A status later in this tuple is "more advanced" and wins when merging two DBs.
 RANK = {s: i for i, s in enumerate(["filtered", "new", "alerted", "queued", "expired", "skipped",
-                                    "filled", "needs_you", "applied", "rejected", "interview", "offer"])}
+                                    "filled", "needs_you", "applied", "ghosted", "rejected", "interview", "offer"])}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT);   -- scan memory: rotation positions, boards' last scan
 CREATE TABLE IF NOT EXISTS board_seen (board TEXT, sid TEXT, PRIMARY KEY (board, sid));   -- posting ids per company board
-CREATE TABLE IF NOT EXISTS coverage (at TEXT, source TEXT, done INTEGER, total INTEGER);  -- searches/boards run per scan
+CREATE TABLE IF NOT EXISTS coverage (at TEXT, source TEXT, done INTEGER, total INTEGER, found INTEGER);  -- per scan
 CREATE INDEX IF NOT EXISTS coverage_at ON coverage(at);
 """
 
@@ -153,6 +153,12 @@ class DB:
         for col in ("conf_id", "form_url"):                                                  # 2.3
             if col not in acols:
                 self.c.execute(f"ALTER TABLE applications ADD COLUMN {col} TEXT DEFAULT ''")
+        if "found" not in {r[1] for r in self.c.execute("PRAGMA table_info(coverage)")}:            # 2.6
+            self.c.execute("ALTER TABLE coverage ADD COLUMN found INTEGER")
+        try:                                     # your applications and answers: owner-only (journals inherit it)
+            self.path.chmod(0o600)
+        except OSError:                          # a file someone else owns (a shared copy): leave it
+            pass
 
     # ── jobs ────────────────────────────────────────────────────────────────
     def upsert(self, job: Job) -> bool:
@@ -379,8 +385,9 @@ class DB:
         self.c.executemany("INSERT OR IGNORE INTO board_seen VALUES (?,?)", [(board, x) for x in sids])
         self.c.commit()
 
-    def log_coverage(self, source: str, done: int, total: int) -> None:
-        self.c.execute("INSERT INTO coverage VALUES (?,?,?,?)", (iso(), source, done, total))
+    def log_coverage(self, source: str, done: int, total: int, found: int | None = None) -> None:
+        """done of total searches (or boards) ran; found = jobs it returned (a company board: postings it lists)."""
+        self.c.execute("INSERT INTO coverage VALUES (?,?,?,?,?)", (iso(), source, done, total, found))
         self.c.commit()
 
     def coverage_24h(self) -> dict[str, tuple[int, int]]:

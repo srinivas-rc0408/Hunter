@@ -296,7 +296,7 @@ def match(db: DB, msg: Msg) -> tuple[str | None, str]:
     """(job id, how) for the application this reply is about, or (None, reason). Strong matches only:
     the company name must appear in the sender, subject or body; the role breaks ties."""
     apps = db.c.execute("""SELECT id, title, company FROM jobs WHERE status IN
-                           ('applied','interview','offer','rejected','needs_you','filled')""").fetchall()
+                           ('applied','interview','offer','rejected','ghosted','needs_you','filled')""").fetchall()
     if not apps:
         return None, "you have no applications yet"
     head = norm(f"{msg.sender_name} {msg.subject}")
@@ -369,7 +369,7 @@ def mark_applied(db: DB, jid: str, msg: Msg) -> bool:
     """A confirmation ("received", "your application was sent to X") means you applied, on the email's date.
     Only moves a job that isn't applied / interview / offer / rejected yet. True if it moved."""
     j = db.get(jid)
-    if not j or j["status"] in ("applied", "interview", "offer", "rejected"):
+    if not j or j["status"] in ("applied", "interview", "offer", "rejected", "ghosted"):
         return False
     db.c.execute("UPDATE jobs SET status='applied', status_at=? WHERE id=?", (msg.at, jid))
     db.c.execute("INSERT INTO events VALUES (?,?,?,?)", (jid, msg.at, "applied", "email: " + msg.subject[:150]))
@@ -412,7 +412,7 @@ def sync(days: int = 30, label: bool = True, quiet: bool = False, imap_factory=N
     ensure(db)
     known = {r[0] for r in db.c.execute("SELECT msgid FROM mail")}
     companies = sorted({norm(r[0]) for r in db.c.execute(
-        "SELECT company FROM jobs WHERE status IN ('applied','interview','offer','rejected','needs_you','filled')")} - {""})
+        "SELECT company FROM jobs WHERE status IN ('applied','interview','offer','rejected','ghosted','needs_you','filled')")} - {""})
     imap = imap_factory() if imap_factory else imaplib.IMAP4_SSL(HOST)
     if imap_factory is None:
         try:

@@ -448,6 +448,9 @@ def main(argv=None):
     import logging
     import os
     logging.basicConfig(level=(os.environ.get("JH_LOG") or "WARNING").upper(), format="%(levelname)s %(name)s: %(message)s")
+    from .ops import secure
+    for f in secure():                            # every command: secrets stay owner-only (chmod 600, data/ 700)
+        logging.getLogger("jobhunter").warning("locked down %s", f)
     a.fn(a)
 
 

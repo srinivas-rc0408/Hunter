@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import shutil
 import tempfile
 import threading
@@ -9,7 +10,7 @@ import time
 from collections import Counter
 from pathlib import Path
 
-from . import config, notify
+from . import config, notify, outcomes
 from .db import DB, Job
 from .score import is_dream, score
 from .sources import ats, boards, govt, intern, pages
@@ -41,8 +42,10 @@ def save(db: DB, jobs: list[Job]) -> list[str]:
     """Score and store board/ATS jobs exactly as a scan does. Returns the ids new to us."""
     new_ids: list[str] = []
     old_cut = dt.date.today() - dt.timedelta(days=14)
+    learned = outcomes.model(db)                  # None until 20 decided outcomes: then jobs like your interviews rank up
     for j in jobs:
         score(j)
+        outcomes.apply(learned, j)
         if j.status != "filtered" and not db.c.execute("SELECT 1 FROM jobs WHERE id=?", (j.id,)).fetchone():
             why = None
             if j.posted_at and str(j.posted_at)[:10] < str(old_cut) and not (j.deadline and j.deadline >= str(dt.date.today())):
@@ -96,9 +99,42 @@ def _source(name: str, errors: list[str], fn, limit: float = LIMIT, covs: dict |
     if cut:
         errors.append(f"{name}: stopped at the {limit:g} s limit (kept {len(jobs)} jobs)")
         console.print(f"[yellow]{name}: {limit:g} s limit, moving on with {len(jobs)} jobs[/]")
+    snap["found"] = len(jobs)
     if covs is not None:
         covs[name] = snap
     return jobs
+
+
+def silent(db: DB, source: str) -> tuple[bool, list[int]]:
+    """(0 jobs 2 runs in a row though it usually finds some, the counts before). Runs that didn't get through
+    (rate-limited, cut before a search finished) don't count either way: those aren't a layout change."""
+    rows = [r[0] for r in db.c.execute("SELECT found FROM coverage WHERE source=? AND done>0 AND found IS NOT NULL"
+                                       " ORDER BY rowid DESC LIMIT 7", (source,))]
+    before = rows[2:]
+    return len(rows) >= 2 and rows[0] == rows[1] == 0 and sum(n > 0 for n in before) >= 3, before
+
+
+def _silence_alerts(db: DB, sources: list[str], send=None) -> list[str]:
+    """Telegram once when a source goes quiet (its site likely changed layout or is blocking us), once when it's back."""
+    send = send or notify.telegram
+    quiet = db.state("silent", {})
+    msgs = []
+    for src_ in sources:
+        now, before = silent(db, src_)
+        if now and src_ not in quiet:
+            where = " (cloud radar)" if os.environ.get("GITHUB_ACTIONS") else ""      # its IP is blocked apart from yours
+            msgs.append(f"⚠️ <b>{src_} returned 0 jobs 2 scans in a row{where}</b>\nIt usually finds some "
+                        f"({', '.join(map(str, before[:5]))} in the scans before). Its page layout may have changed, or "
+                        f"it's blocking us: <code>hunt scan --dry-run</code> shows what it returns.")
+            quiet[src_] = iso()
+        elif src_ in quiet and (r := db.c.execute("SELECT found FROM coverage WHERE source=? AND done>0 AND found IS NOT NULL"
+                                                   " ORDER BY rowid DESC LIMIT 1", (src_,)).fetchone()) and r[0]:
+            msgs.append(f"✅ {src_} is returning jobs again ({r[0]} this scan).")
+            quiet.pop(src_)
+    db.set_state("silent", quiet)
+    for m in msgs:
+        send(m)
+    return msgs
 
 
 ROTATE = {"company boards", "indeed", "linkedin", "naukri", "glassdoor", "google"}   # resume where the last scan stopped
@@ -112,11 +148,12 @@ def _remember(db: DB, covs: dict, light: bool) -> dict[str, str]:
         for key, sids, day in c.get("marks", []):
             db.set_board_seen(key, sids)
             db.set_state(f"since:{key}", day)
+            db.log_coverage(f"board {key}", 1, 1, len(sids))   # postings it lists: 0 after 40 = its feed broke
         tag = name + (" (light)" if light else "")
         done, total = (c.get("done", 0), c["total"]) if c.get("total") else (int(not c["cut"]), 1)
         if name in ROTATE and total:
             db.set_state(f"rot:{tag}", (db.state(f"rot:{tag}", 0) + done) % total)
-        db.log_coverage(tag, done, total)
+        db.log_coverage(tag, done, total, None if name == "company boards" else c.get("found"))
         shown[tag] = f"{done}/{total} {UNIT.get(name, 'queries')}" if c.get("total") else ("cut" if c["cut"] else "done")
     return shown
 
@@ -206,6 +243,9 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
             db.set_score(j.id, j.score, j.reasons, j.flags, j.dream)
             new_ids.append(j.id)
     coverage = _remember(db, covs, light)
+    if notify_on:
+        tags = [n + (" (light)" if light else "") for n in covs if n != "company boards"]
+        _silence_alerts(db, tags + [f"board {k}" for c in covs.values() for k, _, _ in c.get("marks", [])])
     console.print("[bold]Coverage[/] " + " · ".join(f"{k} {v}" for k, v in coverage.items()))
     src = {j.id: j.source or "?" for j in private + extra}
     news = Counter(src.get(i, "?") for i in new_ids)

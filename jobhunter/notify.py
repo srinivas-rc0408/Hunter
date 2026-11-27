@@ -211,11 +211,14 @@ def telegram_id(text: str) -> int | None:
     tok, chat = env("TELEGRAM_BOT_TOKEN"), env("TELEGRAM_CHAT_ID")
     if not tok or not chat:
         return None
+    from .outcomes import buttons_for
+    kb = buttons_for(text)                              # one job card (an alert): its ✅ Applied / ⏭ Skip buttons
     for payload in ({"parse_mode": "HTML", "text": text[:4000]},
                     {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
         try:
-            r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage",
-                              json={"chat_id": chat, "disable_web_page_preview": True, **payload}, timeout=20)
+            r = requests.post(f"https://api.telegram.org/bot{tok}/sendMessage", timeout=20,
+                              json={"chat_id": chat, "disable_web_page_preview": True, **payload,
+                                    **({"reply_markup": kb} if kb else {})})
             if r.ok:
                 return int((r.json().get("result") or {}).get("message_id") or 0)
         except (requests.RequestException, ValueError):
@@ -419,7 +422,7 @@ def govt_open(jobs: list[dict], today: date | None = None, scope: str = "all", e
     out = []
     for j in jobs:
         f = j.get("flags") or []
-        if j["status"] in ("skipped", "applied", "rejected") or (j.get("deadline") and j["deadline"][:10] < today_s):
+        if j["status"] in ("skipped", "applied", "rejected", "ghosted") or (j.get("deadline") and j["deadline"][:10] < today_s):
             continue
         state = "govt:state" in f
         in_ka = state or bool((j.get("details") or {}).get("karnataka_places"))

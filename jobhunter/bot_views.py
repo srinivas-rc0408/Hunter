@@ -105,7 +105,7 @@ def _stats(db: DB) -> str:
     week = today - dt.timedelta(days=today.weekday())
     q = lambda sql, *a: db.c.execute(sql, a).fetchone()[0]                           # noqa: E731
     applied = "SELECT COUNT(DISTINCT job_id) FROM events WHERE kind='applied'"
-    total = q(applied) or db.count("status IN ('applied','interview','offer','rejected')")
+    total = q(applied) or db.count("status IN ('applied','interview','offer','rejected','ghosted')")
     ever = lambda k: q("SELECT COUNT(DISTINCT job_id) FROM events WHERE kind=?", k) or db.count("status=?", (k,))  # noqa: E731
     from .tracker import numbers, rows as app_rows
     R = app_rows(db)
@@ -130,7 +130,7 @@ def _deadlines(db: DB, days: int = 14, page: int = 1) -> str:
     """Every last date in the next `days` days, govt and private, soonest first."""
     today = dt.date.today()
     rows = db.c.execute("SELECT * FROM jobs WHERE deadline IS NOT NULL AND deadline >= ? AND deadline <= ? AND "
-                        "status NOT IN ('skipped','applied','rejected') AND (kind = 'govt' OR score >= 40) "
+                        "status NOT IN ('skipped','applied','rejected','ghosted') AND (kind = 'govt' OR score >= 40) "
                         "ORDER BY deadline, score DESC", (str(today), str(today + dt.timedelta(days=days)))).fetchall()
     from .db import _row
     jobs = [j for j in map(_row, rows) if "eligibility:ineligible" not in (j.get("flags") or [])]
@@ -300,3 +300,13 @@ def _ref(db: DB, inline_id: str | None, arg: str) -> str:
     tracker.refresh(db)
     return (f"🤝 {_e(j['title'][:60])} · {_e(j['company'])}: <b>{_e(r['name'])}</b> → {_e(r['status'])}"
             + ("" if done else f"\nWhen they refer you: <code>ref done {j['id'][:8]}</code>"))
+
+
+def offline_note(since: float, secs: float) -> str | None:
+    """One alert when the bot is back after >= 2 h without Telegram. secs is monotonic time, which stands still
+    while the laptop sleeps, so only time the laptop was on (and offline) counts."""
+    if secs < 2 * 3600:
+        return None
+    return (f"⚠️ <b>bot offline since {time.strftime('%d %b %H:%M', time.localtime(since))}</b> "
+            f"({secs / 3600:.1f} h with the laptop on but Telegram unreachable). Back now; "
+            f"anything you sent meanwhile is answered next.")

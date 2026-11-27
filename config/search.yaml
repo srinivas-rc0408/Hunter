@@ -58,6 +58,12 @@ hours_old: 48         # normal scans look back 2 days; dedupe stops repeats
 proxies: []           # optional: ["user:pass@host:port"] if LinkedIn starts returning 429
 pause_between_queries_sec: 3
 
+# What happened to each application (tap the buttons under a job card in Telegram, or /ghosted_<id> etc.).
+outcomes:
+  ghost_after_days: 21     # no reply this long after applying: Telegram asks "ghosted?"
+  learn_after: 20          # decided outcomes (interview/offer/rejected/ghosted) before ranking learns from them
+  max_lift: 10             # most points a job gains for looking like the ones that got you interviews
+
 # Light scans (GitHub Actions every 30 min) use a subset so each run is quick
 # and LinkedIn doesn't rate-limit the runner. Full scans run every 3 hours.
 light_scan:

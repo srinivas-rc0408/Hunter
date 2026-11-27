@@ -166,7 +166,7 @@ def cmd_export_hunter(a):
                                 "race_ethnicity": None, "veteran_status": None, "disability_status": None},
     }
     (hd / "profile.json").write_text(json.dumps(hp, indent=2, ensure_ascii=False), encoding="utf-8")
-    stage = {"applied": "applied", "interview": "interview", "offer": "offer", "rejected": "rejected",
+    stage = {"applied": "applied", "interview": "interview", "offer": "offer", "rejected": "rejected", "ghosted": "applied",
              "needs_you": "saved", "alerted": "saved", "new": "saved", "queued": "saved", "filled": "saved"}
     db = DB()
     roles = []

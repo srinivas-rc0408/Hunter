@@ -262,14 +262,14 @@ def t_company(db: DB, ctx: dict, name: str):
 def t_applied(db: DB, ctx: dict, filter: str = ""):
     """filter: today | week | month | a status (interview, rejected …) | words of a company or title."""
     f = (filter or "").lower().strip()
-    rows = db.query(status=["applied", "interview", "offer", "rejected"], limit=100000)
+    rows = db.query(status=["applied", "interview", "offer", "rejected", "ghosted"], limit=100000)
     rows = [(db.applied_on(j["id"]) or j.get("status_at") or "", j) for j in rows]
     today = dt.date.today()
     since = {"today": today, "week": today - dt.timedelta(days=today.weekday()), "this week": today - dt.timedelta(days=today.weekday()),
              "month": today.replace(day=1), "this month": today.replace(day=1)}.get(f)
     if since:
         rows = [(on, j) for on, j in rows if on[:10] >= str(since)]
-    elif f in ("applied", "interview", "offer", "rejected"):
+    elif f in ("applied", "interview", "offer", "rejected", "ghosted"):
         rows = [(on, j) for on, j in rows if j["status"] == f]
     elif f:
         words = _words(f)
@@ -279,7 +279,7 @@ def t_applied(db: DB, ctx: dict, filter: str = ""):
     head = f"<b>Your applications{(' · ' + _e(label)) if label else ''}: {len(rows)}</b>"
     if not rows:
         return {"data": [], "show": [head + "\nnone"]}
-    mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "applied": "·"}
+    mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "ghosted": "👻", "applied": "·"}
     lines = [f"{mark[j['status']]} {_e(on[:10])} · {_e(j['title'][:60])} · {_e(j['company'])} /show_{j['id'][:8]}"
              for on, j in rows]
     return {"data": [{**_brief(j), "applied_on": on[:10]} for on, j in rows[:20]], "show": [head + "\n" + "\n".join(lines)]}

@@ -29,8 +29,67 @@ INCLUDE = ["data/jobs.db", "data/answers.yaml", "data/state.json", "data/covers"
 
 def backup_dir() -> Path:
     d = Path(env("JOBHUNTER_BACKUP_DIR") or (Path.home() / "jobhunter-backups"))
-    d.mkdir(parents=True, exist_ok=True)
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
     return d
+
+
+SECRET_FILES = (".env", "config/private.yaml")        # your keys and personal facts
+SECRET_GLOBS = ("*.db", "*.db-wal", "*.db-shm", "*.db-journal", "*.enc", "answers.yaml", "questions.yaml", "state.json")
+NEVER_COMMIT = (".env", "config/private.yaml", "data/", "docs/private/")
+
+
+def _secret_paths() -> list[Path]:
+    home, data = config.home(), config.data_dir()
+    found = [home / f for f in SECRET_FILES if (home / f).is_file()]
+    return found + sorted({p for g in SECRET_GLOBS for p in data.glob(g) if p.is_file()})
+
+
+def secure() -> list[str]:
+    """chmod 600 the secrets (.env, private.yaml, the databases and their journals, answers, encrypted state),
+    700 data/ (browser logins, resumes, covers) and the backup folder. Returns what it had to fix."""
+    fixed = []
+    for p, mode in [(config.data_dir(), 0o700), (backup_dir(), 0o700)] + [(p, 0o600) for p in _secret_paths()] + \
+            [(b, 0o600) for b in backup_dir().glob("jobhunter-*.tar.gz.enc")]:
+        try:
+            if p.stat().st_mode & 0o777 != mode:
+                p.chmod(mode)
+                fixed.append(f"{p.name} → {mode:o}")
+        except OSError:                          # not ours (a shared mount): reported by secrets_problems
+            continue
+    return fixed
+
+
+def _git(*args: str) -> str | None:
+    """git output in the JobHunter folder, or None when it isn't a git checkout (the cloud runner's copy, a zip)."""
+    try:
+        r = subprocess.run(["git", "-C", str(config.home()), *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def secrets_problems() -> list[str]:
+    """Everything wrong with how secrets are kept: readable by others, tracked or ever committed, a backup
+    that isn't encrypted. Empty = all good."""
+    out = []
+    for p in _secret_paths() + [config.data_dir()]:
+        mode = p.stat().st_mode & 0o777
+        if mode & 0o077:
+            out.append(f"{p.relative_to(config.home()) if p.is_relative_to(config.home()) else p} is {mode:o} (others can read it)")
+    tracked = _git("ls-files", "--", *NEVER_COMMIT)
+    if tracked is not None:
+        bad = [f for f in tracked.split() if f != "data/.gitkeep"]
+        if bad:
+            out.append("tracked by git: " + ", ".join(bad[:5]))
+        hist = _git("log", "--all", "--format=", "--name-only", "--", *NEVER_COMMIT) or ""
+        ever = sorted({f for f in hist.split() if f != "data/.gitkeep"})
+        if ever:
+            out.append("in git history (rewrite it, then rotate those keys): " + ", ".join(ever[:5]))
+    for b in backup_dir().glob("jobhunter-*.tar.gz.enc"):
+        with open(b, "rb") as fh:
+            if fh.read(8) != b"Salted__":         # openssl enc -salt output always starts with it
+                out.append(f"backup {b.name} is not encrypted")
+    return out
 
 
 def _openssl(args: list[str], key: str) -> None:
@@ -61,7 +120,11 @@ def backup(keep: int = 8) -> Path:
                     p = snap
                 if p.exists():
                     tf.add(p, arcname=rel)
-        _openssl(["-salt", "-in", str(tar), "-out", str(out)], key)
+        old_mask = os.umask(0o077)              # the encrypted file is owner-only from its first byte
+        try:
+            _openssl(["-salt", "-in", str(tar), "-out", str(out)], key)
+        finally:
+            os.umask(old_mask)
     os.chmod(out, 0o600)
     old = sorted(backup_dir().glob("jobhunter-*.tar.gz.enc"))[:-keep]
     for f in old:

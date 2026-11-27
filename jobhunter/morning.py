@@ -97,7 +97,7 @@ def build(db: DB | None = None, today: dt.date | None = None, heartbeat: bool = 
     waiting = db.query(status=["needs_you"], limit=50)
     soon = []
     for j in db.query(kind="govt", limit=500):
-        if j["status"] in ("applied", "skipped", "rejected") or not j.get("deadline"):
+        if j["status"] in ("applied", "skipped", "rejected", "ghosted") or not j.get("deadline"):
             continue
         if "eligibility:ineligible" in (j.get("flags") or []):
             continue

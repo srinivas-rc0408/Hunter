@@ -9,7 +9,7 @@ Commands (also tappable from alerts as /show_<id>, /skip_<id>):
   /stats            pipeline numbers
   /show <id>        one job: why it matched, link, eligibility
   /skip <id>        hide it          /queue <id>   put it at the front of the apply queue
-  /applied <id>     /interview <id>  /rejected <id>  /offer <id>   update status
+  /applied <id>     /interview <id>  /rejected <id>  /ghosted <id>  /offer <id>   update status (or tap a card's buttons)
   /scan             start a scan on the laptop now
   /company <name>   that company's open listings (Karnataka first) with links
   /watch <name>     include that company in every scan
@@ -35,12 +35,12 @@ from .notify import job_card
 from .db import DB
 
 STATUS_CMDS = {"skip": "skipped", "applied": "applied", "interview": "interview", "rejected": "rejected",
-               "offer": "offer", "queue": "queued"}
+               "offer": "offer", "queue": "queued", "ghosted": "ghosted"}
 
 
 KNOWN = {"start", "help", "menu", "brief", "top", "today", "new", "govt", "deadlines", "eligible", "search", "health", "review", "stats", "show", "scan", "company", "watch", "intel",
          "questions", "answer", "ping", "form", "fix", "approve", "check", "laptop", "dream", "undream", "dreams", "resume", "mail", "sheet",
-         "ref", *STATUS_CMDS}
+         "ref", "outcomes", *STATUS_CMDS}
 
 HELP = """<b>🎯 JobHunter</b> · <b>just type what you want</b>: <i>find ML intern jobs in Bengaluru posted this week</i>,
 <i>what does the Birlasoft job need that I don't have?</i>, <i>mark ab12cd34 as interview</i> (changes ask you for a yes first)
@@ -67,10 +67,11 @@ Paste any company or job link (or <i>tell me about Zoho</i>) · a full profile, 
 📱 /check_&lt;id&gt; · apply from your phone: the apply link + your details to copy
 ✅ /applied_&lt;id&gt; · tell me you applied (from the phone or anywhere)
 💻 /laptop_&lt;id&gt; · open it in the bot browser on the laptop · /approve_&lt;id&gt; · submit as shown
-/skip_&lt;id&gt; · /queue_&lt;id&gt; · /applied_&lt;id&gt; · /interview_&lt;id&gt; · /offer_&lt;id&gt;
+/skip_&lt;id&gt; · /queue_&lt;id&gt; · /applied_&lt;id&gt; · /interview_&lt;id&gt; · /ghosted_&lt;id&gt; · /offer_&lt;id&gt; (or tap the buttons under a card)
 
 <b>You</b>
 /stats · applied today, this week, total, interviews, offers, response rate
+/outcomes · response and interview rate by source, role and week (tap the buttons on a job card to record them)
 /applied · every application with its date, application ID and form link
 /mail · application emails sorted: offers, interviews, tests, rejections · <code>mail 30</code>
 /sheet · the Excel tracker (every application + email replies), updated now
@@ -88,7 +89,7 @@ Paste any company or job link (or <i>tell me about Zoho</i>) · a full profile, 
 
 from .bot_views import (  # noqa: E402,F401  (re-exported: other modules and tests use bot.<name>)
     _e, mobile_apply, _line, _paged, _today, _stats, _deadlines, _PICK, _COMPANY_PAGES, _clock_ist,
-    _choices, _company_cmd, _fact, _company_report, _ref)
+    _choices, _company_cmd, _fact, _company_report, _ref, offline_note)
 
 
 ABOUT = re.compile(r"^(?:tell me about|about|profile of|research) (?:the company )?(.{2,60}?)\W*$", re.I)
@@ -108,7 +109,7 @@ def _link_report(t: str, db: DB, progress=None) -> str | list[str]:
     if hit and time.time() - hit[0] < 86400:
         return hit[1]
     hist = intel.rows(db, name)
-    mine = [j for j in hist if j["status"] in ("applied", "interview", "offer", "rejected")]
+    mine = [j for j in hist if j["status"] in ("applied", "interview", "offer", "rejected", "ghosted")]
     known = sorted((j for j in hist if j["status"] in ("new", "alerted", "queued", "needs_you", "filled")),
                    key=lambda j: -j["score"])
     fast = (f"<b>🏢 {_e(name)}</b> · from our scans: {len(hist)} postings seen, {len(known)} open, {len(mine)} applied"
@@ -335,6 +336,9 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
                 + "\nApprove them at localhost:8765 on your laptop.") if jobs else "Nothing waiting. ✅"
     if cmd == "stats":
         return _stats(db)
+    if cmd == "outcomes":
+        from .outcomes import report
+        return report(db)
     if cmd == "health":
         from . import health
         return health.as_telegram(health.checks(live=False))
@@ -366,11 +370,11 @@ def handle(text: str, db: DB | None = None, chat: str = "", progress=None) -> st
         return (f"{_line(j)}\n{_e(j.get('location'))} · status <b>{_e(j['status'])}</b>\n{rs}\n"
                 f"<a href=\"{html.escape(j['url'] or '', quote=True)}\">Open posting</a>\n/skip_{j['id'][:8]} · /queue_{j['id'][:8]}")
     if cmd == "applied" and not jid:                   # bare "applied": your applications, newest first
-        rows = db.query(status=["applied", "interview", "offer", "rejected"], limit=100000)
+        rows = db.query(status=["applied", "interview", "offer", "rejected", "ghosted"], limit=100000)
         rows = sorted(((db.applied_on(j["id"]) or j.get("status_at") or "", j) for j in rows), key=lambda x: x[0], reverse=True)
         if not rows:
             return "<b>Your applications</b>\nnone yet. Mark one: <code>/applied_&lt;id&gt;</code>"
-        mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "applied": "·"}
+        mark = {"interview": "🎤", "offer": "🎉", "rejected": "✗", "ghosted": "👻", "applied": "·"}
         def extra(j):
             m = db.app_meta(j["id"])
             return ((f" · ID <code>{_e(m['conf_id'])}</code>" if m["conf_id"] else "")
@@ -407,13 +411,16 @@ def log(msg: str) -> None:
     print(time.strftime("%H:%M:%S"), msg, flush=True)          # → journalctl --user -u jobhunter-bot
 
 
-def send(api: str, chat: str, text: str) -> bool:
-    """HTML first; if Telegram rejects the HTML, send the same text plain so nothing is ever lost."""
+def send(api: str, chat: str, text: str, markup: dict | None = None) -> bool:
+    """HTML first; if Telegram rejects the HTML, send the same text plain so nothing is ever lost.
+    One job card in the message: its outcome buttons come with it."""
+    from .outcomes import buttons_for
+    kb = markup or buttons_for(text)
     for payload in ({"parse_mode": "HTML", "text": text[:4000]},
                     {"text": html.unescape(re.sub(r"<[^>]+>", "", text))[:4000]}):
         try:
             r = requests.post(f"{api}/sendMessage", timeout=20, json={
-                "chat_id": chat, "disable_web_page_preview": True, **payload})
+                "chat_id": chat, "disable_web_page_preview": True, **payload, **({"reply_markup": kb} if kb else {})})
             if r.ok:
                 return True
             log(f"sendMessage {r.status_code}: {r.text[:200]}")
@@ -502,21 +509,16 @@ def _reply(api: str, chat: str, text: str) -> None:
     log(f"{text[:40]!r} → {'sent' if ok else 'NOT SENT'} ({len(parts)} msg) in {time.time() - t0:.1f}s")
 
 
-def offline_note(since: float, secs: float) -> str | None:
-    """One alert when the bot is back after >= 2 h without Telegram. secs is monotonic time, which stands still
-    while the laptop sleeps, so only time the laptop was on (and offline) counts."""
-    if secs < 2 * 3600:
-        return None
-    return (f"⚠️ <b>bot offline since {time.strftime('%d %b %H:%M', time.localtime(since))}</b> "
-            f"({secs / 3600:.1f} h with the laptop on but Telegram unreachable). Back now; "
-            f"anything you sent meanwhile is answered next.")
-
-
-def _tick() -> None:
-    from . import urgent
+def _tick(api: str = "", chat: str = "") -> None:
+    from . import outcomes, urgent
     try:
-        if n := urgent.tick(DB()):
+        db = DB()
+        if n := urgent.tick(db):
             log(f"sent {n} urgent reminder(s)")
+        if api and db.state("ghost_check") != str(dt.date.today()):     # once a day: "no reply in 21 days: ghosted?"
+            db.set_state("ghost_check", str(dt.date.today()))
+            for text, kb in outcomes.ghost_prompts(db):
+                send(api, chat, text, kb)
     except Exception as exc:                 # a reminder problem never stops the bot
         log(f"urgent tick failed: {type(exc).__name__}: {exc}")
 
@@ -552,9 +554,10 @@ def run() -> None:
     while True:
         if time.time() - ticked > 60:        # 🚨 urgent alerts: 2 h / 6 h reminders, unpin once applied or skipped
             ticked = time.time()
-            pool.submit(_tick)
+            pool.submit(_tick, api, chat)
         try:
-            r = requests.get(f"{api}/getUpdates", params={"offset": offset, "timeout": 50}, timeout=60).json()
+            r = requests.get(f"{api}/getUpdates", timeout=60, params={"offset": offset, "timeout": 50,       # buttons too:
+                             "allowed_updates": '["message","edited_message","callback_query"]'}).json()
         except (requests.RequestException, ValueError) as exc:
             fails += 1
             down = down or (time.time(), time.monotonic())
@@ -580,6 +583,10 @@ def run() -> None:
         for u in r.get("result", []):
             offset = u["update_id"] + 1
             save_state(tg_offset=offset)
+            if cq := u.get("callback_query"):          # an outcome button on a job card
+                from .outcomes import on_button
+                pool.submit(on_button, api, chat, cq)
+                continue
             msg = u.get("message") or u.get("edited_message") or {}
             if str(msg.get("chat", {}).get("id")) != chat:
                 log(f"ignored a message from another chat ({str(msg.get('chat', {}).get('id'))[-4:]})")

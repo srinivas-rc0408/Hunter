@@ -86,7 +86,7 @@ def state() -> dict:
              "applied today": db.applied_today()}
     import datetime as _dt
     week = (_dt.datetime.now() - _dt.timedelta(days=7)).isoformat()
-    stats["applied this week"] = sum(1 for j in out if j["status"] in ("applied", "interview", "offer", "rejected")
+    stats["applied this week"] = sum(1 for j in out if j["status"] in ("applied", "interview", "offer", "rejected", "ghosted")
                                      and (j.get("status_at") or "") >= week)
     return {"jobs": out, "stats": stats, "task": _task(), "now": iso(), "statuses": STATUSES}
 
@@ -416,7 +416,7 @@ function appCard(j){ const a=(j.apps||[])[0]; const rr=a&&a.resume_report||{};
       ${a.cover?`<details><summary>Cover letter used</summary><pre>${esc(a.cover)}</pre></details>`:''}</div></div>`:
       `<p class="m">Not filled yet.</p>`}
     <div class="acts">
-      ${['applied','offer','interview','rejected'].includes(j.status)?'':`${a&&a.fields&&a.fields.length?`<button class="b p" onclick="act('approve','${j.id}')" title="Opens the real form in the bot's browser, filled with these values, with the JobHunter panel. You read it and press Submit.">Open &amp; check, then submit</button>
+      ${['applied','offer','interview','rejected','ghosted'].includes(j.status)?'':`${a&&a.fields&&a.fields.length?`<button class="b p" onclick="act('approve','${j.id}')" title="Opens the real form in the bot's browser, filled with these values, with the JobHunter panel. You read it and press Submit.">Open &amp; check, then submit</button>
       <button class="b" onclick="if(confirm('Send it with exactly these values, without opening it?'))act('submitnow','${j.id}')" title="Submits with these values if nothing is missing (no panel).">Submit as shown</button>`:''}
       <button class="b" onclick="act('dry','${j.id}')">Fill again (preview)</button>
       <button class="b" onclick="act('mark','${j.id}','applied')">I submitted it myself</button>
@@ -424,6 +424,7 @@ function appCard(j){ const a=(j.apps||[])[0]; const rr=a&&a.resume_report||{};
       ${j.dream?'':`<button class="b" onclick="dream(${esc(JSON.stringify(j.company))})" title="+15 score, alerts sooner, its careers site watched">★ Dream company</button>`}
       <button class="b" onclick="act('mark','${j.id}','interview')">Got interview</button>
       <button class="b" onclick="act('mark','${j.id}','rejected')">Rejected</button>
+      <button class="b" onclick="act('mark','${j.id}','ghosted')">Ghosted</button>
       <details style="width:100%"><summary>Why it matched · description</summary><pre>${esc((j.reasons||[]).join('\n'))}\n\n${esc(j.description)}</pre></details></div></div>`; }
 function jobRow(j){ return `<div class="card jrow"><div class="sc">${j.score}</div><div>
   <div class="t" style="font-size:14px">${j.dream?'★ ':''}${j.kind==='govt'?'🏛 ':''}<a href="${esc(j.url)}" target="_blank" rel="noopener">${esc(j.title)}</a></div>
@@ -433,7 +434,7 @@ function jobRow(j){ return `<div class="card jrow"><div class="sc">${j.score}</d
   <div style="text-align:right"><div class="st s-${j.status}">${esc(j.status.replace('_',' '))}</div>
   ${j.kind==='govt'?`<div class="acts" style="justify-content:flex-end"><button class="b" onclick="act('mark','${j.id}','applied')">Applied</button><button class="b" onclick="act('mark','${j.id}','skipped')">Skip</button></div>`:
    ['new','alerted','queued'].includes(j.status)?`<div class="acts" style="justify-content:flex-end"><button class="b" onclick="act('dry','${j.id}')">Preview</button><button class="b p" onclick="act('fill','${j.id}')">Apply</button><button class="b" onclick="act('mark','${j.id}','skipped')">Skip</button></div>`:''}</div></div>`; }
-const DONE=['applied','interview','offer','rejected'];
+const DONE=['applied','interview','offer','rejected','ghosted'];
 async function openBrowser(){ const u=prompt('Open which page first? (blank = LinkedIn jobs)','')||''; const j=await post('/api/browser',{url:u}); toast(j.msg); poll(); }
 async function applyN(){ const n=prompt('Apply to how many of your best matches? You check each form before it is sent.','5'); if(!n) return;
   const j=await post('/api/applyn',{n:+n}); toast(j.msg); poll(); }
@@ -475,9 +476,9 @@ function render(){ const st=S.stats; $('#stats').innerHTML=Object.entries(st).ma
   if(TAB==='home'){ html+=homeView(); $('#main').innerHTML=html; return; }
   if(TAB==='questions'){ html+=questionsView(); $('#main').innerHTML=html; return; }
   if(TAB==='companies'){ html+=companiesView(); $('#main').innerHTML=html; drawSug(); const e=$('#cq'); if(e&&!CO&&!CBUSY) e.focus(); return; }
-  if(TAB==='review'){ const L=J.filter(j=>j.kind!=='govt'&&(j.status==='needs_you'||(j.apps&&j.apps.length&&j.apps[0].dry&&!['applied','skipped','rejected'].includes(j.status))));
+  if(TAB==='review'){ const L=J.filter(j=>j.kind!=='govt'&&(j.status==='needs_you'||(j.apps&&j.apps.length&&j.apps[0].dry&&!['applied','skipped','rejected','ghosted'].includes(j.status))));
     html+=(L.length?'<p class="m">Each card shows every field the bot filled and where it came from. <b>Open &amp; check</b> shows the real form with a JobHunter panel: read it, fix anything, press Submit. Any change you make is remembered.</p>'+L.map(appCard).join(''):'<div class="empty">Nothing to review. Forms the bot fills but doesn\'t submit land here.</div>'); }
-  else if(TAB==='applied'){ const L=J.filter(j=>['applied','interview','offer','rejected'].includes(j.status)).sort((a,b)=>(b.status_at||'').localeCompare(a.status_at||''));
+  else if(TAB==='applied'){ const L=J.filter(j=>['applied','interview','offer','rejected','ghosted'].includes(j.status)).sort((a,b)=>(b.status_at||'').localeCompare(a.status_at||''));
     html+=L.length?L.map(appCard).join(''):'<div class="empty">No applications yet.</div>'; }
   else if(TAB==='active'){ html+=J.filter(j=>j.kind!=='govt'&&['new','alerted','queued'].includes(j.status)).slice(0,300).map(jobRow).join('')||'<div class="empty">No open jobs. Run a scan.</div>'; }
   else if(TAB==='govt'){ html+=J.filter(j=>j.kind==='govt').sort((a,b)=>(a.deadline||'9').localeCompare(b.deadline||'9')).map(jobRow).join('')||'<div class="empty">No govt notices yet.</div>'; }

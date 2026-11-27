@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 
+from . import outcomes
 from .db import DB, Job
 from .score import score
 
@@ -11,11 +12,13 @@ def rescore(db: DB | None = None) -> dict:
     db = db or DB()
     fields = set(Job.__dataclass_fields__)
     dropped, changed, total = [], 0, 0
+    learned = outcomes.model(db)
     for r in db.query(status=["new", "alerted", "queued", "filtered"], limit=100000):
         total += 1
         j = Job(**{k: r[k] for k in fields if k in r and k not in ("score", "reasons", "flags", "dream", "status")})
         old_score, old_status = r["score"], r["status"]
         j = score(j)
+        outcomes.apply(learned, j)
         if j.status == "filtered" and old_status != "filtered":
             db.c.execute("UPDATE jobs SET status='filtered', score=0, reasons=? WHERE id=?", (json.dumps(j.reasons), r["id"]))
             dropped.append((r["title"], r["company"], j.reasons[0]))

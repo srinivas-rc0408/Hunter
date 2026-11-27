@@ -115,6 +115,10 @@ def checks(live: bool = True) -> list[tuple[bool, str, str]]:
         if f"{site}_logged_out" in _load().get("flags", {}):
             rows.append((False, f"{site.title()} logged the bot out", f"hunt login {site}"))
     rows.append(_coverage())
+    from .ops import secrets_problems
+    bad = secrets_problems()
+    rows.append((not bad, "secrets: .env, private.yaml and the databases owner-only (600), never committed, backups encrypted"
+                 if not bad else "secrets: " + "; ".join(bad), "any hunt command re-applies chmod 600; git history needs git filter-repo"))
     free = shutil.disk_usage(config.home()).free / 1e9
     rows.append((free >= MIN_FREE_GB, f"disk: {free:.1f} GB free", "free some space (old screenshots are cleaned weekly)"))
     return rows
@@ -203,9 +207,18 @@ def _disk() -> dict:
         if free < MIN_FREE_GB else {}
 
 
+def _secrets() -> dict:
+    from .ops import secrets_problems, secure
+    secure()                                         # fix what can be fixed; alert on what can't (git history)
+    fix = lambda p: ("git filter-repo --invert-paths --path <file>, force-push, then rotate every key that file held"  # noqa: E731
+                     if "history" in p or "tracked" in p else
+                     "re-encrypt: hunt backup (then delete the plain one)" if "backup" in p else "chmod 600 <file>")
+    return {f"secrets:{p.split(' ')[0]}": (p, fix(p)) for p in secrets_problems()}
+
+
 def problems() -> dict:
     out = {}
-    for f in (_units, _radar, _logins, _llm, _disk):
+    for f in (_units, _radar, _logins, _llm, _disk, _secrets):
         try:
             out.update(f())
         except Exception as exc:              # one broken check must not hide the others
@@ -269,4 +282,6 @@ def weekly(db, today: dt.date | None = None) -> str:
         L.append("<b>Failures and why</b>\n" + "\n".join(f"• {n}× {_e(w)}" for w, n in fails))
     else:
         L.append("No failed applications this week ✅")
+    from .outcomes import report
+    L.append(report(db, today))                       # which sources and roles turn into replies and interviews
     return "\n\n".join(L)

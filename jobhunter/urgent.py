@@ -16,7 +16,7 @@ from .db import DB
 from .util import IST, iso, parse_iso
 
 REMIND_H = (2, 6)
-SETTLED = ("applied", "interview", "offer", "rejected", "skipped", "expired")
+SETTLED = ("applied", "interview", "offer", "rejected", "ghosted", "skipped", "expired")
 
 
 def _cfg() -> tuple[int, int]:

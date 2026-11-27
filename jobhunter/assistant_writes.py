@@ -8,7 +8,8 @@ from .db import DB
 
 # ── tools: changes (run only after "yes") ──────────────────────────────────
 STATUS_WORDS = {"applied": "applied", "interview": "interview", "interviewing": "interview", "offer": "offer",
-                "rejected": "rejected", "reject": "rejected", "skipped": "skipped", "skip": "skipped", "queued": "queued",
+                "rejected": "rejected", "reject": "rejected", "ghosted": "ghosted", "ghost": "ghosted", "skipped": "skipped",
+                "skip": "skipped", "queued": "queued",
                 "queue": "queued"}
 
 
@@ -83,7 +84,7 @@ def _sheet_job(db: DB, id: str) -> dict:
 
 
 def _on_sheet(j: dict) -> str:
-    return "" if j["status"] in ("applied", "interview", "offer", "rejected") else " (it shows on the sheet once you apply)"
+    return "" if j["status"] in ("applied", "interview", "offer", "rejected", "ghosted") else " (it shows on the sheet once you apply)"
 
 
 def w_sheet_add_column(db: DB, name: str, run: bool = False):

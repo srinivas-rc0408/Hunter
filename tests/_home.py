@@ -14,6 +14,7 @@ def make_home() -> Path:
     os.symlink(ROOT / "skills", home / "skills")
     (home / "data").mkdir()
     os.environ["JOBHUNTER_HOME"] = str(home)
+    os.environ.setdefault("JOBHUNTER_BACKUP_DIR", str(home / "backups"))   # never the real ~/jobhunter-backups
     for k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "SMTP_USER", "SMTP_PASS"):
         os.environ.pop(k, None)
     for k in list(os.environ):          # never let real LLM keys reach a test

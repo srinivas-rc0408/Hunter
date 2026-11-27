@@ -63,6 +63,11 @@ masks every personal value in the logs, and saves its database **AES-256
 encrypted** (`STATE_KEY`) on the `radar-state` branch. `tests/test_review.py`
 fails if any value from `private.yaml` appears in a tracked file.
 
+On the laptop every `hunt` command keeps `.env`, `private.yaml`, the databases and backups **owner-only
+(chmod 600, `data/` 700)**. `hunt health` (and its 30-min alert) checks that none of them is tracked or in
+git history and that every backup is encrypted; `tests/test_outcomes.py` fails if this checkout ever
+committed one.
+
 ## Setup
 
 **Follow [`docs/SETUP.md`](docs/SETUP.md)**: the step-by-step manual (setup, daily and weekly
@@ -101,7 +106,12 @@ it *would* send in the Review Center.
 Everything runs by itself: cloud radar on GitHub, laptop scans every 2 h, the 07:25 brief (from the cloud; the laptop sends at 08:00 only if it didn't), a health
 check every 30 min (an alert arrives on Telegram the first time something breaks, and once when it's
 fixed), the Sunday 21:00 weekly report and backup (also deletes form screenshots older than 7 days, keeping sent ones, and compacts jobs.db). From your phone: `today`, `top 5`, `search python`,
-`company Zoho`, `govt karnataka`, `eligible`, `deadlines`, `stats`, `health`, `help`.
+`company Zoho`, `govt karnataka`, `eligible`, `deadlines`, `stats`, `outcomes`, `health`, `help`.
+
+**Outcomes:** every job card in Telegram has buttons: ✅ Applied, then 🎤 Interview / ✗ Rejected / 👻 Ghosted,
+then 🎉 Offer. After 21 days with no reply the bot asks "ghosted?". `outcomes` shows response and interview
+rate by source, role and week (also in the Sunday report). From 20 decided outcomes on, jobs that look like
+the ones that got you interviews rank up to 10 points higher, with the reason on the card.
 
 ```bash
 hunt health                     # every check, ✓/✗ with the exact fix command (same as /health)
@@ -172,6 +182,11 @@ cd .. && python -m unittest discover -s tests/hunter   # hunter-skill's own suit
   flow breaks it queues the form for review instead of guessing. The selectors were
   never run against a real LinkedIn or Naukri login, so do your first runs with `--dry-run`.
 - **Cloud IPs get rate-limited** by LinkedIn/Glassdoor sometimes. The laptop scans every 2 h as backup.
+  A scan stops LinkedIn at its first 429, gives each source 90 s and rotates searches so the next scan
+  picks up where it stopped; `hunt health` shows how many of each source's searches ran in 24 h.
+  LinkedIn (6 searches a scan of 95) can't cover all of them daily.
+- **A source that returns 0 jobs two scans in a row** (when it usually finds some) sends a Telegram alert:
+  its layout probably changed. Company boards are checked one by one on how many postings they list.
 - **Scanned (image) govt PDFs** can't be read, so open those yourself.
 
 ## Email replies and the Excel tracker

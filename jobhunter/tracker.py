@@ -22,9 +22,9 @@ from . import config
 from .db import DB
 from .util import IST, parse_iso
 
-DONE = ("applied", "interview", "offer", "rejected")
+DONE = ("applied", "interview", "offer", "rejected", "ghosted")
 NEXT = {"applied": "wait; follow-up suggested after 7 days", "interview": "prepare: /interview_<id>",
-        "offer": "read the offer, reply in Gmail", "rejected": "—"}
+        "offer": "read the offer, reply in Gmail", "rejected": "—", "ghosted": "one short follow-up, then move on"}
 
 
 # ── your own edits: custom columns, values, hidden rows (kept in the DB, re-applied on every rewrite) ──
@@ -178,7 +178,7 @@ WIDTH = {"Applied on": 12, "Time (IST)": 9, "★": 4, "Company": 24, "Role": 32,
          "Job link": 10, "Application form": 12, "Last email": 18, "Emails": 8, "Days waiting": 9, "Next step": 30,
          "Referral name": 20, "Referral status": 10, "Referral date": 12, "Resume sent": 22, "Fields you fixed": 9, "Notes": 36, "Job id": 10}
 RESPONSE = ("viewed", "assessment", "interview", "rejected", "offer")    # real answers; "received" is automatic
-STATUS_ORDER = ["applied", "interview", "offer", "rejected"]
+STATUS_ORDER = ["applied", "interview", "offer", "rejected", "ghosted"]
 NAVY, INK, MUTED = "1F3A5F", "1F2937", "6B7280"
 TILE = {"Applied": "1F3A5F", "This week": "2E6DA4", "Waiting": "7A8796", "Interviews": "B7791F", "Offers": "2F855A",
         "Rejected": "B83232", "Response rate": "5B4B8A", "Interview rate": "2C7A7B"}
