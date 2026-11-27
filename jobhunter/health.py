@@ -114,9 +114,22 @@ def checks(live: bool = True) -> list[tuple[bool, str, str]]:
     for site in ("linkedin", "naukri"):
         if f"{site}_logged_out" in _load().get("flags", {}):
             rows.append((False, f"{site.title()} logged the bot out", f"hunt login {site}"))
+    rows.append(_coverage())
     free = shutil.disk_usage(config.home()).free / 1e9
     rows.append((free >= MIN_FREE_GB, f"disk: {free:.1f} GB free", "free some space (old screenshots are cleaned weekly)"))
     return rows
+
+
+def _coverage(db=None) -> tuple[bool, str, str]:
+    """Searches and boards run in the last 24 h, per source: rotation means a full count = every one ran."""
+    from .db import DB
+    cov = {k: v for k, v in (db or DB()).coverage_24h().items() if v[1] > 1}      # 1/1 sources: done or cut, shown in the run
+    if not cov:
+        return True, "scan coverage, last 24 h: no scan yet", ""
+    short = [k for k, (d, t) in cov.items() if d < t]
+    return (not short, "scan coverage, last 24 h: " + " · ".join(f"{k} {d}/{t}" for k, (d, t) in cov.items()),
+            f"not every search ran ({', '.join(short)}): scan more often, or fewer queries/locations or a higher "
+            "max_searches in config/search.yaml" if short else "")
 
 
 def as_telegram(rows: list[tuple[bool, str, str]]) -> str:

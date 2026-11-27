@@ -35,19 +35,46 @@ def _pay(p: dict | None):
     return lo, hi, p.get("period"), p.get("currency")
 
 
-def scan(errors: list[str], offline: str | None = None, out: list | None = None) -> list[Job]:
-    """Jobs go into `out` board by board, so a caller that stops waiting keeps what was found."""
+SCOUT = ("greenhouse", "lever", "ashby", "workday", "eightfold")
+
+
+def fresh(jobs: list[dict], seen: set[str], since: str | None) -> list[dict]:
+    """Postings new since the board's last full read: an id not seen then, or (no id) posted on/after that day.
+    A board read for the first time: all of them."""
+    if not seen and not since:
+        return jobs
+    return [j for j in jobs if (j["_sid"] not in seen if j.get("_sid") else
+                                not since or not j.get("posted") or j["posted"] >= since)]
+
+
+def _greenhouse(sc, fetcher, board: dict, roles: list, seen: set[str], since: str | None, details: int = 12):
+    """(new postings, every posting id). The list has no descriptions: only new title matches get their page."""
+    token = board["token"]
+    every = sc.from_greenhouse(board, fetcher.get(sc.GH_LIST % token, "greenhouse-%s.json" % token))
+    jobs = fresh(every, seen, since)
+    need = [j for j in jobs if not j["_text"] and sc.title_points(j["title"], roles)[0] >= 15]
+    need.sort(key=lambda j: j["posted"] or "", reverse=True)
+    for j in need[:details]:
+        try:
+            one = fetcher.get(sc.GH_JOB % (token, j["_sid"]), "greenhouse-%s-%s.json" % (token, j["_sid"]))
+        except sc.ScoutError:
+            continue
+        if full := sc.from_greenhouse(board, {"jobs": [one]}):
+            j["_text"], j["pay"] = full[0]["_text"], full[0]["pay"]
+    return jobs, [j["_sid"] for j in every if j.get("_sid")]
+
+
+def scan(errors: list[str], offline: str | None = None, out: list | None = None, db=None,
+         start: int = 0, cov: dict | None = None) -> list[Job]:
+    """Jobs go into `out` board by board, so a caller that stops waiting keeps what was found.
+    With `db`: only postings new since each board's last read (cov["marks"] says what to remember once
+    they're saved); boards start at `start` (rotation) and cov counts them ({"done", "total"}, cov["stop"] ends early)."""
+    from .boards import rotate
     sc = scout()
-    boards, extra = [], []
-    for b in config.cfg("companies").get("boards", []) or []:
-        (boards if b.get("type") in ("greenhouse", "lever", "ashby", "workday", "eightfold") else extra).append(b)        # watchlist (company search → "Watch"): scout-type boards join the loop, the rest go to ats_more
-    try:
+    boards = list(config.cfg("companies").get("boards", []) or [])
+    try:      # watchlist (company search → "Watch"): scout-type boards and the rest (ats_more) alike
         from ..companies import watchlist
-        for w in watchlist():
-            if w.get("type") in ("greenhouse", "lever", "ashby", "workday"):
-                boards.append(w)
-            elif w.get("type") not in ("page", None):
-                extra.append(w)
+        boards += [w for w in watchlist() if w.get("type") not in ("page", None)]
     except Exception as exc:
         errors.append(f"watchlist: {exc}")
     roles = config.cfg("profile").get("targets", {}).get("roles", [])
@@ -55,14 +82,31 @@ def scan(errors: list[str], offline: str | None = None, out: list | None = None)
     fetcher = sc.Fetcher(offline=offline, pause=0.6)
     today = dt.date.today()
     out = [] if out is None else out
-    for b in boards:
+    cov = {} if cov is None else cov
+    cov.update(total=len(boards), done=0)
+    cov.setdefault("marks", [])
+    stop = cov.get("stop")
+    for b in rotate(boards, start):
+        if stop is not None and stop.is_set():
+            break
+        if b.get("type") not in SCOUT:
+            out.extend(_scan_more([b], errors, india_only))
+            cov["done"] += 1               # counted once finished: a board cut mid-read goes first next time
+            continue
         notes: list[str] = []
         board = dict(b)
         board.setdefault("token", board.get("tenant") or board["company"].lower())
+        key = f"{board['type']}:{board['token']}"
+        seen, since = (db.board_seen(key), db.state(f"since:{key}")) if db is not None else (set(), None)
         try:
-            jobs = sc.fetch_board(fetcher, board, today, roles, details=12, notes=notes)
+            if board["type"] == "greenhouse":
+                jobs, sids = _greenhouse(sc, fetcher, board, roles, seen, since)
+            else:
+                every = sc.fetch_board(fetcher, board, today, roles, details=12, notes=notes)
+                jobs, sids = fresh(every, seen, since), [j["_sid"] for j in every if j.get("_sid")]
         except Exception as exc:                  # one slow or broken board (timeout, bad JSON) never stops the rest
             errors.append(f"{b.get('type')} {board['token']}: {type(exc).__name__}: {str(exc)[:120]}")
+            cov["done"] += 1
             continue
         errors.extend(notes)
         for j in jobs:
@@ -76,7 +120,9 @@ def scan(errors: list[str], offline: str | None = None, out: list | None = None)
                 description=j.get("_text") or "", posted_at=j.get("posted"),
                 job_type="internship" if "intern" in j["title"].lower() else None,
                 is_remote=bool(j.get("remote")), pay_min=mn, pay_max=mx, pay_period=per, currency=cur))
-    out.extend(_scan_more(extra, errors, india_only))
+        if not notes:          # a board that answered: remember it once its jobs are saved (marks after jobs, always)
+            cov["marks"].append((key, sids, today.isoformat()))
+        cov["done"] += 1
     return out
 
 

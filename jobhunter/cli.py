@@ -32,6 +32,12 @@ def cmd_scan(a):
             t.add_row(s, str(v["found"]), str(v["new"]))
         t.add_row("[bold]total[/]", f"[bold]{r['found']}[/]", f"[bold]{r['new']}[/]")
         _console().print(t)
+        c = Table(title="Coverage this run (rotation picks up the rest next scan)")
+        c.add_column("source")
+        c.add_column("ran", justify="right")
+        for src_, v in r.get("coverage", {}).items():
+            c.add_row(src_, v)
+        _console().print(c)
 
 
 def cmd_govt(a):

@@ -67,26 +67,58 @@ LIMIT = 90     # seconds one source gets
 BUDGET = 570   # seconds the whole scan gets (under 10 min): a late source gets what's left
 
 
-def _source(name: str, errors: list[str], fn, limit: float = LIMIT) -> list:
-    """fn(out) fills out with one source's jobs. A source that crashes or runs past `limit` is an error line,
-    never the end of the scan; the jobs it found before the limit are kept."""
+def _source(name: str, errors: list[str], fn, limit: float = LIMIT, covs: dict | None = None) -> list:
+    """fn(out, cov) fills out with one source's jobs. A source that crashes or runs past `limit` is an error line,
+    never the end of the scan; the jobs it found before the limit are kept. cov is the source's own count
+    ({"done", "total"}, company boards' "marks"); cov["stop"] is set at the limit so the source stops too.
+    covs[name] gets cov as it stood when the scan moved on."""
     out: list = []
+    cov: dict = {"stop": threading.Event()}
 
     def go():
         try:
-            fn(out)
+            fn(out, cov)
         except Exception as exc:
             errors.append(f"{name} crashed: {type(exc).__name__}: {str(exc)[:160]}")
             console.print(f"[red]{name} crashed ({type(exc).__name__}); the other sources carry on[/]")
-    # ponytail: a Python thread can't be killed, so a source past its limit runs on in the background until
-    # the process exits and its late jobs are dropped. Move sources to subprocesses if that ever matters.
+    # ponytail: a Python thread can't be killed; past its limit a source is asked to stop (cov["stop"]) and its
+    # late jobs are dropped. Sources that don't check it run on until the process exits.
     t = threading.Thread(target=go, name=name, daemon=True)
     t.start()
     t.join(limit)
-    if t.is_alive():
-        errors.append(f"{name}: stopped at the {limit:g} s limit (kept {len(out)} jobs)")
-        console.print(f"[yellow]{name}: {limit:g} s limit, moving on with {len(out)} jobs[/]")
-    return list(out)
+    cut = t.is_alive()
+    if cut:
+        cov["stop"].set()
+    # counts first, then jobs: a board's marks are appended after its jobs, so every mark kept has its jobs
+    snap = {k: (list(v) if isinstance(v, list) else v) for k, v in cov.items() if k != "stop"}
+    snap["cut"] = cut
+    jobs = list(out)
+    if cut:
+        errors.append(f"{name}: stopped at the {limit:g} s limit (kept {len(jobs)} jobs)")
+        console.print(f"[yellow]{name}: {limit:g} s limit, moving on with {len(jobs)} jobs[/]")
+    if covs is not None:
+        covs[name] = snap
+    return jobs
+
+
+ROTATE = {"company boards", "indeed", "linkedin", "naukri", "glassdoor", "google"}   # resume where the last scan stopped
+UNIT = {"company boards": "boards"}
+
+
+def _remember(db: DB, covs: dict, light: bool) -> dict[str, str]:
+    """After the jobs are saved: boards' posting memory, rotation positions, coverage. → source: "40/95 queries"."""
+    shown = {}
+    for name, c in covs.items():
+        for key, sids, day in c.get("marks", []):
+            db.set_board_seen(key, sids)
+            db.set_state(f"since:{key}", day)
+        tag = name + (" (light)" if light else "")
+        done, total = (c.get("done", 0), c["total"]) if c.get("total") else (int(not c["cut"]), 1)
+        if name in ROTATE and total:
+            db.set_state(f"rot:{tag}", (db.state(f"rot:{tag}", 0) + done) % total)
+        db.log_coverage(tag, done, total)
+        shown[tag] = f"{done}/{total} {UNIT.get(name, 'queries')}" if c.get("total") else ("cut" if c["cut"] else "done")
+    return shown
 
 
 def alert(db: DB, new_ids: list[str]) -> int:
@@ -133,28 +165,39 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
     t0 = dt.datetime.now()
     end = time.monotonic() + BUDGET
 
+    covs: dict[str, dict] = {}
+
     def src(name, fn):
-        return _source(name, errors, fn, limit=max(1.0, min(LIMIT, end - time.monotonic())))
+        return _source(name, errors, fn, limit=max(1.0, min(LIMIT, end - time.monotonic())), covs=covs)
+
+    def stored(jid):                           # a job we already have keeps its description: no page read
+        row = db.c.execute("SELECT description FROM jobs WHERE id=?", (jid,)).fetchone()
+        return row[0] if row else None
+
+    def at(name):                              # where this source's rotation starts this run
+        return db.state(f"rot:{name}" + (" (light)" if light else ""), 0)
     extra: list[Job] = []
     # govt and company boards first, LinkedIn last: a rate-limited board can't eat the others' time
     if "govt" in want and s.get("govt", {}).get("enabled", True):
         console.print("[bold]Government radar[/]")
-        extra += src("govt radar", lambda out: out.extend(govt.scan(db, errors, baseline_new=baseline_new)))
+        extra += src("govt radar", lambda out, cov: out.extend(govt.scan(db, errors, baseline_new=baseline_new)))
     if "ats" in want and s.get("company_boards", {}).get("enabled", True):
         console.print("[bold]Company boards[/] (Greenhouse/Lever/Ashby/Workday)")
-        private += src("company boards", lambda out: ats.scan(errors, offline=offline_ats, out=out))
+        private += src("company boards", lambda out, cov: ats.scan(errors, offline=offline_ats, out=out, db=db,
+                                                                     start=at("company boards"), cov=cov))
     if "pages" in want:
         console.print("[bold]Watched career pages[/] (Birla …)")
-        extra += src("career pages", lambda out: out.extend(watch_careers(db, errors)))
+        extra += src("career pages", lambda out, cov: out.extend(watch_careers(db, errors)))
     if "intern" in want and not light:
         console.print("[bold]Internships + fresher sites[/] (Internshala/Unstop/Wellfound)")
         for site in intern.enabled():
-            private += src(site, lambda out, site=site: intern.scan(errors, sites=[site], out=out))
+            private += src(site, lambda out, cov, site=site: intern.scan(errors, sites=[site], out=out))
     if "boards" in want:
         console.print("[bold]Job boards[/] (Indeed, then LinkedIn)")
         boards.say_skipped()
         for site in boards.enabled(light):
-            private += src(site, lambda out, site=site: boards.scan(errors, light=light, sites=[site], out=out))
+            private += src(site, lambda out, cov, site=site: boards.scan(errors, light=light, sites=[site], out=out,
+                                                                  start=at(site), cov=cov, stored=stored))
     found = len(private)
     new_ids = save(db, private)
     for j in extra:
@@ -162,6 +205,8 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
         if db.upsert(j):
             db.set_score(j.id, j.score, j.reasons, j.flags, j.dream)
             new_ids.append(j.id)
+    coverage = _remember(db, covs, light)
+    console.print("[bold]Coverage[/] " + " · ".join(f"{k} {v}" for k, v in coverage.items()))
     src = {j.id: j.source or "?" for j in private + extra}
     news = Counter(src.get(i, "?") for i in new_ids)
     by_source = {s: {"found": n, "new": news.get(s, 0)} for s, n in Counter(src[j.id] for j in private + extra).most_common()}
@@ -177,7 +222,7 @@ def run(light: bool = False, notify_on: bool = True, only: set[str] | None = Non
         db.c.close()
         shutil.rmtree(tmp, ignore_errors=True)
     return {"found": found, "new": len(new_ids), "alerted": sent, "errors": errors, "at": iso(), "dry": dry,
-            "by_source": by_source}
+            "by_source": by_source, "coverage": coverage}
 
 
 def digest(send: bool = True) -> str:

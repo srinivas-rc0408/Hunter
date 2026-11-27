@@ -48,7 +48,7 @@ karnataka_places: [karnataka, bengaluru, bangalore, "bengaluru urban", "bengalur
 # hosur is Tamil Nadu but on Bengaluru's border; delete it if you want strict Karnataka.
 
 boards:
-  linkedin:  {enabled: true,  results: 40, fetch_description: true, max_searches: 6} # logged-out guest search; never touches your account
+  linkedin:  {enabled: true,  results: 40, fetch_description: false, max_searches: 6, max_descriptions: 10}   # logged-out guest search; never touches your account. Job pages read only for new jobs that pass the filters, ≤10 a search
   indeed:    {enabled: true,  results: 40}
   naukri:    {enabled: false, results: 40, skipped: blocked}   # 406 "recaptcha required" on every search since 26 Nov 2026: its jobs come from Naukri's alert emails instead (mail.py)
   glassdoor: {enabled: false, results: 20}   # blocks most cloud IPs; enable on laptop if you like

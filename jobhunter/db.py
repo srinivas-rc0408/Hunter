@@ -5,6 +5,7 @@ built from company + title + city, and every board's link is kept.
 """
 from __future__ import annotations
 
+import datetime as dt
 import json
 import re
 import sqlite3
@@ -13,7 +14,7 @@ from pathlib import Path
 from typing import Iterable
 
 from . import config
-from .util import canonical_url, iso, norm, short_hash
+from .util import canonical_url, iso, norm, now, short_hash
 
 STATUSES = ["new", "alerted", "queued", "filled", "needs_you", "applied", "interview",
             "offer", "rejected", "skipped", "expired", "filtered"]
@@ -77,6 +78,10 @@ CREATE INDEX IF NOT EXISTS applications_job ON applications(job_id);
 CREATE TABLE IF NOT EXISTS runs (
   at TEXT, kind TEXT, found INTEGER, new INTEGER, alerted INTEGER, errors TEXT
 );
+CREATE TABLE IF NOT EXISTS state (k TEXT PRIMARY KEY, v TEXT);   -- scan memory: rotation positions, boards' last scan
+CREATE TABLE IF NOT EXISTS board_seen (board TEXT, sid TEXT, PRIMARY KEY (board, sid));   -- posting ids per company board
+CREATE TABLE IF NOT EXISTS coverage (at TEXT, source TEXT, done INTEGER, total INTEGER);  -- searches/boards run per scan
+CREATE INDEX IF NOT EXISTS coverage_at ON coverage(at);
 """
 
 
@@ -355,6 +360,39 @@ class DB:
         self.c.execute("INSERT INTO runs VALUES (?,?,?,?,?,?)",
                        (iso(), kind, found, new, alerted, json.dumps(errors[:50])))
         self.c.commit()
+
+    # ── scan memory ─────────────────────────────────────────────────────────
+    def state(self, k: str, default=None):
+        row = self.c.execute("SELECT v FROM state WHERE k=?", (k,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def set_state(self, k: str, v) -> None:
+        self.c.execute("INSERT OR REPLACE INTO state VALUES (?,?)", (k, json.dumps(v)))
+        self.c.commit()
+
+    def board_seen(self, board: str) -> set[str]:
+        return {r[0] for r in self.c.execute("SELECT sid FROM board_seen WHERE board=?", (board,))}
+
+    def set_board_seen(self, board: str, sids: Iterable[str]) -> None:
+        """The board's open postings now: closed ones drop out, so a reopened posting counts as new."""
+        self.c.execute("DELETE FROM board_seen WHERE board=?", (board,))
+        self.c.executemany("INSERT OR IGNORE INTO board_seen VALUES (?,?)", [(board, x) for x in sids])
+        self.c.commit()
+
+    def log_coverage(self, source: str, done: int, total: int) -> None:
+        self.c.execute("INSERT INTO coverage VALUES (?,?,?,?)", (iso(), source, done, total))
+        self.c.commit()
+
+    def coverage_24h(self) -> dict[str, tuple[int, int]]:
+        """source → (searches run in the last 24 h, searches it has). Rotation runs them in turn, so
+        a sum ≥ the total means every one ran at least once."""
+        since = iso(now() - dt.timedelta(hours=24))
+        out = {}
+        for src, done, total in self.c.execute(
+                "SELECT source, SUM(done), (SELECT total FROM coverage c2 WHERE c2.source=c.source ORDER BY at DESC LIMIT 1)"
+                " FROM coverage c WHERE at>=? GROUP BY source ORDER BY source", (since,)):
+            out[src] = (min(done or 0, total or 0), total or 0)
+        return out
 
     # ── page watcher memory ─────────────────────────────────────────────────
     def link_is_new(self, page: str, href: str, text: str) -> bool:

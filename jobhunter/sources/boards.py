@@ -5,6 +5,7 @@ never used for scanning and can't be flagged by it.
 """
 from __future__ import annotations
 
+import copy
 import math
 import re
 import time
@@ -126,11 +127,71 @@ def _rate_limited(exc: Exception | None, df, site: str) -> str | None:
     return msg if "429" in msg else None
 
 
+class RateLimited(Exception):
+    pass
+
+
+def _linkedin_text(job_url: str, timeout: float = 10) -> str | None:
+    """One LinkedIn job page's full description (Markdown), read only for jobs that passed the filters."""
+    import requests
+    from bs4 import BeautifulSoup
+    from jobspy.linkedin.constant import headers
+    from jobspy.model import DescriptionFormat
+    from jobspy.util import description_fields
+    r = requests.get(job_url, headers=headers, timeout=timeout)
+    if r.status_code == 429:
+        raise RateLimited("response status code 429")
+    if r.status_code != 200 or "/jobs/view/" not in r.url:       # a login wall redirects elsewhere
+        return None
+    div = BeautifulSoup(r.text, "html.parser").find("div", class_="show-more-less-html__markup")
+    if not div:
+        return None
+    div.attrs.clear()
+    return description_fields(div.prettify(formatter="html"), DescriptionFormat.MARKDOWN)["description"]
+
+
+def _describe(jobs: list[Job], recs: list[dict], errors: list[str], pause: float, stop,
+              stored=None, most: int = 10) -> None:
+    """LinkedIn search cards have no description: read it for the jobs that pass the hard filters only, at most
+    `most` pages a search. A job we already have keeps its stored text (stored(job_id) → description)."""
+    from ..score import score
+    for j, rec in zip(jobs, recs):
+        if stop is not None and stop.is_set():
+            return
+        if j.description or score(copy.deepcopy(j)).status == "filtered":
+            continue
+        if stored is not None and (old := stored(j.id)):
+            j.description = old
+            continue
+        if most <= 0:
+            continue
+        most -= 1
+        try:
+            text = _linkedin_text(str(_val(rec.get("job_url")) or j.url))
+        except RateLimited:
+            raise
+        except Exception as exc:                        # one unreadable page: the card stays, without its text
+            errors.append(f"linkedin description {j.url}: {type(exc).__name__}")
+            continue
+        if text:
+            j.description = text
+        time.sleep(pause)
+
+
+def rotate(items: list, start: int) -> list:
+    """items starting at `start`: the ones a cut-short scan didn't reach go first next time."""
+    k = start % len(items) if items else 0
+    return items[k:] + items[:k]
+
+
 def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = None,
          hours_old: int | None = None, queries: list[dict] | None = None,
-         locations: list[str] | None = None, quiet: bool = False, out: list | None = None) -> list[Job]:
+         locations: list[str] | None = None, quiet: bool = False, out: list | None = None,
+         start: int = 0, cov: dict | None = None, stored=None) -> list[Job]:
     """Every enabled board × location × query. queries/locations override search.yaml (search on demand).
-    Jobs go into `out` as each search lands, so a caller that stops waiting keeps what was found."""
+    Jobs go into `out` as each search lands, so a caller that stops waiting keeps what was found.
+    One board at a time with a scan: searches start at `start` (rotation), and `cov` counts them as they run
+    ({"done", "total"}; a set cov["stop"] event ends the board early)."""
     try:
         from jobspy import scrape_jobs  # heavy import; only when scanning
     except ImportError:
@@ -159,13 +220,18 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
     pause = float(s.get("pause_between_queries_sec", 3))
     hours = hours_old or s.get("hours_old", 48)
     out = [] if out is None else out
+    cov = {} if cov is None else cov
+    stop = cov.get("stop")
     for site in on:
         opt = boards.get(site) or {}
         name = {"linkedin": "LinkedIn"}.get(site, site.capitalize())
-        # location outer: with a search cap, every query gets Bengaluru before any query gets Mysuru
+        # location outer: every query gets Bengaluru before any query gets Mysuru
         searches = [(loc, q) for loc in (locations[:1] if site == "google" else locations) for q in queries]
-        searches = searches[: opt.get("max_searches") or None]
-        for i, (loc, q) in enumerate(searches):
+        cov.update(total=len(searches), done=0)
+        searches = rotate(searches, start)[: opt.get("max_searches") or None]
+        for loc, q in searches:
+            if stop is not None and stop.is_set():
+                break
             if site == "google":   # the google query names the city itself
                 kw = dict(google_search_term=f"{q['term']} jobs near {loc.split(',')[0]} since {max(1, hours // 24)} days ago")
             else:
@@ -180,16 +246,25 @@ def scan(errors: list[str], light: bool = False, sites: Iterable[str] | None = N
             except Exception as exc:  # JobSpy raises many kinds; never kill the scan
                 err = exc
                 errors.append(f"{site} '{q['term']}' @ {loc}: {type(exc).__name__}: {str(exc)[:160]}")
-            n = 0
+            limited = _rate_limited(err, df, site)
+            recs, jobs = [], []
             for rec in df.to_dict("records") if df is not None else []:
-                j = row_to_job(rec, q.get("job_type"))
-                if j:
-                    out.append(j)
-                    n += 1
+                if j := row_to_job(rec, q.get("job_type")):
+                    recs.append(rec)
+                    jobs.append(j)
+            if site == "linkedin" and not opt.get("fetch_description") and not limited:
+                try:
+                    _describe(jobs, recs, errors, float(opt.get("description_pause_sec", 1)), stop, stored,
+                              int(opt.get("max_descriptions", 10)))
+                except RateLimited as exc:
+                    limited = str(exc)
+            out.extend(jobs)
+            if not limited:
+                cov["done"] = cov.get("done", 0) + 1        # a 429'd search isn't done: it goes first next time
             if not quiet and not err:
-                console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {n}")
-            if _rate_limited(err, df, site):    # never wait and retry: stop this board for the run
-                errors.append(f"{name} rate-limited, skipped rest ({len(searches) - i - 1} searches)")
+                console.print(f"  {site:9} {q['term'][:32]:32} {loc.split(',')[0]:10} → {len(jobs)}")
+            if limited:    # never wait and retry: stop this board for the run
+                errors.append(f"{name} rate-limited, skipped rest ({cov['total'] - cov['done']} searches)")
                 console.print(f"[yellow]{name} rate-limited, skipped rest[/]")
                 break
             if not quiet and not err:

@@ -132,7 +132,7 @@ class SourceCrash(unittest.TestCase):
                     raise TimeoutError("The read operation timed out")
                 return [{"title": "ML Intern", "company": "Goodco", "location": "Bengaluru, India", "url": "https://x/1"}]
         boards = [{"type": "ashby", "company": "Slowco", "token": "slowco"},
-                  {"type": "greenhouse", "company": "Goodco", "token": "goodco"}]
+                  {"type": "lever", "company": "Goodco", "token": "goodco"}]
         errors = []
         with mock.patch.object(ats, "scout", lambda: Scout), \
                 mock.patch.object(ats.config, "cfg", lambda n: {"boards": boards} if n == "companies" else {}), \
@@ -147,9 +147,10 @@ class SourceCrash(unittest.TestCase):
         hang = threading.Event()
         errors = []
 
-        def slow(out):
+        def slow(out, cov):
             out.append("job found before the limit")
-            hang.wait(5)
+            cov["stop"].wait(5)                                   # the source is told to stop at the limit
+            hang.set()
             out.append("too late")
         try:
             got = pipeline._source("company boards", errors, slow, limit=0.2)
