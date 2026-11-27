@@ -101,7 +101,13 @@ class Named(Base):
         self.assertNotIn("deadbeef", out)
         self.assertEqual(re.findall(r"/check_([0-9a-f]{8})", out), [u, c])
         self.assertTrue(m.calls[0][1]["models"][0].startswith("nvidia/nemotron-3-ultra"))   # analysis: the strong model
-        self.assertEqual(m.calls[0][1]["timeout"], 15)
+        self.assertEqual(m.calls[0][1]["timeout"], 6)
+        self.assertEqual(m.calls[0][1]["models"][1:], assistant._models())   # then the fast ones
+
+    def test_data_scientist_intern_finds_data_science_internships(self):
+        j = seed(self.db, "Data Science Internship", "Zenotalent", desc="Six months.")
+        for q in ("data scientist intern", "data science internship", "data science intern"):
+            self.assertIn(j["id"], [x["id"] for x in assistant.db_search(self.db, q, "any")], q)
 
     def test_a_plain_lookup_uses_the_fast_model(self):
         m = Model("Six months.")

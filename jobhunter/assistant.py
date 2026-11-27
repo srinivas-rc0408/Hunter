@@ -32,7 +32,7 @@ FAIL = "AI is busy, try again in a minute (commands like top 5 still work)"
 # (24 Nov 2026: bolt 0.8 s median, 12/12 JSON, 11/12 right tool; nano-omni 2.7 s 10/12; laguna 1.2 s 9/12)
 MODELS = ["nvidia/nemotron-3.5-bolt-e4b", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning", "poolside/laguna-xs-2.1"]
 # fit / compare / "should I apply": the strongest that passed bench_assistant.py 12/12 (27 Nov 2026: ultra 2.5 s, super 1.1 s)
-STRONG = ["nvidia/nemotron-3-ultra-550b-a55b", "nvidia/nemotron-3.5-super-vl-120b-a12b"]
+STRONG = ["nvidia/nemotron-3-ultra-550b-a55b"]      # 6 s, then the fast models (a timeout moves to the next model)
 OPEN = ("new", "alerted", "queued", "needs_you", "filled")
 
 
@@ -513,7 +513,7 @@ def reply(text: str, chat: str = "", db: DB | None = None, progress=None) -> str
         steps.append({"tool": "search_jobs", "args": {"query": m["r"] or m["r2"]}, "result": [_brief(j) for j in paid]})
     strong = bool(answer.ANALYSIS.search(t))           # fit, compare, should I apply: the stronger model
     for _ in range(STEPS):
-        raw = _ask(_prompt(t, hist, steps), STRONG + _models() if strong else None, 15 if strong else 8)
+        raw = _ask(_prompt(t, hist, steps), STRONG + _models() if strong else None, 6 if strong else 8)
         if raw is None:
             return FAIL
         obj = _parse(raw)

@@ -13,7 +13,8 @@ from .db import DB
 ALIASES = {"ml": ["ml", "machine learning"], "ai": ["ai", "artificial intelligence"],
            "genai": ["genai", "gen ai", "generative ai", "llm", "large language"], "llm": ["llm", "large language"],
            "nlp": ["nlp", "natural language"], "cv": ["computer vision", "cv"], "ds": ["data science", "data scientist"],
-           "intern": ["intern", "internship"], "fresher": ["fresher", "entry level", "graduate", "0-1", "0 - 1"]}
+           "intern": ["intern", "internship"], "internship": ["intern", "internship"],
+           "scientist": ["scientist", "science"], "science": ["science", "scientist"], "fresher": ["fresher", "entry level", "graduate", "0-1", "0 - 1"]}
 STOP = {"job", "jobs", "role", "roles", "opening", "openings", "position", "positions", "in", "at", "for", "the",
         "a", "an", "of", "and", "posted", "this", "week", "today", "new", "any", "find", "me", "show", "near",
         "with", "companies", "company", "product", "best", "top"}
